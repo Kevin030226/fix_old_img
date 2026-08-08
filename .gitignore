@@ -1,0 +1,55 @@
+# ---------- Python ----------
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+dist/
+*.egg-info/
+.venv/
+venv/
+env/
+
+# ---------- 模型权重（体积大，不入库，另行分发）----------
+*.pth
+*.pt
+*.dat
+*.ckpt
+*.onnx
+
+# ---------- 运行期产物 / 用户数据（含隐私，严禁入库）----------
+user_upload_images/
+output_img/
+admin_data/
+runs/
+logs/
+*.log
+
+# ---------- 凭据（严禁入库）----------
+config/users.yaml
+*.pem
+*.key
+.env
+.env.*
+# 原子写产生的临时文件与文件锁
+*.yaml.tmp
+*.yaml.lock
+config/*.lock
+
+# ---------- IDE / 系统 ----------
+.idea/
+.vscode/
+*.swp
+.DS_Store
+Thumbs.db
+
+# ---------- 工具目录 ----------
+.arts/
+.codeartsdoer/
+.workbuddy/
+
+# ---------- 冒烟测试 / 临时产物（禁止误提交）----------
+test_images/gpu_smoke_*/
+test_images/detect_smoke_out/
+gradio_examples/bi_li_daxiao.py

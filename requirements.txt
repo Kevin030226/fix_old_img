@@ -1,0 +1,41 @@
+# ============================================================
+# 旧照片修复系统 —— 最新技术栈依赖（Python 3.11）
+#
+# Windows 安装步骤：
+#   1) conda create -n fixoldimg-gpu python=3.11 -y
+#   2) pip install torch==2.7.1 torchvision==0.22.1 torchaudio==2.7.1 \
+#        --index-url https://download.pytorch.org/whl/cu128
+#      （国内网络可用镜像：https://mirror.sjtu.edu.cn/pytorch-wheels/cu128）
+#   3) pip install -r requirements.txt
+#   4) conda install -n fixoldimg-gpu -c conda-forge dlib=20.0.1
+# ============================================================
+
+# ---- Web 层 ----
+gradio==6.22.0
+fastapi==0.141.1
+uvicorn==0.52.1
+python-multipart
+
+# ---- 科学计算 / 图像 ----
+numpy==2.4.6
+Pillow==12.3.0
+opencv-python==5.0.0.93
+scipy==1.17.1
+scikit-image==0.26.0
+matplotlib==3.11.1
+pyspng==0.1.4
+timm==0.9.2        # DDColor 上色模块（ConvNeXt 层）
+
+# ---- 推理 ----
+# torch / torchvision / torchaudio 按步骤 2 的 cu128 索引安装
+#（2.7.1+cu128 已内置 RTX 50 系 sm_120 支持，Web 端自动启用 GPU）
+dlib>=20.0.1   # 建议从 conda-forge 安装预编译版
+easydict==1.13
+dominate==2.9.1
+dill==0.4.0
+tensorboardX==2.6.2.2
+einops==0.8.1
+
+# ---- 基础 ----
+PyYAML==6.0.3
+filelock==3.16.1
