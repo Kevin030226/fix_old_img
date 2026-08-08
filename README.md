@@ -61,7 +61,7 @@
 一键脚本方式：
 
 ```bat
-setup_gpu.bat
+scripts/setup_gpu.bat
 ```
 
 或手动执行：
@@ -162,7 +162,7 @@ python run.py --input_folder ./test_images/old --output_folder ./output --GPU 0
 | `FIXIMG_RESULT_TTL` | `7200` | 推理产物保留秒数 |
 | `FIXIMG_HISTORY_MAX` | `2000` | 历史记录上限 |
 | `FIXIMG_ARCHIVE_TTL` | `604800` | 归档照片保留秒数 |
-| `FIXIMG_DDCOLOR_MODEL` | `pretrained/ddcolor/pytorch_model.pt` | DDColor 权重路径 |
+| `FIXIMG_DDCOLOR_MODEL` | `weights/ddcolor/pytorch_model.pt` | DDColor 权重路径 |
 | `FIXIMG_REGISTER_MAX` / `_GLOBAL_MAX` / `_USERNAME_MAX` | `5/20/3` | 注册限流阈值 |
 
 ## 6. 输入输出示例
@@ -193,7 +193,7 @@ python run.py --input_folder ./test_images/old --output_folder ./output --GPU 0
 | --- | --- |
 | ![上色输入](docs/examples/colorize_input.jpg) | ![上色输出](docs/examples/colorize_output.png) |
 
-更多测试样例见 `gradio_examples/`（`old/`、`old_w_scratch/`、`color/`）与 `test_images/`。
+更多测试样例见 `examples/`（`old/`、`old_w_scratch/`、`color/`）与 `test_images/`。
 
 ## 7. 目录结构
 
@@ -201,20 +201,20 @@ python run.py --input_folder ./test_images/old --output_folder ./output --GPU 0
 .
 ├── main.py                  # Web 服务入口（Gradio 6 + FastAPI）
 ├── run.py                   # 四阶段推理流水线 CLI
-├── admin_panel.py           # 管理面板（Gradio 组件）
-├── app/                     # 应用层：db(SQLite)/pipeline/colorizer
+├── app/                     # 应用层：db(SQLite)/pipeline/colorizer/admin_panel
+├── config/                  # users.yaml / 限流 / 安全 / 权重清单
 ├── ddcolor/                 # DDColor 上色模型（Apache-2.0）
 ├── basicsr/                 # DDColor 所需最小子集
 ├── Global/                  # 整体质量修复 / 划痕检测模型
 ├── Face_Detection/          # dlib 人脸检测 / 回卷
 ├── Face_Enhancement/        # 面部增强模型
-├── config/                  # users.yaml / 限流 / 安全 / 权重清单
-├── gradio_examples/         # Web 示例图片
+├── examples/                # Web 示例图片（old / old_w_scratch / color）
+├── test_images/             # CLI 测试图片
 ├── docs/examples/           # README 示例输入输出
-├── pretrained/ddcolor/      # DDColor 权重（不入库）
-├── scripts/download_weights.sh
+├── weights/ddcolor/         # DDColor 权重（不入库）
+├── scripts/                 # 安装脚本与权重下载
 ├── Dockerfile
-└── setup_gpu.bat
+└── LICENSE / README.md / THIRD_PARTY_NOTICES.md
 ```
 
 ## 8. 常见问题

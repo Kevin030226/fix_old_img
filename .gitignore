@@ -52,4 +52,5 @@ Thumbs.db
 # ---------- 冒烟测试 / 临时产物（禁止误提交）----------
 test_images/gpu_smoke_*/
 test_images/detect_smoke_out/
-gradio_examples/bi_li_daxiao.py
+examples/bi_li_daxiao.py
+

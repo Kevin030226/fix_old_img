@@ -477,21 +477,21 @@ with gr.Blocks(title=APP_TITLE) as demo:
                     )
             gr.Examples(
                 examples=[
-                    ["./gradio_examples/old/a.png"],
-                    ["./gradio_examples/old/old_a.png"],
-                    ["./gradio_examples/old/b.png"],
-                    ["./gradio_examples/old/old_f.png"],
-                    ["./gradio_examples/old/old_g.png"],
-                    ["./gradio_examples/old/old_h.png"],
-                    ["./gradio_examples/old/old_i.png"],
-                    ["./gradio_examples/old/old_b.png"],
-                    ["./gradio_examples/old/old_c.png"],
-                    ["./gradio_examples/old/d.png"],
-                    ["./gradio_examples/old/old_d.png"],
-                    ["./gradio_examples/old/e.png"],
-                    ["./gradio_examples/old/old_e.png"],
-                    ["./gradio_examples/old/f.png"],
-                    ["./gradio_examples/old/c.png"],
+                    ["./examples/old/a.png"],
+                    ["./examples/old/old_a.png"],
+                    ["./examples/old/b.png"],
+                    ["./examples/old/old_f.png"],
+                    ["./examples/old/old_g.png"],
+                    ["./examples/old/old_h.png"],
+                    ["./examples/old/old_i.png"],
+                    ["./examples/old/old_b.png"],
+                    ["./examples/old/old_c.png"],
+                    ["./examples/old/d.png"],
+                    ["./examples/old/old_d.png"],
+                    ["./examples/old/e.png"],
+                    ["./examples/old/old_e.png"],
+                    ["./examples/old/f.png"],
+                    ["./examples/old/c.png"],
                 ],
                 inputs=[input_image_1],
                 label="以下是一些示例输入,点击即可自动装载到上方"
@@ -522,10 +522,10 @@ with gr.Blocks(title=APP_TITLE) as demo:
                     )
             gr.Examples(
                 examples=[
-                    ["./gradio_examples/old_w_scratch/a.png"],
-                    ["./gradio_examples/old_w_scratch/b.png"],
-                    ["./gradio_examples/old_w_scratch/c.png"],
-                    ["./gradio_examples/old_w_scratch/d.png"],
+                    ["./examples/old_w_scratch/a.png"],
+                    ["./examples/old_w_scratch/b.png"],
+                    ["./examples/old_w_scratch/c.png"],
+                    ["./examples/old_w_scratch/d.png"],
                 ],
                 inputs=[input_image],
                 label="以下是一些示例输入,点击即可自动装载到上方",
@@ -552,10 +552,10 @@ with gr.Blocks(title=APP_TITLE) as demo:
                     result_3 = gr.Image(label="检测结果")
             gr.Examples(
                 examples=[
-                    ["./gradio_examples/old_w_scratch/a.png"],
-                    ["./gradio_examples/old_w_scratch/b.png"],
-                    ["./gradio_examples/old_w_scratch/c.png"],
-                    ["./gradio_examples/old_w_scratch/d.png"],
+                    ["./examples/old_w_scratch/a.png"],
+                    ["./examples/old_w_scratch/b.png"],
+                    ["./examples/old_w_scratch/c.png"],
+                    ["./examples/old_w_scratch/d.png"],
                 ],
                 inputs=[input_image],
                 label="以下是一些示例输入,点击即可自动装载到上方",
@@ -580,8 +580,8 @@ with gr.Blocks(title=APP_TITLE) as demo:
                     result_4 = gr.Image(label="上色结果")
             gr.Examples(
                 examples=[
-                    ["./gradio_examples/color/o1.jpg"],
-                    ["./gradio_examples/color/o2.jpg"],
+                    ["./examples/color/o1.jpg"],
+                    ["./examples/color/o2.jpg"],
                 ],
                 inputs=[input_image_4],
                 label="以下是一些示例输入,点击即可自动装载到上方",
@@ -596,7 +596,7 @@ with gr.Blocks(title=APP_TITLE) as demo:
             )
 
         with gr.TabItem("管理面板", elem_id="admin_panel") as admin_tab:
-            from admin_panel import build_admin_panel
+            from app.admin_panel import build_admin_panel
 
             build_admin_panel(user_state)
 

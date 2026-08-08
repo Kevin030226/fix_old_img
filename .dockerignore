@@ -9,7 +9,7 @@ __pycache__
 output_img
 user_upload_images
 admin_data
-pretrained
+weights
 *.pth
 *.pt
 *.dat
