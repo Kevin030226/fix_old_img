@@ -1,0 +1,21 @@
+# 用户凭据模板文件
+#
+# 使用方式：
+#   1. 复制本文件为同目录下的 users.yaml
+#   2. 通过下述命令生成口令哈希，替换 password 字段
+#        python -c "from config.security import hash_password; print(hash_password('你的口令'))"
+#   3. users.yaml 已被 .gitignore 排除，切勿提交到版本库
+#
+# password 字段支持两种形态：
+#   - pbkdf2_sha256$<迭代次数>$<盐base64>$<哈希base64>   —— 推荐，加载时按哈希校验
+#   - 明文字符串                                          —— 仅向后兼容，首次登录成功后自动升级为哈希
+#
+# role 取值：admin | user
+
+users:
+  admin:
+    password: "pbkdf2_sha256$260000$REPLACE_WITH_SALT$REPLACE_WITH_HASH"
+    role: admin
+  user1:
+    password: "pbkdf2_sha256$260000$REPLACE_WITH_SALT$REPLACE_WITH_HASH"
+    role: user

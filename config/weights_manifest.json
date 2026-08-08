@@ -1,0 +1,123 @@
+{
+  "algorithm": "sha256",
+  "generated_at": "2026-08-08T05:59:55.491363+00:00",
+  "file_count": 29,
+  "files": [
+    {
+      "path": "Face_Detection/shape_predictor_68_face_landmarks.dat",
+      "sha256": "fbdc2cb80eb9aa7a758672cbfdda32ba6300efe9b6e6c7a299ff7e736b11b92f"
+    },
+    {
+      "path": "Face_Enhancement/checkpoints/FaceSR_512/latest_net_G.pth",
+      "sha256": "3b3dc71f29cc98a61d9a7ccc48f329726feca19b67c2d3710b69b2deb96aef22"
+    },
+    {
+      "path": "Face_Enhancement/checkpoints/Setting_9_epoch_100/latest_net_G.pth",
+      "sha256": "eaafe424c22225891f60e672f331e14521bef870e6ce490f988ce6ada4068569"
+    },
+    {
+      "path": "Global/checkpoints/detection/FT_Epoch_latest.pt",
+      "sha256": "b2d7ab04e9b3885c6b1991bb7a0b823129dd6e3ac078a9fd059ebd2a7ba59a95"
+    },
+    {
+      "path": "Global/checkpoints/restoration/VAE_A_quality/latest_net_D.pth",
+      "sha256": "9dc693d9430cdf62e6a2a0e140625ad43426e43b38302afab2720561e61629df"
+    },
+    {
+      "path": "Global/checkpoints/restoration/VAE_A_quality/latest_net_G.pth",
+      "sha256": "de39b6d0081746995afd2393a94a11a10ae052fd9484b4fb06b7fa6bd28dcf5d"
+    },
+    {
+      "path": "Global/checkpoints/restoration/VAE_A_quality/latest_net_featD.pth",
+      "sha256": "24cfb20648f52d454f8ab3f6c31323e1ae46348334139141ccc16fbf817abf82"
+    },
+    {
+      "path": "Global/checkpoints/restoration/VAE_A_quality/latest_optimizer_D.pth",
+      "sha256": "23c154620cf57c9874b11baeb79406bc3f24afec7c1494046e83653c83d5dc84"
+    },
+    {
+      "path": "Global/checkpoints/restoration/VAE_A_quality/latest_optimizer_G.pth",
+      "sha256": "b9a84773dad2b877c69f514b5690353016da24803efb953a30bfdd3acb2b03b0"
+    },
+    {
+      "path": "Global/checkpoints/restoration/VAE_A_quality/latest_optimizer_featD.pth",
+      "sha256": "8e80ceba67a0a50149dc1b00636987a6e3f2e88555d612ae88a44b9a786a2b54"
+    },
+    {
+      "path": "Global/checkpoints/restoration/VAE_B_quality/latest_net_D.pth",
+      "sha256": "5badf02e2ee96f74636bc0c02b92b315b83c927d49bdbe7cb163613ed9c5dc5a"
+    },
+    {
+      "path": "Global/checkpoints/restoration/VAE_B_quality/latest_net_G.pth",
+      "sha256": "0e40d6ea7acf27f1420abd29197086c21d0c2a7b8fe98a9e09c60a339457a830"
+    },
+    {
+      "path": "Global/checkpoints/restoration/VAE_B_quality/latest_optimizer_D.pth",
+      "sha256": "5d60fc7c0a6f5dfeaa2a98b4afb59a552ea41cc370c260ac640d12a7b64d71cc"
+    },
+    {
+      "path": "Global/checkpoints/restoration/VAE_B_quality/latest_optimizer_G.pth",
+      "sha256": "603e46ce9aec73a0e385b90d3410cedfe5dcd3256ee4f7b12e1f6eee6d894fb3"
+    },
+    {
+      "path": "Global/checkpoints/restoration/VAE_B_scratch/latest_net_D.pth",
+      "sha256": "63a72c03537bfe061f24d6497e995f544215fa768f204575646ad7ef195b903b"
+    },
+    {
+      "path": "Global/checkpoints/restoration/VAE_B_scratch/latest_net_G.pth",
+      "sha256": "e22bd7274229beaabf27427646d4623c7b5a302829dd9d466514ff639ba40f6a"
+    },
+    {
+      "path": "Global/checkpoints/restoration/VAE_B_scratch/latest_optimizer_D.pth",
+      "sha256": "413edec10026fbd9b94f89b03d46c84e191bbea4d1c4e57acbc5d7d771ecbecb"
+    },
+    {
+      "path": "Global/checkpoints/restoration/VAE_B_scratch/latest_optimizer_G.pth",
+      "sha256": "e45d80c7ff0a6065be95ebdc583d962f222ba26de0af0ac0a610b637dcaae221"
+    },
+    {
+      "path": "Global/checkpoints/restoration/mapping_Patch_Attention/latest_net_D.pth",
+      "sha256": "76228629177a342a95793a4dcf4b3810b00d64f2a918ebe46c27d5740ac3fff6"
+    },
+    {
+      "path": "Global/checkpoints/restoration/mapping_Patch_Attention/latest_net_mapping_net.pth",
+      "sha256": "15f7a145b4eb94565d2f5988f6ca9948d04cef1599f4ca6eb99429e7d2c7d783"
+    },
+    {
+      "path": "Global/checkpoints/restoration/mapping_quality/latest_net_D.pth",
+      "sha256": "619fb1391d32a930bfef1f09f36ed9eaa7868af32d827cb022cea50a25345d4c"
+    },
+    {
+      "path": "Global/checkpoints/restoration/mapping_quality/latest_net_mapping_net.pth",
+      "sha256": "bb193cc0c82a6f4ed1c746beec5366c8a1e4a1b8dad3c83148afd0f93814624b"
+    },
+    {
+      "path": "Global/checkpoints/restoration/mapping_quality/latest_optimizer_D.pth",
+      "sha256": "776741c0d226674a5eb5b620c097f54da33d81cb41561a1e6b248cc711834c8b"
+    },
+    {
+      "path": "Global/checkpoints/restoration/mapping_quality/latest_optimizer_mapping_net.pth",
+      "sha256": "8089a1d0126784648649c2cf79ce517ff8a937526edaafaad6293090261fedb6"
+    },
+    {
+      "path": "Global/checkpoints/restoration/mapping_scratch/latest_net_D.pth",
+      "sha256": "6a3ebb451229f0ffcabeee7f5fadf749b758fc6f4c4f4847f4fa145826cc4a56"
+    },
+    {
+      "path": "Global/checkpoints/restoration/mapping_scratch/latest_net_mapping_net.pth",
+      "sha256": "a63f9e33802a262fa62b160785fa3c53166f3d1449046ad9afc742848e195578"
+    },
+    {
+      "path": "Global/checkpoints/restoration/mapping_scratch/latest_optimizer_D.pth",
+      "sha256": "b6aa331e4438c2845eb61b48a8483b8ce92a598b6a5ad39a26e22bbb136a8ac5"
+    },
+    {
+      "path": "Global/checkpoints/restoration/mapping_scratch/latest_optimizer_mapping_net.pth",
+      "sha256": "4ab84a0aacb687cb6fe35870bca2b27201a8a34ed1f753c1e0c8eba0865e278e"
+    },
+    {
+      "path": "pretrained/ddcolor/pytorch_model.pt",
+      "sha256": "17c460d7e55b32a598370621d77173be59e03c24b0823f06821db23a50c263ce"
+    }
+  ]
+}
