@@ -19,7 +19,7 @@ from .pipeline import OUTPUT_ROOT, UPLOAD_ROOT, log_task, purge_stale_runs
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DDCOLOR_WEIGHTS = os.environ.get(
     "FIXIMG_DDCOLOR_MODEL",
-    os.path.join(BASE_DIR, "pretrained", "ddcolor", "pytorch_model.pt"),
+    os.path.join(BASE_DIR, "weights", "ddcolor", "pytorch_model.pt"),
 )
 DDCOLOR_INPUT_SIZE = int(os.environ.get("FIXIMG_DDCOLOR_INPUT_SIZE", "512"))
 DDCOLOR_MODEL_SIZE = os.environ.get("FIXIMG_DDCOLOR_MODEL_SIZE", "large")
@@ -40,7 +40,7 @@ def _load_pipeline():
                 raise FileNotFoundError(
                     f"未找到 DDColor 权重文件: {DDCOLOR_WEIGHTS}\n"
                     "请从 ModelScope 下载 damo/cv_ddcolor_image-colorization 的 "
-                    "pytorch_model.pt 放入 pretrained/ddcolor/ 目录。"
+                    "pytorch_model.pt 放入 weights/ddcolor/ 目录。"
                 )
             # 确保项目根目录在 sys.path 中，使 ddcolor / basicsr 可导入
             import sys

@@ -1,6 +1,6 @@
 {
   "algorithm": "sha256",
-  "generated_at": "2026-08-08T05:59:55.491363+00:00",
+  "generated_at": "2026-08-08T14:39:44.782801+00:00",
   "file_count": 29,
   "files": [
     {
@@ -116,7 +116,7 @@
       "sha256": "4ab84a0aacb687cb6fe35870bca2b27201a8a34ed1f753c1e0c8eba0865e278e"
     },
     {
-      "path": "pretrained/ddcolor/pytorch_model.pt",
+      "path": "weights/ddcolor/pytorch_model.pt",
       "sha256": "17c460d7e55b32a598370621d77173be59e03c24b0823f06821db23a50c263ce"
     }
   ]

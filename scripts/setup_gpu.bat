@@ -25,7 +25,7 @@ if %errorlevel% neq 0 (
 )
 
 echo [3/5] Installing project dependencies...
-call conda run -n fixoldimg-gpu pip install -r "%~dp0requirements.txt" -i https://pypi.tuna.tsinghua.edu.cn/simple
+call conda run -n fixoldimg-gpu pip install -r "%~dp0..\requirements.txt" -i https://pypi.tuna.tsinghua.edu.cn/simple
 if %errorlevel% neq 0 exit /b 1
 
 echo [4/5] Installing prebuilt dlib from conda-forge...

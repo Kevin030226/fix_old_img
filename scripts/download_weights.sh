@@ -38,11 +38,11 @@ else
 fi
 
 echo "==> DDColor: 上色权重（ModelScope，失败则回退 HuggingFace）"
-mkdir -p pretrained/ddcolor
-if [ ! -f pretrained/ddcolor/pytorch_model.pt ]; then
-  curl -L --retry 3 -o pretrained/ddcolor/pytorch_model.pt \
+mkdir -p weights/ddcolor
+if [ ! -f weights/ddcolor/pytorch_model.pt ]; then
+  curl -L --retry 3 -o weights/ddcolor/pytorch_model.pt \
     https://modelscope.cn/models/damo/cv_ddcolor_image-colorization/resolve/master/pytorch_model.pt \
-  || curl -L --retry 3 -o pretrained/ddcolor/pytorch_model.pt \
+  || curl -L --retry 3 -o weights/ddcolor/pytorch_model.pt \
     https://huggingface.co/piddnad/ddcolor_modelscope/resolve/main/pytorch_model.pt
 else
   echo "    已存在，跳过"
