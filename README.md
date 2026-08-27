@@ -1,4 +1,4 @@
-<!--
+﻿<!--
   fix_old_img — Deep Learning Old Photo Restoration, Scratch Repair & Colorization
   中文版;英文版请查看 README_EN.md
 -->
@@ -316,23 +316,46 @@ python run.py --input_folder ./test_images/old --output_folder ./output --GPU 0
 
 ```text
 .
-├── main.py                  # Web 服务入口（Gradio 6 + FastAPI）
-├── run.py                   # 四阶段推理流水线 CLI
-├── app/                     # 应用层：db(SQLite)/pipeline/colorizer/admin_panel
-├── config/                  # users.yaml / 限流 / 安全 / 权重清单
-├── ddcolor/                 # DDColor 上色模型
-├── basicsr/                 # DDColor 所需最小子集
-├── Global/                  # 整体质量修复 / 划痕检测模型
-├── Face_Detection/          # dlib 人脸检测 / 回卷
-├── Face_Enhancement/        # 面部增强模型
+├── main.py                  # Web 服务入口（Gradio 6 + FastAPI + SQLite）
+├── run.py                   # 四阶段推理流水线 CLI（整体修复/划痕检测/人脸增强/回卷）
+├── app/                     # 应用层
+│   ├── __init__.py          # 应用包
+│   ├── db.py                # SQLite 数据层（用户/任务历史/归档/迁移）
+│   ├── pipeline.py          # Web 推理流水线（请求隔离/指标计算/历史入库）
+│   ├── colorizer.py         # DDColor 黑白照片上色模块
+│   └── admin_panel.py       # 管理面板（任务管理/照片档案/用户管理）
+├── config/                  # 配置与安全
+│   ├── security.py          # PBKDF2 密码哈希 / 用户文件读写
+│   ├── ratelimit.py         # 注册限流（IP/全局/用户名三重 + 可信代理）
+│   ├── weights_check.py     # 权重 SHA-256 完整性校验
+│   ├── users.example.yaml   # 用户凭据模板（不提交 users.yaml）
+│   └── weights_manifest.json# 权重清单（记录每个文件的 SHA-256）
+├── ddcolor/                 # DDColor 上色模型（Apache-2.0）
+├── basicsr/                 # DDColor 所需 BasicSR 最小子集
+├── Global/                  # 整体质量修复 / 划痕检测模型（BOB）
+├── Face_Detection/          # dlib 人脸检测 / 68 点关键点 / 回卷
+├── Face_Enhancement/        # 人脸增强模型（渐进式生成器）
 ├── examples/                # Web 示例图片（old / old_w_scratch / color）
 ├── test_images/             # CLI 测试图片
-├── docs/examples/           # README 示例输入输出
-├── docs/upstream/           # 算法展示图片
-├── weights/ddcolor/         # DDColor 权重（不入库）
-├── scripts/                 # 安装脚本与权重下载
-├── Dockerfile
-└── LICENSE / README.md / README_EN.md / THIRD_PARTY_NOTICES.md
+├── docs/
+│   ├── examples/            # README 输入输出示例图
+│   └── upstream/            # 算法展示图（架构/效果对比）
+├── weights/ddcolor/         # DDColor 权重（不入库，需下载）
+├── scripts/
+│   ├── setup_gpu.bat        # Windows conda 一键安装脚本
+│   ├── download_weights.sh  # 模型权重下载脚本
+│   └── legacy/              # 旧版 conda 安装脚本（保留）
+├── requirements.txt         # Python 依赖（固定版本）
+├── requirements.lock        # pip freeze 锁定文件
+├── Dockerfile               # NVIDIA CUDA 12.8 容器镜像
+├── .dockerignore            # Docker 构建排除清单
+├── .gitignore               # Git 忽略清单（权重/数据库/输出不入库）
+├── LICENSE                  # 本项目 MIT 许可
+├── LICENSE-Bringing-Old-Photos-Back-to-Life   # BOB 模型 MIT 许可
+├── THIRD_PARTY_NOTICES.md   # 第三方组件与许可说明
+├── README.md                # 项目文档（中文）
+├── README_EN.md             # 项目文档（英文）
+└── weights_manifest（由 config/weights_check.py 生成）
 ```
 
 ## 8. 常见问题
