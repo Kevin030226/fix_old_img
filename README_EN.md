@@ -16,9 +16,11 @@
 
 [中文](./README.md) | **English**
 
-I built a web-based image restoration system for real old photos using Python 3.11 and PyTorch (CUDA 12.8). It supports overall quality restoration, scratch detection & repair, face enhancement, and automatic colorization of black-and-white photos. For the web layer I used Gradio 6 + FastAPI + Uvicorn, with SQLite (WAL) for data storage, plus a complete admin panel (task history, photo archive, user management).
+<p align="center">
+  <img src="docs/upstream/bob-0001.jpg" width="100%">
+</p>
 
-![Restoration showcase](docs/upstream/bob-0001.jpg)
+This project is a web-based image restoration system for real old photos, built with Python 3.11 and PyTorch (CUDA 12.8). It supports overall quality restoration, scratch detection & repair, face enhancement, and automatic colorization of black-and-white photos. The web layer uses Gradio 6 + FastAPI + Uvicorn, data storage uses SQLite (WAL), and a complete admin panel is included (task history, photo archive, user management).
 
 </div>
 
@@ -28,7 +30,7 @@ I built a web-based image restoration system for real old photos using Python 3.
 
 - [1. Problem](#1-problem)
 - [2. Features](#2-features)
-- [3. Technologies I Used](#3-technologies-i-used)
+- [3. Technologies Used](#3-technologies-used)
 - [4. Installation](#4-installation)
 - [5. Usage](#5-usage)
 - [6. Input/Output Examples](#6-inputoutput-examples)
@@ -48,7 +50,7 @@ Old photos typically suffer from the following issues during storage and scannin
 - **Lost facial detail**: face regions are severely degraded and hard to restore;
 - **Invisible processing**: batch processing lacks task records, result archiving and quality metrics.
 
-To address these, I implemented a complete pipeline: **overall quality restoration → scratch detection/repair → face detection & enhancement → warp-back compositing**, and integrated **DDColor** colorization in the same platform, together with user login/registration, task history, photo archives and user management.
+This system provides a complete pipeline to address these issues: **overall quality restoration → scratch detection/repair → face detection & enhancement → warp-back compositing**, and integrates **DDColor** colorization in the same platform, together with user login/registration, task history, photo archives and user management.
 
 ## 2. Features
 
@@ -76,7 +78,7 @@ To address these, I implemented a complete pipeline: **overall quality restorati
 - SQLite storage (users/history), automatic migration from legacy users.yaml / JSONL on first start;
 - Dark-themed UI with automatic admin/user interface differentiation.
 
-## 3. Technologies I Used
+## 3. Technologies Used
 
 | Category | Technology |
 | --- | --- |
@@ -90,7 +92,7 @@ To address these, I implemented a complete pipeline: **overall quality restorati
 
 ### 3.1 Overall Quality Restoration, Scratch Detection & Face Enhancement
 
-My restoration chain (overall quality restoration / scratch detection & repair / face enhancement) uses the following techniques:
+The restoration chain (overall quality restoration / scratch detection & repair / face enhancement) uses the following techniques:
 
 **Global Restoration**
 
@@ -101,21 +103,25 @@ My restoration chain (overall quality restoration / scratch detection & repair /
 - The mapping network supports multiple training variants: `mapping_quality` (no scratches), `mapping_scratch` (with scratches), `mapping_Patch_Attention` (Multi-Scale Patch Attention for high-resolution scratch repair);
 - Training uses a `pix2pixHD`-style dual-discriminator GAN architecture, with `--l2_feat / --use_l1_feat / --NL_res` (non-local residual) options controlling loss and structure.
 
-<table align="center"><tr>
-  <td><img src="docs/upstream/bob-pipeline.png" alt="Restoration pipeline architecture" width="400"/></td>
-  <td><img src="docs/upstream/bob-global.png" alt="Global restoration comparison" width="400"/></td>
-</tr><tr>
-  <td align="center">Restoration pipeline architecture</td>
-  <td align="center">Global restoration comparison</td>
-</tr></table>
+<p align="center">
+  <img src="docs/upstream/bob-pipeline.png" width="60%">
+</p>
+
+<p align="center">
+  <img src="docs/upstream/bob-global.png" width="100%">
+</p>
 
 **Scratch Detection**
 
 > The scratch detection model is trained with labeled data and outputs a binary mask (white = scratches). For high-resolution inputs, the scratch-repair chain uses non-local mapping with Multi-Scale Patch Attention to recover a clean image from heavily cracked photos.
 
-| Original | Restored |
-| --- | --- |
-| ![Scratch detection](docs/upstream/bob-scratch-detection.png) | ![High-resolution scratch repair](docs/upstream/bob-hr-result.png) |
+<p align="center">
+  <img src="docs/upstream/bob-scratch-detection.png" width="100%">
+</p>
+
+<p align="center">
+  <img src="docs/upstream/bob-hr-result.png" width="100%">
+</p>
 
 **Face Detection & Face Enhancement**
 
@@ -125,17 +131,19 @@ My restoration chain (overall quality restoration / scratch detection & repair /
 - Detected faces are cropped, aligned, fed to the face enhancement model, then **warped back** into the original image according to the original geometry;
 - The face enhancement model uses Synchronized-BatchNorm-PyTorch and a progressive encoder structure, refining faces step by step via instance-norm parameter modulation.
 
-![Progressive face enhancement architecture](docs/upstream/bob-face-pipeline.png)
+<p align="center">
+  <img src="docs/upstream/bob-face-pipeline.png" width="70%">
+</p>
 
-| Input | Enhanced |
-| --- | --- |
-| ![Face enhancement](docs/upstream/bob-face.png) | Facial details recovered, blur removed |
+<p align="center">
+  <img src="docs/upstream/bob-face.png" width="100%">
+</p>
 
-> Note: this model is pretrained at 256×256, so arbitrary resolutions may not be optimal (this project accepts inputs up to 4096px on the long side).
+> Note: this model is pretrained at 256×256, so arbitrary resolutions may not be optimal (this system accepts inputs up to 4096px on the long side).
 
 ### 3.2 Black-and-White Photo Colorization
 
-My automatic colorization module uses the following techniques:
+The automatic colorization module uses the following techniques:
 
 > Multi-scale visual features are used to optimize **learnable color tokens** (i.e. color queries), achieving state-of-the-art performance on automatic image colorization:
 
@@ -143,13 +151,19 @@ My automatic colorization module uses the following techniques:
 - **Backbone**: based on ConvNeXt (`ConvNeXt-Large`, 22k pretrained); the encoder extracts multi-scale visual features; color tokens interact with features via Transformer-style cross-attention (Mask2Former / DETR style);
 - **Color queries**: a set of learnable color embeddings acting as a "color dictionary" queried by multi-scale features to obtain the target color distribution;
 - The training pipeline is based on the **BasicSR** toolbox (the `basicsr/` subset is bundled), supporting four pretrained model specs: `ddcolor_paper / ddcolor_modelscope / ddcolor_artistic / ddcolor_paper_tiny`;
-- My implementation defaults to the `damo/cv_ddcolor_image-colorization` weights at `weights/ddcolor/pytorch_model.pt`, model size `large`, input size 512×512 (both adjustable via environment variables).
+- This system defaults to the `damo/cv_ddcolor_image-colorization` weights at `weights/ddcolor/pytorch_model.pt`, model size `large`, input size 512×512 (both adjustable via environment variables).
 
-![Colorization network architecture](docs/upstream/ddcolor-network-arch.jpg)
+<p align="center">
+  <img src="docs/upstream/ddcolor-network-arch.jpg" width="100%">
+</p>
 
-| B&W photo colorization | Anime/game scene colorization |
-| --- | --- |
-| ![Colorization showcase](docs/upstream/ddcolor-teaser.webp) | ![Anime scene colorization](docs/upstream/ddcolor-anime.webp) |
+<p align="center">
+  <img src="docs/upstream/ddcolor-teaser.webp" width="100%">
+</p>
+
+<p align="center">
+  <img src="docs/upstream/ddcolor-anime.webp" width="100%">
+</p>
 
 ## 4. Installation
 
@@ -343,13 +357,3 @@ Start with `FIXIMG_HOST=0.0.0.0` and allow `FIXIMG_PORT` through the firewall.
 - **Bringing Old Photos Back to Life** (restoration/detection/face enhancement models): MIT License, see [LICENSE-Bringing-Old-Photos-Back-to-Life](LICENSE-Bringing-Old-Photos-Back-to-Life);
 - **DDColor** (old photo colorization, ICCV 2023): Apache-2.0, see [ddcolor/LICENSE](ddcolor/LICENSE);
 - Full details in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
-
----
-
-<div align="center">
-
-*Xu Kang*
-
-<img src="docs/upstream/signature.png" alt="Author signature" width="200"/>
-
-</div>

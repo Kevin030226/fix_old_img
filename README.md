@@ -16,9 +16,11 @@
 
 **中文** | [English](./README_EN.md)
 
-我用 Python 3.11 与 PyTorch（CUDA 12.8）构建了一套面向真实老照片的 Web 端图像修复系统：支持整体质量修复、划痕检测与修复、面部增强，以及黑白老照片自动上色。Web 层我使用了 Gradio 6 + FastAPI + Uvicorn，数据层使用 SQLite（WAL），并附带完整的管理后台（任务记录、照片档案、用户管理）。
+<p align="center">
+  <img src="docs/upstream/bob-0001.jpg" width="100%">
+</p>
 
-![修复效果总览](docs/upstream/bob-0001.jpg)
+本系统用 Python 3.11 与 PyTorch（CUDA 12.8）构建了一套面向真实老照片的 Web 端图像修复系统：支持整体质量修复、划痕检测与修复、面部增强，以及黑白老照片自动上色。Web 层使用 Gradio 6 + FastAPI + Uvicorn，数据层使用 SQLite（WAL），并附带完整的管理后台（任务记录、照片档案、用户管理）。
 
 </div>
 
@@ -28,7 +30,7 @@
 
 - [1. 项目解决的问题](#1-项目解决的问题)
 - [2. 主要功能](#2-主要功能)
-- [3. 我使用的技术](#3-我使用的技术)
+- [3. 使用的技术](#3-使用的技术)
 - [4. 安装方法](#4-安装方法)
 - [5. 使用方法](#5-使用方法)
 - [6. 输入输出示例](#6-输入输出示例)
@@ -48,7 +50,7 @@
 - **面部细节丢失**：人像区域细节严重退化，常规修复难以恢复；
 - **修复过程不可见**：批量处理缺少任务记录、结果归档与质量指标。
 
-我针对上述问题实现了一条完整的处理链路：**整体质量修复 → 划痕检测/修复 → 人脸检测与增强 → 回卷合成**，并在同一平台内集成了 **DDColor 老照片上色** 能力，同时提供用户登录、注册、任务历史、照片档案和用户管理等配套功能。
+本系统针对上述问题提供一条完整的处理链路：**整体质量修复 → 划痕检测/修复 → 人脸检测与增强 → 回卷合成**，并在同一平台内集成了 **DDColor 老照片上色** 能力，同时提供用户登录、注册、任务历史、照片档案和用户管理等配套功能。
 
 ## 2. 主要功能
 
@@ -76,7 +78,7 @@
 - SQLite 存储（用户/历史），首次启动自动从旧版 users.yaml / JSONL 迁移；
 - 深色主题界面，管理员/普通用户界面自动区分。
 
-## 3. 我使用的技术
+## 3. 使用的技术
 
 | 类别 | 技术 |
 | --- | --- |
@@ -90,7 +92,7 @@
 
 ### 3.1 整体质量修复、划痕检测与面部增强技术
 
-我的修复链路（整体质量修复 / 划痕检测与修复 / 面部增强）采用以下技术方案：
+本系统的修复链路（整体质量修复 / 划痕检测与修复 / 面部增强）采用以下技术方案：
 
 **整体质量修复（Global Restoration）**
 
@@ -101,21 +103,25 @@
 - 映射网络支持多种训练变体：`mapping_quality`（无划痕场景）、`mapping_scratch`（带划痕场景）、`mapping_Patch_Attention`（使用 Multi-Scale Patch Attention，用于高分辨率输入的划痕修复）；
 - 训练采用 `pix2pixHD` 风格的双判别器 GAN 架构，通过 `--l2_feat / --use_l1_feat / --NL_res`（非局部残差）等选项控制损失与结构。
 
-<table align="center"><tr>
-  <td><img src="docs/upstream/bob-pipeline.png" alt="修复流水线架构" width="400"/></td>
-  <td><img src="docs/upstream/bob-global.png" alt="整体修复效果对比" width="400"/></td>
-</tr><tr>
-  <td align="center">修复流水线架构</td>
-  <td align="center">整体修复效果对比</td>
-</tr></table>
+<p align="center">
+  <img src="docs/upstream/bob-pipeline.png" width="60%">
+</p>
+
+<p align="center">
+  <img src="docs/upstream/bob-global.png" width="100%">
+</p>
 
 **划痕检测（Scratch Detection）**
 
 > 划痕检测模型使用标注数据训练，输出黑白二值 mask（白色为划痕）。划痕修复链路对高分辨率输入使用 Multi-Scale Patch Attention 的非局部映射，可将带碎裂痕迹的老照片恢复为干净画面。
 
-| 原图 | 修复结果 |
-| --- | --- |
-| ![划痕检测](docs/upstream/bob-scratch-detection.png) | ![划痕高分辨率修复](docs/upstream/bob-hr-result.png) |
+<p align="center">
+  <img src="docs/upstream/bob-scratch-detection.png" width="100%">
+</p>
+
+<p align="center">
+  <img src="docs/upstream/bob-hr-result.png" width="100%">
+</p>
 
 **人脸检测与面部增强（Face Detection & Enhancement）**
 
@@ -125,17 +131,19 @@
 - 检测到的人脸逐一裁剪、对齐后送入面部增强模型，增强完成后按原始几何关系**回卷（warp back）**合成回原图；
 - 面部增强模型带同步批归一化（Synchronized-BatchNorm-PyTorch）与渐进式编码器结构，通过实例归一化参数调制逐级细化人脸。
 
-![渐进式人脸增强架构](docs/upstream/bob-face-pipeline.png)
+<p align="center">
+  <img src="docs/upstream/bob-face-pipeline.png" width="70%">
+</p>
 
-| 输入 | 增强后 |
-| --- | --- |
-| ![面部增强输入](docs/upstream/bob-face.png) | 面部细节恢复，去除退化模糊 |
+<p align="center">
+  <img src="docs/upstream/bob-face.png" width="100%">
+</p>
 
-> 注：该模型用 256×256 预训练，任意分辨率下效果可能非最优（本项目支持长边 ≤4096px 的输入）。
+> 注：该模型用 256×256 预训练，任意分辨率下效果可能非最优（本系统支持长边 ≤4096px 的输入）。
 
 ### 3.2 黑白照片上色技术
 
-我的黑白照片自动上色模块采用以下技术方案：
+本系统的黑白照片自动上色模块采用以下技术方案：
 
 > 使用**多尺度视觉特征**去优化**可学习的颜色 token（即颜色查询 color queries）**，在自动图像上色任务上达到 SOTA 水平：
 
@@ -143,13 +151,19 @@
 - **骨干网络**：基于 ConvNeXt（`ConvNeXt-Large`，22k 预训练），编码器提取多尺度视觉特征；颜色 token 与特征通过类似 Transformer 的交叉注意力（Mask2Former / DETR 风格）进行交互；
 - **颜色查询（color queries）**：一组可学习的颜色 embedding，被视为"颜色字典"，通过多尺度特征的查询得到目标颜色分布；
 - 训练流程基于 **BasicSR** 工具箱（同步最小依赖为 `basicsr/` 子集），支持 `ddcolor_paper / ddcolor_modelscope / ddcolor_artistic / ddcolor_paper_tiny` 四种预训练模型规格；
-- 我的实现中默认使用 `damo/cv_ddcolor_image-colorization` 权重：`weights/ddcolor/pytorch_model.pt`，模型规格 `large`，输入尺寸 512×512（均可通过环境变量调整）。
+- 本系统默认使用 `damo/cv_ddcolor_image-colorization` 权重：`weights/ddcolor/pytorch_model.pt`，模型规格 `large`，输入尺寸 512×512（均可通过环境变量调整）。
 
-![上色网络架构](docs/upstream/ddcolor-network-arch.jpg)
+<p align="center">
+  <img src="docs/upstream/ddcolor-network-arch.jpg" width="100%">
+</p>
 
-| 黑白照片上色 | 动漫/游戏场景上色 |
-| --- | --- |
-| ![上色效果展示](docs/upstream/ddcolor-teaser.webp) | ![动漫场景上色](docs/upstream/ddcolor-anime.webp) |
+<p align="center">
+  <img src="docs/upstream/ddcolor-teaser.webp" width="100%">
+</p>
+
+<p align="center">
+  <img src="docs/upstream/ddcolor-anime.webp" width="100%">
+</p>
 
 ## 4. 安装方法
 
@@ -344,13 +358,3 @@ python run.py --input_folder ./test_images/old --output_folder ./output --GPU 0
 - **Bringing Old Photos Back to Life**（修复/检测/面部增强模型）：MIT License，见 [LICENSE-Bringing-Old-Photos-Back-to-Life](LICENSE-Bringing-Old-Photos-Back-to-Life)；
 - **DDColor**（老照片上色，ICCV 2023）：Apache-2.0，见 [ddcolor/LICENSE](ddcolor/LICENSE)；
 - 完整说明见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
-
----
-
-<div align="center">
-
-*徐康*
-
-<img src="docs/upstream/signature.png" alt="作者签名" width="200"/>
-
-</div>
