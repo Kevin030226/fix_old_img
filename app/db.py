@@ -1,8 +1,8 @@
-﻿"""SQLite 数据层（替代 YAML/JSONL 文件存储）。
+"""SQLite data layer (replaces YAML/JSONL file storage).
 
-- users：用户表（密码仍为 pbkdf2 哈希，兼容原 users.yaml）
-- history：处理历史表（兼容原 processing_history.json）
-- 首次启动自动从 config/users.yaml 与 admin_data/processing_history.json 迁移
+- users: user table (passwords remain pbkdf2 hashes, compatible with the old users.yaml)
+- history: processing history table (compatible with the old processing_history.json)
+- On first startup, automatically migrates from config/users.yaml and admin_data/processing_history.json
 """
 import json
 import os
@@ -60,7 +60,7 @@ def get_conn():
 
 
 def init_db():
-    """建表并执行一次性数据迁移。"""
+    """Create tables and run one-time migrations."""
     with _write_lock:
         conn = get_conn()
         conn.executescript(_SCHEMA)
@@ -84,7 +84,7 @@ def list_users():
 
 
 def add_user(username, password_hash, role="user"):
-    """创建用户；用户名已存在时返回 False（避免并发注册时的竞态泄漏）。"""
+    """Create a user; returns False if the username already exists (avoids a race on concurrent registration)."""
     with _write_lock:
         conn = get_conn()
         try:
@@ -181,7 +181,7 @@ def history_stats():
     type_counts = {}
     psnr_vals, ssim_vals = [], []
     for r in rows:
-        tp = r.get("type") or "未知"
+        tp = r.get("type") or "unknown"
         type_counts[tp] = type_counts.get(tp, 0) + 1
         try:
             psnr_raw = r.get("psnr")
@@ -195,13 +195,13 @@ def history_stats():
                 ssim_vals.append(float(ssim_raw))
         except (TypeError, ValueError):
             pass
-    lines = [f"总处理任务数: {total}", f"参与用户数: {users}"]
+    lines = [f"Total tasks: {total}", f"Users: {users}"]
     for tp, cnt in sorted(type_counts.items(), key=lambda x: -x[1]):
-        lines.append(f"  · {tp}: {cnt} 次")
+        lines.append(f"  · {tp}: {cnt} times")
     if psnr_vals:
-        lines.append(f"平均 PSNR: {sum(psnr_vals) / len(psnr_vals):.2f}")
+        lines.append(f"Average PSNR: {sum(psnr_vals) / len(psnr_vals):.2f}")
     if ssim_vals:
-        lines.append(f"平均 SSIM: {sum(ssim_vals) / len(ssim_vals):.4f}")
+        lines.append(f"Average SSIM: {sum(ssim_vals) / len(ssim_vals):.4f}")
     return "\n".join(lines)
 
 
@@ -237,13 +237,13 @@ def _migrate_users(conn):
                 (username, info.get("password", ""), info.get("role", "user"), created),
             )
         conn.commit()
-        print(f"[迁移] 已导入 {len(users)} 个用户到 SQLite")
+        print(f"[Migration] imported {len(users)} users to SQLite")
     except Exception as exc:  # noqa: BLE001
-        print("[迁移] 用户导入失败（跳过）:", exc)
+        print("[Migration] user import failed (skipped):", exc)
 
 
 def _parse_legacy_history(content):
-    """兼容旧数组 / JSONL / 混合格式，按 id 去重。"""
+    """Handle legacy array / JSONL / mixed formats, deduplicating by id."""
     records = []
     text = content.strip()
     try:
@@ -299,7 +299,7 @@ def _migrate_history(conn):
                 ),
             )
         conn.commit()
-        print(f"[迁移] 已导入 {len(records)} 条历史记录到 SQLite")
+        print(f"[Migration] imported {len(records)} history records to SQLite")
     except Exception as exc:  # noqa: BLE001
-        print("[迁移] 历史导入失败（跳过）:", exc)
+        print("[Migration] history import failed (skipped):", exc)
 

@@ -1,16 +1,16 @@
-# 用户凭据模板文件
+# User credential template file
 #
-# 使用方式：
-#   1. 复制本文件为同目录下的 users.yaml
-#   2. 通过下述命令生成口令哈希，替换 password 字段
-#        python -c "from config.security import hash_password; print(hash_password('你的口令'))"
-#   3. users.yaml 已被 .gitignore 排除，切勿提交到版本库
+# Usage:
+#   1. Copy this file to users.yaml in the same directory
+#   2. Generate a password hash with the command below and replace the password field
+#        python -c "from config.security import hash_password; print(hash_password('your-password'))"
+#   3. users.yaml is excluded by .gitignore; never commit it
 #
-# password 字段支持两种形态：
-#   - pbkdf2_sha256$<迭代次数>$<盐base64>$<哈希base64>   —— 推荐，加载时按哈希校验
-#   - 明文字符串                                          —— 仅向后兼容，首次登录成功后自动升级为哈希
+# The password field supports two forms:
+#   - pbkdf2_sha256$<iterations>$<salt_base64>$<hash_base64>  — recommended, verified as a hash on load
+#   - plaintext string  — legacy compatibility only; auto-upgraded to a hash after the first successful login
 #
-# role 取值：admin | user
+# role values: admin | user
 
 users:
   admin:

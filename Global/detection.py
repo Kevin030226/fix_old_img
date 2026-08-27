@@ -69,7 +69,7 @@ def blend_mask(img, mask):
 
 
 def main(config):
-    print("初始化数据加载器……")
+    print("Initializing data loader...")
 
     model = networks.UNet(
         in_channels=1,
@@ -90,7 +90,7 @@ def main(config):
     # checkpoint = torch.load(checkpoint_path, map_location="cpu")
     checkpoint = torch.load(checkpoint_path, map_location="cpu", weights_only=True)
     model.load_state_dict(checkpoint["model_state"])
-    print("模型权重装载成功……")
+    print("Model weights loaded successfully")
 
     if config.GPU >= 0:
         model.to(config.GPU)
@@ -99,7 +99,7 @@ def main(config):
     model.eval()
 
     ## dataloader and transformation
-    print("待修复图像目录: " + config.test_path)
+    print("Input image directory: " + config.test_path)
     imagelist = os.listdir(config.test_path)
     imagelist.sort()
     total_iter = 0

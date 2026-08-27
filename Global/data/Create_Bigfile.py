@@ -26,7 +26,7 @@ def make_dataset(dir):
 
     return images
 
-### 使用你的环境修改以下3行代码路径
+### Modify the 3 file paths below for your environment
 indir="./data/temp_old"
 target_folders=['VOC','Real_L_old','Real_RGB_old']
 out_dir ="./data/temp_old"

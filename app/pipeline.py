@@ -1,8 +1,8 @@
-﻿"""统一推理流水线。
+"""Unified inference pipeline.
 
-沿用原有的 Global / Face_Detection / Face_Enhancement 推理脚本，
-以子进程方式串行执行（隔离 cwd 与崩溃）；本模块负责请求隔离、
-GPU 自动选择、TTL 回收、指标计算与历史入库。
+It reuses the existing Global / Face_Detection / Face_Enhancement inference scripts,
+executed serially as subprocesses (isolating cwd and crashes); this module is responsible for
+request isolation, GPU auto-selection, TTL reclamation, metric computation, and history logging.
 """
 import math
 import os
@@ -36,14 +36,14 @@ _PIPELINE_LOCK = threading.Lock()
 MAX_IMAGE_SIDE = 4096
 
 PIPELINE_MODES = {
-    "restore": {"label": "不带划痕修复", "with_scratch": False, "detect_only": False},
-    "restore_scratch": {"label": "带划痕修复", "with_scratch": True, "detect_only": False},
-    "detect": {"label": "划痕检测", "with_scratch": False, "detect_only": True},
+    "restore": {"label": "Restore (no scratches)", "with_scratch": False, "detect_only": False},
+    "restore_scratch": {"label": "Restore (with scratches)", "with_scratch": True, "detect_only": False},
+    "detect": {"label": "Scratch detection", "with_scratch": False, "detect_only": True},
 }
 
 _DEGRADE_MESSAGES = {
-    "no_face_detected": "本次未检测到人脸，已跳过面部增强，结果仅为整体质量修复。",
-    "face_enhance_missing": "面部增强未能产出结果，已回退为整体质量修复结果。",
+    "no_face_detected": "No face detected; face enhancement skipped, result is overall quality restoration only.",
+    "face_enhance_missing": "Face enhancement produced no result; fell back to overall restoration.",
 }
 
 
@@ -57,13 +57,13 @@ def _is_under(path, root):
 
 
 def _delete_tree(path):
-    """仅允许删除白名单内的目录树。"""
+    """Only allow deleting directory trees within the allowlist."""
     abs_path = os.path.abspath(path)
     if not any(
         _is_under(abs_path, root) or abs_path == os.path.realpath(root)
         for root in _DELETABLE_ROOTS
     ):
-        print(f"[安全] 拒绝删除白名单外的路径: {abs_path}")
+        print(f"[Security] Refusing to delete path outside allowlist: {abs_path}")
         return
     shutil.rmtree(abs_path, ignore_errors=True)
 
@@ -85,16 +85,16 @@ def purge_stale_runs(ttl_seconds=RESULT_TTL_SECONDS):
 
 
 def _run_cmd(args, cwd=None):
-    """以列表参数运行子进程并校验退出码（shell=False，防注入）。"""
+    """Run a subprocess with a list and verify the exit code (shell=False, prevents injection)."""
     if args and args[0] == "python":
         args[0] = sys.executable
     proc = subprocess.run(args, shell=False, cwd=cwd)
     if proc.returncode != 0:
-        raise RuntimeError(f"子进程失败 (exit={proc.returncode}): {' '.join(args)}")
+        raise RuntimeError(f"Subprocess failed (exit={proc.returncode}): {' '.join(args)}")
 
 
 def resolve_gpu(gpu_arg="auto"):
-    """把 'auto' 解析为 0（GPU 可用）或 -1（CPU）。"""
+    """Resolve 'auto' to 0 (GPU available) or -1 (CPU)."""
     if str(gpu_arg).lower() != "auto":
         return int(gpu_arg)
     try:
@@ -132,7 +132,7 @@ def _calculate_psnr(img1, img2):
 
 
 def _calculate_ssim(img1, img2):
-    """计算 SSIM；对小于高斯窗口尺寸的图片退化到全图统计，避免空切片。"""
+    """Compute SSIM; fall back to whole-image statistics for images smaller than the Gaussian window to avoid empty slices."""
     if min(img1.shape[:2]) < 11:
         x = img1.astype(np.float64)
         y = img2.astype(np.float64)
@@ -169,7 +169,7 @@ def calculate_metrics(image_path1, image_path2):
     raw1 = _read_image(image_path1)
     raw2 = _read_image(image_path2)
     if raw1 is None or raw2 is None:
-        raise ValueError("指标计算失败：无法读取原图或结果图")
+        raise ValueError("Metric computation failed: cannot read the original or result image")
     if raw1.shape != raw2.shape:
         raw1 = cv2.resize(raw1, (raw2.shape[1], raw2.shape[0]))
     identical = bool(np.array_equal(raw1, raw2))
@@ -182,15 +182,15 @@ def calculate_metrics(image_path1, image_path2):
 def format_evaluation(psnr, ssim, l1, identical, degrade_note=None):
     psnr_text = "∞" if psnr == float("inf") else f"{psnr:.4f}"
     lines = [
-        "【修复图 vs 原图（退化输入）的客观差异】",
-        f"峰值信噪比(PSNR): {psnr_text}",
-        f"结构相似性(SSIM): {ssim:.4f}",
-        f"平均绝对误差(MAE): {l1:.4f}",
+        "[Objective differences: restored vs. original (degraded input)]",
+        f"PSNR: {psnr_text}",
+        f"SSIM: {ssim:.4f}",
+        f"MAE: {l1:.4f}",
     ]
     if identical:
         lines.append(
-            "⚠ 修复图与原图像素完全一致（PSNR→∞）：疑似未执行有效修复，"
-            "请确认流水线未降级。"
+            "⚠ The restored image is pixel-identical to the original (PSNR→∞): likely no effective restoration; "
+            "please check the pipeline did not degrade."
         )
     if degrade_note:
         lines.append(f"⚠ {degrade_note}")
@@ -209,7 +209,7 @@ def _read_degrade_note(req_output_dir):
     if not report or not report.get("degraded_count"):
         return None
     return _DEGRADE_MESSAGES.get(
-        report.get("degrade_reason"), "部分处理阶段被跳过，结果可能不完整。"
+        report.get("degrade_reason"), "Some processing stages were skipped; the result may be incomplete."
     )
 
 
@@ -220,14 +220,14 @@ def json_loads_safe(text):
 
 
 def run_pipeline(input_image, user_state, mode):
-    """三种处理模式的统一入口。
+    """Unified entry for the three processing modes.
 
     Returns:
-        (res_img_path, evaluate_text)；划痕检测模式 evaluate_text 为 None。
+        (res_img_path, evaluate_text); for scratch detection mode evaluate_text is None.
     """
     cfg = PIPELINE_MODES[mode]
     if input_image is None:
-        raise ValueError("请先上传一张图片再提交。")
+        raise ValueError("Please upload an image first.")
 
     req_id = "{}-{}".format(
         datetime.now().strftime("%Y%m%d-%H%M%S"), uuid.uuid4().hex[:8]
@@ -239,7 +239,7 @@ def run_pipeline(input_image, user_state, mode):
     os.makedirs(UPLOAD_ROOT, exist_ok=True)
     os.makedirs(ARCHIVE_INPUT_DIR, exist_ok=True)
     os.makedirs(ARCHIVE_OUTPUT_DIR, exist_ok=True)
-    # 低频触发清理，避免每次请求扫描大目录阻塞处理请求
+    # Low-frequency cleanup to avoid scanning large directories on every request
     if uuid.uuid4().int % 20 == 0:
         purge_stale_runs()
 
@@ -252,7 +252,7 @@ def run_pipeline(input_image, user_state, mode):
         if input_image.mode != "RGB":
             input_image = input_image.convert("RGB")
         if max(input_image.size) > MAX_IMAGE_SIDE:
-            raise ValueError("图片尺寸过大（长边超过 4096 像素），请先缩小后重试。")
+            raise ValueError("Image too large (long side exceeds 4096 px); please resize and retry.")
         input_image.save(temp_img_path)
         input_image.save(archive_img_path)
 
@@ -283,7 +283,7 @@ def run_pipeline(input_image, user_state, mode):
                 res_img = os.path.join(req_output_dir, "final_output", req_id + ".png")
 
         if not os.path.exists(res_img):
-            raise ValueError("处理失败：未生成输出图像，请检查后端日志或更换图片重试。")
+            raise ValueError("Processing failed: no output image generated; check backend logs or try another image.")
 
         username = user_state.get("username", "unknown") if user_state else "unknown"
 
@@ -331,10 +331,10 @@ def log_task(username, task_type, input_path, output_path, psnr, ssim, mae):
                 os.path.join(ARCHIVE_OUTPUT_DIR, f"{prefix}_{os.path.basename(output_path)}"),
             )
     except Exception:  # noqa: BLE001
-        print("[归档] 归档图片失败（不影响主流程）")
-    # 与运行目录清理一致：低频触发，避免阻塞
+        print("[Archive] Failed to archive images (does not affect the main flow)")
+    # Consistent with the run-directory cleanup: low frequency, avoid blocking
     if uuid.uuid4().int % 20 == 0:
         try:
             purge_stale_archives()
         except Exception:  # noqa: BLE001
-            print("[归档] 清理过期归档失败")
+            print("[Archive] Failed to clean stale archives")

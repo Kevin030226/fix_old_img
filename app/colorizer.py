@@ -1,7 +1,7 @@
-"""DDColor 老照片上色模块（Apache-2.0，官方 piddnad/DDColor）。
+"""DDColor old photo colorization module (Apache-2.0, official piddnad/DDColor).
 
-模型懒加载（首次调用时加载到 GPU），与修复流水线共用进程内锁，
-处理记录复用 SQLite。
+The model is loaded lazily (loaded onto the GPU on first call), sharing the in-process lock with the
+restoration pipeline, and processing records reuse SQLite.
 """
 import os
 import shutil
@@ -30,7 +30,7 @@ _pipeline = None
 
 
 def _load_pipeline():
-    """懒加载 DDColor 模型（线程安全单例）。"""
+    """Lazily load the DDColor model (thread-safe singleton)."""
     global _pipeline
     if _pipeline is not None:
         return _pipeline
@@ -38,11 +38,11 @@ def _load_pipeline():
         if _pipeline is None:
             if not os.path.exists(DDCOLOR_WEIGHTS):
                 raise FileNotFoundError(
-                    f"未找到 DDColor 权重文件: {DDCOLOR_WEIGHTS}\n"
-                    "请从 ModelScope 下载 damo/cv_ddcolor_image-colorization 的 "
-                    "pytorch_model.pt 放入 weights/ddcolor/ 目录。"
+                    f"DDColor weight file not found: {DDCOLOR_WEIGHTS}\n"
+                    "Download pytorch_model.pt of damo/cv_ddcolor_image-colorization from ModelScope and "
+                    "put it into weights/ddcolor/."
                 )
-            # 确保项目根目录在 sys.path 中，使 ddcolor / basicsr 可导入
+            # Ensure the project root is in sys.path so ddcolor / basicsr can be imported
             import sys
 
             if BASE_DIR not in sys.path:
@@ -60,13 +60,13 @@ def _load_pipeline():
 
 
 def colorize_bgr(img_bgr):
-    """对 BGR 图像上色，返回 BGR 结果。"""
+    """Colorize a BGR image and return a BGR result."""
     pipe = _load_pipeline()
     return pipe.process(img_bgr)
 
 
 def colorize_pil(pil_image):
-    """对 PIL 图像上色，返回 PIL RGB 结果。"""
+    """Colorize a PIL image and return a PIL RGB result."""
     rgb = pil_image.convert("RGB")
     bgr = cv2.cvtColor(np.array(rgb), cv2.COLOR_RGB2BGR)
     out_bgr = colorize_bgr(bgr)
@@ -75,9 +75,9 @@ def colorize_pil(pil_image):
 
 
 def run_colorize(input_image, user_state):
-    """Web 入口：上色 + 归档 + 历史入库，返回结果图像绝对路径。"""
+    """Web entry: colorize + archive + log history; returns the absolute path of the result image."""
     if input_image is None:
-        raise ValueError("请先上传一张图片再提交。")
+        raise ValueError("Please upload an image first.")
 
     req_id = "{}-{}".format(
         datetime.now().strftime("%Y%m%d-%H%M%S"), uuid.uuid4().hex[:8]
@@ -85,7 +85,7 @@ def run_colorize(input_image, user_state):
     req_output_dir = os.path.join(OUTPUT_ROOT, req_id)
     os.makedirs(req_output_dir, exist_ok=True)
     os.makedirs(UPLOAD_ROOT, exist_ok=True)
-    # 低频触发清理，避免每次请求扫描大目录阻塞处理请求
+    # Low-frequency cleanup to avoid scanning large directories on every request
     if uuid.uuid4().int % 20 == 0:
         purge_stale_runs(COLORIZE_RESULT_TTL)
 
@@ -93,7 +93,7 @@ def run_colorize(input_image, user_state):
         input_image = Image.fromarray(input_image)
     input_image = input_image.convert("RGB")
     if max(input_image.size) > 4096:
-        raise ValueError("图片尺寸过大（长边超过 4096 像素），请先缩小后重试。")
+        raise ValueError("Image too large (long side exceeds 4096 px); please resize and retry.")
 
     archive_img_path = os.path.join(UPLOAD_ROOT, req_id + ".png")
     input_image.save(archive_img_path)
@@ -103,6 +103,6 @@ def run_colorize(input_image, user_state):
     result_img.save(res_path)
 
     username = user_state.get("username", "unknown") if user_state else "unknown"
-    log_task(username, "照片上色", archive_img_path, res_path, "N/A", "N/A", "N/A")
+    log_task(username, "Photo colorization", archive_img_path, res_path, "N/A", "N/A", "N/A")
     return res_path
 

@@ -1,6 +1,6 @@
-﻿"""四阶段推理流水线 CLI。
+﻿"""Four-stage inference pipeline CLI.
 
-由 Web 层以子进程方式调用，也可命令行独立使用：
+Invoked by the web layer as a subprocess; can also be used standalone from the command line:
     python run.py --input_folder ./test_images/old --output_folder ./output
     python run.py --input_folder ./test_images/old_w_scratch --output_folder ./output --with_scratch
 """
@@ -15,20 +15,20 @@ IMAGE_EXTS = (".png", ".jpg", ".jpeg", ".bmp", ".webp")
 
 
 class StageError(RuntimeError):
-    """某个流水线阶段以非零退出码结束。"""
+    """Raised when a pipeline stage exits with a non-zero code."""
 
 
 def run_cmd(args, cwd=None, stage=""):
-    """执行子命令并校验退出码（shell=False 列表传参）。"""
+    """Run a subcommand and verify the exit code (shell=False, list arguments)."""
     if args and args[0] == "python":
         args[0] = sys.executable
     try:
         completed = subprocess.run(args, shell=False, cwd=cwd)
     except FileNotFoundError as exc:
-        raise StageError(f"阶段[{stage or args}]命令或解释器不可达: {args}") from exc
+        raise StageError(f"Stage [{stage or args}] command or interpreter unreachable: {args}") from exc
     if completed.returncode != 0:
         raise StageError(
-            f"阶段[{stage or args}]执行失败，退出码={completed.returncode}\n命令: {' '.join(args)}"
+            f"Stage [{stage or args}] failed with exit code {completed.returncode}\nCommand: {' '.join(args)}"
         )
     return completed.returncode
 
@@ -44,7 +44,7 @@ def list_images(directory):
 
 
 def resolve_gpu(gpu_arg):
-    """把 'auto' 解析为 0（GPU 可用）或 -1（CPU）。"""
+    """Resolve 'auto' to 0 (GPU available) or -1 (CPU)."""
     if str(gpu_arg).lower() != "auto":
         return int(gpu_arg)
     try:
@@ -71,7 +71,7 @@ def main():
     opts.output_folder = os.path.abspath(opts.output_folder)
     os.makedirs(opts.output_folder, exist_ok=True)
 
-    print("path 1/4: 整体质量提升")
+    print("path 1/4: overall quality restoration")
     stage_1_output_dir = os.path.join(opts.output_folder, "stage_1_restore_output")
     os.makedirs(stage_1_output_dir, exist_ok=True)
 
@@ -86,7 +86,7 @@ def main():
                 "--GPU", str(gpu),
             ],
             cwd=os.path.join(main_environment, "Global"),
-            stage="1/4 划痕检测",
+            stage="1/4 scratch detection",
         )
         scratch_args = ["--Scratch_and_Quality_restore"]
         if opts.HR:
@@ -101,7 +101,7 @@ def main():
                 "--gpu_ids", str(gpu),
             ],
             cwd=os.path.join(main_environment, "Global"),
-            stage="1/4 划痕修复+质量提升",
+            stage="1/4 scratch repair + quality restoration",
         )
     else:
         run_cmd(
@@ -114,16 +114,16 @@ def main():
                 "--gpu_ids", str(gpu),
             ],
             cwd=os.path.join(main_environment, "Global"),
-            stage="1/4 整体质量提升",
+            stage="1/4 overall quality restoration",
         )
 
     stage_1_results = os.path.join(stage_1_output_dir, "restored_image")
     stage_1_names = list_images(stage_1_results)
     if not stage_1_names:
-        raise StageError("阶段1未产出任何修复图（restored_image 为空），流水线终止")
+        raise StageError("Stage 1 produced no restored image (restored_image is empty); pipeline aborted")
     print("path 1: success!\n")
 
-    print("path 2/4: 人脸检测")
+    print("path 2/4: face detection")
     stage_2_output_dir = os.path.join(opts.output_folder, "stage_2_detection_output")
     os.makedirs(stage_2_output_dir, exist_ok=True)
     detect_script = "detect_all_dlib_HR.py" if opts.HR else "detect_all_dlib.py"
@@ -134,7 +134,7 @@ def main():
             "--save_url", stage_2_output_dir,
         ],
         cwd=os.path.join(main_environment, "Face_Detection"),
-        stage="2/4 人脸检测",
+        stage="2/4 face detection",
     )
     print("path 2: success!\n")
 
@@ -142,10 +142,10 @@ def main():
     degrade_reason = None
 
     if not detected_faces:
-        print("未检测到人脸，跳过面部增强，直接采用整体修复结果\n")
+        print("No face detected; skipping face enhancement and using the overall restoration result\n")
         degrade_reason = "no_face_detected"
     else:
-        print("path 3/4: 面部增强")
+        print("path 3/4: face enhancement")
         stage_3_output_dir = os.path.join(opts.output_folder, "stage_3_face_output")
         os.makedirs(stage_3_output_dir, exist_ok=True)
         checkpoint = "FaceSR_512" if opts.HR else opts.checkpoint_name
@@ -170,11 +170,11 @@ def main():
                 "--no_parsing_map",
             ],
             cwd=os.path.join(main_environment, "Face_Enhancement"),
-            stage="3/4 面部增强",
+            stage="3/4 face enhancement",
         )
         print("path 3: success!\n")
 
-        print("path 4/4: 回卷变换")
+        print("path 4/4: warp-back transformation")
         stage_4_output_dir = os.path.join(opts.output_folder, "final_output")
         os.makedirs(stage_4_output_dir, exist_ok=True)
         warp_script = (
@@ -190,7 +190,7 @@ def main():
                 "--save_url", stage_4_output_dir,
             ],
             cwd=os.path.join(main_environment, "Face_Detection"),
-            stage="4/4 回卷变换",
+            stage="4/4 warp-back transformation",
         )
         print("path 4: success! Please check the result image!\n")
         degrade_reason = "face_enhance_missing"
@@ -226,16 +226,16 @@ def main():
 
     if degraded:
         print(
-            f"[降级] {len(degraded)}/{len(stage_1_names)} 张图未完成面部增强"
-            f"（原因: {degrade_reason}），已回退为整体修复结果: {degraded}"
+            f"[Degraded] {len(degraded)}/{len(stage_1_names)} image(s) did not complete face enhancement"
+            f"(reason: {degrade_reason}); fell back to overall restoration result: {degraded}"
         )
-    print(f"流水线报告: {report_path}")
+    print(f"Pipeline report: {report_path}")
 
 
 if __name__ == "__main__":
     try:
         main()
     except StageError as exc:
-        print(f"\n[流水线失败] {exc}", file=sys.stderr)
+        print(f"\n[Pipeline failed] {exc}", file=sys.stderr)
         sys.exit(2)
 
