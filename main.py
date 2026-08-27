@@ -1,4 +1,4 @@
-"""旧照片修复系统 —— Web 服务入口（Gradio 6 + FastAPI + SQLite）。
+﻿"""旧照片修复系统 —— Web 服务入口（Gradio 6 + FastAPI + SQLite）。
 
 运行：
     python main.py
@@ -35,7 +35,6 @@ APP_TITLE = "基于深度学习(GAN 与变分编码器 VAEs)的旧照片恢复�
 AUTH_PAGE_TITLE = APP_TITLE
 
 
-# ============================== 认证 ==============================
 def auth_fn(username: str, password: str) -> bool:
     """登录校验：哈希比对（常量时间）。"""
     user = get_user(username)
@@ -44,7 +43,6 @@ def auth_fn(username: str, password: str) -> bool:
     return verify_password(password, user.get("password", ""))
 
 
-# ============================== 注册页面 ==============================
 def build_auth_page_css(center_body=True):
     body_layout = (
         "display:flex!important;flex-direction:column!important;"
@@ -141,7 +139,6 @@ def render_register_page(message="", success=False, username=""):
     """
 
 
-# ============================== FastAPI ==============================
 @asynccontextmanager
 async def _app_lifespan(_app):
     """应用启动时初始化数据库（支持 uvicorn main:app 直接导入启动）。"""
@@ -215,7 +212,6 @@ async def readiness():
         )
 
 
-# ============================== 强制深色主题 ==============================
 _FORCE_DARK_SCRIPT = (
     "<script>"
     "(function(){try{"
@@ -402,7 +398,6 @@ async def inject_login_css(request: Request, call_next):
     return rebuilt
 
 
-# ============================== Gradio UI ==============================
 custom_css = """
 .start-button { color: blue; margin: 4px 2px; }
 .clear-button { color: red; margin: 4px 2px; }
