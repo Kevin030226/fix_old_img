@@ -1,4 +1,4 @@
-<!--
+﻿<!--
   fix_old_img — Deep Learning Old Photo Restoration, Scratch Repair & Colorization
   English (default). See README_CN.md for the Chinese version.
 -->
@@ -325,24 +325,21 @@ docs/                # Example & showcase images
 examples/            # Web example images
 scripts/             # Install & weight download scripts
 test_images/         # CLI test images
-weights/             # Model weights (not in repo)
 Dockerfile           # NVIDIA CUDA 12.8 container image
 LICENSE              # MIT license (this project)
+LICENSE-Bringing-Old-Photos-Back-to-Life  # MIT license for BOB models
 README.md            # Documentation (English)
 README_CN.md         # Documentation (Chinese)
+THIRD_PARTY_NOTICES.md  # Third-party components & licenses
+main.py              # Web service entry
+requirements.lock    # pip freeze lock file
 requirements.txt     # Python dependencies
 run.py               # Four-stage pipeline CLI
-THIRD_PARTY_NOTICES.md  # Third-party components & licenses
-download_weights.sh  # Weight download script
-setup_gpu.bat        # Windows conda installer
-setup_conda.bat      # Legacy installer (deprecated)
-main.py              # Web service entry
 .gitignore           # Git ignore list
 .dockerignore        # Docker build exclusion list
 ```
 
-> Key top-level entries are listed above; see the source tree for the full structure and per-file details.
-
+> Top-level entries are listed above; see the source tree for the full structure and per-file details.
 ## 8. FAQ
 
 **Q1: "Weight integrity check failed" at startup**

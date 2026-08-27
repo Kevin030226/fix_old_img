@@ -326,20 +326,21 @@ docs/                # 示例与展示图片
 examples/            # Web 示例图片
 scripts/             # 安装脚本与权重下载
 test_images/         # CLI 测试图片
-weights/             # 模型权重（不入库）
 Dockerfile           # NVIDIA CUDA 12.8 容器镜像
 LICENSE              # 本项目 MIT 许可
+LICENSE-Bringing-Old-Photos-Back-to-Life  # BOB 模型 MIT 许可
 README.md            # 项目文档（英文主文档）
 README_CN.md         # 项目文档（中文备份）
-requirements.txt     # Python 依赖
-run.py               # 四阶段推理流水线 CLI
 THIRD_PARTY_NOTICES.md  # 第三方组件与许可
 main.py              # Web 服务入口
+requirements.lock    # pip freeze 锁定文件
+requirements.txt     # Python 依赖
+run.py               # 四阶段推理流水线 CLI
 .gitignore           # Git 忽略清单
 .dockerignore        # Docker 构建排除清单
 ```
 
-> 以上列出顶层目录与关键文件；完整树形结构与逐文件说明见仓库源码。
+> 以上为顶层目录与文件；完整树形结构与逐文件说明见仓库源码。
 ## 8. 常见问题
 
 **Q1：启动提示"权重完整性校验失败"**
