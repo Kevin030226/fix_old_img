@@ -1,7 +1,7 @@
-@echo off
+﻿@echo off
 REM ============================================================
-REM [已废弃] 本脚本对应旧版 Python 3.8 环境（old_photo_restore）。
-REM 当前项目请使用 setup_gpu.bat（Python 3.11 + PyTorch cu128 + Gradio 6）。
+REM [DEPRECATED] This script corresponds to the legacy Python 3.8 environment (old_photo_restore).
+REM For the current project please use setup_gpu.bat (Python 3.11 + PyTorch cu128 + Gradio 6).
 REM ============================================================
 echo ============================================
 echo  Old Photo Restoration - Conda Setup Script
@@ -28,7 +28,7 @@ call conda install pytorch torchvision cpuonly -c pytorch -y
 echo [3/4] Installing core dependencies...
 call conda install -c conda-forge dlib -y
 pip install scikit-image easydict PyYAML dominate dill tensorboardX scipy opencv-python einops matplotlib pyspng gradio fastapi uvicorn numpy Pillow
-echo [note] PySimpleGUI（桌面 GUI，GUI.py）为可选依赖，5.x 已转商业授权，请按需单独安装。
+echo [note] PySimpleGUI (desktop GUI, GUI.py) is an optional dependency; 5.x is now commercially licensed, install separately if needed.
 
 echo [4/4] Installing Synchronized-BatchNorm-PyTorch...
 set "PROJECT_DIR=%~dp0"

@@ -156,7 +156,7 @@ if __name__ == "__main__":
         done = time.time()
 
         if len(faces) == 0:
-            print("警告: 图片 %s 中不存在人脸" % (x))
+            print("Warning: no face detected in image %s" % (x))
             continue
 
         print(len(faces))
@@ -175,4 +175,4 @@ if __name__ == "__main__":
         count += 1
 
         if count % 1000 == 0:
-            print("%d 已经完成 ..." % (count))
+            print("%d done ..." % (count))

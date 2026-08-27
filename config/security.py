@@ -1,12 +1,10 @@
 """
-凭据安全工具（修复 B4：明文口令 / 非原子写）。
+Credential security utilities (fixes B4: plaintext passwords / non-atomic writes).
 
-设计要点：
-- 口令哈希使用标准库 hashlib.pbkdf2_hmac（无第三方依赖），
-  格式 self-describing： pbkdf2_<alg>$<rounds>$<salt_hex>$<hash_hex>
-- 校验使用 hmac.compare_digest 做常量时间比较，抵御时序侧信道；
-- 写入采用「临时文件 + os.replace」原子提交，并叠加 filelock 跨进程锁，
-  避免并发写造成半截文件或丢失更新。
+Design notes:
+- Password hashing uses stdlib hashlib.pbkdf2_hmac (no third-party deps); format is self-describing: pbkdf2_<alg>$<rounds>$<salt_hex>$<hash_hex>
+- Verification uses hmac.compare_digest for constant-time comparison, resisting timing side channels;
+- Writes use a temp-file + os.replace atomic commit, plus a filelock cross-process lock, avoiding torn files or lost updates on concurrent writes.
 """
 import hashlib
 import hmac
@@ -20,25 +18,25 @@ import yaml
 
 try:
     from filelock import FileLock
-except Exception:  # pragma: no cover - 极少数环境无 filelock 时退化为进程内锁
+except Exception:  # pragma: no cover - falls back to an in-process lock in the rare environments without filelock
     FileLock = None
 
 ALG = "sha256"
-DEFAULT_ROUNDS = 260_000  # 与 config/users.example.yaml 对齐
+DEFAULT_ROUNDS = 260_000  # aligned with config/users.example.yaml
 
-# 进程内串行化（单一 uvicorn 进程内的并发请求）
+# in-process serialization (concurrent requests within a single uvicorn process)
 _WRITE_LOCK = threading.Lock()
 
 
 def hash_password(password: str, *, rounds: int = DEFAULT_ROUNDS) -> str:
-    """对明文口令生成 self-describing 的哈希字符串。"""
+    """Generate a self-describing hash string for a plaintext password."""
     salt = secrets.token_bytes(16)
     dk = hashlib.pbkdf2_hmac(ALG, password.encode("utf-8"), salt, rounds)
     return f"pbkdf2_{ALG}${rounds}${salt.hex()}${dk.hex()}"
 
 
 def verify_password(password: str, stored: str) -> bool:
-    """常量时间校验。stored 非法/非本格式一律返回 False。"""
+    """Constant-time verification. Returns False for invalid or differently-formatted stored values."""
     if not stored or "$" not in stored:
         return False
     try:
@@ -58,7 +56,7 @@ def verify_password(password: str, stored: str) -> bool:
 
 
 def needs_rehash(stored: str, *, rounds: int = DEFAULT_ROUNDS) -> bool:
-    """判断是否需要根据当前参数重新哈希（如提升迭代次数时）。"""
+    """Determine whether the hash should be regenerated with the current parameters (e.g. after raising the iteration count)."""
     try:
         alg, rounds_s, _, _ = stored.split("$", 3)
     except ValueError:
@@ -67,7 +65,7 @@ def needs_rehash(stored: str, *, rounds: int = DEFAULT_ROUNDS) -> bool:
 
 
 def is_plaintext(stored: str) -> bool:
-    """判断存储值是否为历史明文（未哈希）。"""
+    """Determine whether the stored value is a legacy plaintext (unhashed)."""
     return bool(stored) and not stored.startswith(f"pbkdf2_{ALG}")
 
 
@@ -81,7 +79,7 @@ def _cross_process_lock(path: str):
 
 
 def write_yaml_atomic(path: str, data: dict) -> None:
-    """原子写 YAML：临时文件落盘后 os.replace 提交，叠加 filelock 防并发竞态。"""
+    """Atomic YAML write: flush a temp file, commit via os.replace, plus filelock against concurrency races."""
     path = os.path.abspath(path)
     directory = os.path.dirname(path)
     os.makedirs(directory, exist_ok=True)

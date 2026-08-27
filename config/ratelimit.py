@@ -1,12 +1,10 @@
-﻿"""内存滑动窗口限流器（单进程演示用）。
+"""In-memory sliding-window rate limiter (for single-process demos).
 
-设计目标：为公开注册等入口提供轻量、无外部依赖的限流能力。
-- 采用滑动窗口语义：窗口内请求数超过上限即拒绝，过期计数自动淘汰。
-- 时钟可注入（now=），便于单元测试，避免依赖真实时间。
+Goal: provide lightweight, dependency-free rate limiting for public-entry endpoints such as registration.
+- Sliding-window semantics: requests exceeding the cap within the window are rejected; expired counts are evicted automatically.
+- The clock is injectable (now=) for unit tests, avoiding real-time dependence.
 
-⚠️ 局限：本实现为进程内内存计数，重启即清零，且多 worker / 多实例间
-不共享。生产环境应改用 Redis 等共享存储，使限流在集群范围内一致。
-当前部署为单进程（uvicorn 单实例 + 单并发），内存限流足够。
+⚠️ Limitation: in-process memory counters reset on restart and are not shared across workers/instances. Use shared storage such as Redis for cluster-wide consistency in production. The current deployment is a single process (one uvicorn instance, one worker), so in-memory limiting is sufficient.
 """
 import os
 import time
@@ -14,27 +12,26 @@ from collections import deque
 
 
 class RateLimitExceeded(Exception):
-    """语义占位异常。
+    """Semantic placeholder exception.
 
-    本模块默认由调用方在 hit() 返回 False 时直接返回 429，不主动抛出；
-    保留该异常以便未来需要“抛异常”风格时使用。
+    By default, callers return 429 directly when hit() returns False; this exception is kept for a future exception-based style.
     """
 
     pass
 
 
 class SlidingWindowLimiter:
-    """滑动窗口限流器：维护每个 key 的时间戳队列。"""
+    """Sliding-window rate limiter: maintains a timestamp deque per key."""
 
     def __init__(self, max_count, window_seconds, now=None):
         if max_count < 1:
-            raise ValueError("max_count 必须 >= 1")
+            raise ValueError("max_count must be >= 1")
         if window_seconds < 1:
-            raise ValueError("window_seconds 必须 >= 1")
+            raise ValueError("window_seconds must be >= 1")
         self.max_count = max_count
         self.window_seconds = window_seconds
         self._hits = {}  # key -> deque[float]
-        self._now = now  # 可注入时钟，便于测试
+        self._now = now  # injectable clock for tests
 
     def _now_ts(self):
         return self._now() if self._now is not None else time.monotonic()
@@ -50,13 +47,13 @@ class SlidingWindowLimiter:
             self._hits.pop(key, None)
 
     def allowed(self, key):
-        """仅检查是否被允许，不记录本次请求。"""
+        """Only check whether the request is allowed, without recording it."""
         now_ts = self._now_ts()
         self._purge(key, now_ts)
         return len(self._hits.get(key, deque())) < self.max_count
 
     def hit(self, key):
-        """记录一次请求：允许返回 True，超限返回 False。"""
+        """Record one request: returns True if allowed, False if over the limit."""
         now_ts = self._now_ts()
         self._purge(key, now_ts)
         dq = self._hits.setdefault(key, deque())
@@ -66,7 +63,7 @@ class SlidingWindowLimiter:
         return True
 
     def remaining(self, key):
-        """返回窗口内剩余可用次数。"""
+        """Return the remaining allowance within the window."""
         now_ts = self._now_ts()
         self._purge(key, now_ts)
         return max(0, self.max_count - len(self._hits.get(key, deque())))
@@ -79,7 +76,7 @@ class SlidingWindowLimiter:
 
 
 def client_ip(request):
-    """获取客户端 IP；仅在显式配置可信代理（FIXIMG_TRUSTED_PROXIES）时信任转发头。"""
+    """Get the client IP; forward headers are trusted only when trusted proxies (FIXIMG_TRUSTED_PROXIES) are explicitly configured."""
     client = getattr(request, "client", None)
     peer = client.host if client is not None else "unknown"
     trusted = {
@@ -94,7 +91,7 @@ def client_ip(request):
     return peer
 
 
-# 可通过环境变量调参；默认值面向“单进程演示 + 内网”场景。
+# Tunable via environment variables; defaults target single-process demo + intranet scenarios.
 REGISTER_WINDOW = int(os.environ.get("FIXIMG_REGISTER_WINDOW", 600))
 
 register_ip_limiter = SlidingWindowLimiter(

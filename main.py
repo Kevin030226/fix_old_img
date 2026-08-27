@@ -1,8 +1,8 @@
-﻿"""旧照片修复系统 —— Web 服务入口（Gradio 6 + FastAPI + SQLite）。
+"""Old photo restoration system — Web service entry (Gradio 6 + FastAPI + SQLite).
 
-运行：
+Usage:
     python main.py
-默认监听 http://127.0.0.1:9502（可用 FIXIMG_HOST / FIXIMG_PORT 覆盖）。
+Default binding: http://127.0.0.1:9502 (override with FIXIMG_HOST / FIXIMG_PORT).
 """
 import html
 import os
@@ -31,12 +31,12 @@ from config.weights_check import WeightsIntegrityError, verify_weights
 
 os.environ["KMP_DUPLICATE_LIB_OK"] = "True"
 
-APP_TITLE = "基于深度学习(GAN 与变分编码器 VAEs)的旧照片恢复与划痕修复算法模型"
+APP_TITLE = "Old Photo Restoration & Scratch Repair via Deep Learning (GANs and Variational Autoencoders)"
 AUTH_PAGE_TITLE = APP_TITLE
 
 
 def auth_fn(username: str, password: str) -> bool:
-    """登录校验：哈希比对（常量时间）。"""
+    """Login verification: constant-time hash comparison."""
     user = get_user(username)
     if not user:
         return False
@@ -103,34 +103,34 @@ def render_register_page(message="", success=False, username=""):
     status_html = (
         f'<div class="auth-status {status_class}">{safe_message}</div>' if message else ""
     )
-    login_text = "立即登录" if success else "返回登录"
+    login_text = "Sign In" if success else "Back to Login"
     return f"""<!doctype html>
     <html lang="zh-CN">
     <head>
         <meta charset="utf-8">
         <meta name="viewport" content="width=device-width, initial-scale=1">
-        <title>用户注册</title>
+        <title>User Registration</title>
         {build_auth_page_css()}
     </head>
     <body>
         <main class="auth-page">
             <h1 class="auth-brand">{AUTH_PAGE_TITLE}</h1>
             <section class="auth-panel">
-            <h2 class="auth-title">用户注册</h2>
+            <h2 class="auth-title">User Registration</h2>
             {status_html}
             <form method="post" action="/register">
-                <label class="auth-label" for="username">用户名</label>
+                <label class="auth-label" for="username">Username</label>
                 <input class="auth-input" id="username" name="username" value="{safe_username}"
                        autocomplete="username" required>
-                <label class="auth-label" for="password">密码</label>
+                <label class="auth-label" for="password">Password</label>
                 <input class="auth-input" id="password" name="password" type="password"
                        autocomplete="new-password" required>
-                <label class="auth-label" for="confirm_password">确认密码</label>
+                <label class="auth-label" for="confirm_password">Confirm Password</label>
                 <input class="auth-input" id="confirm_password" name="confirm_password" type="password"
                        autocomplete="new-password" required>
-                <button class="auth-button" type="submit">注册</button>
+                <button class="auth-button" type="submit">Sign Up</button>
             </form>
-            <p class="auth-tips">用户名支持 3-32 位字母、数字、下划线或短横线；密码至少 6 位。</p>
+            <p class="auth-tips">Username: 3-32 letters, digits, underscores or hyphens; password: at least 6 characters.</p>
             <a class="auth-link" href="/">{login_text}</a>
             </section>
         </main>
@@ -141,7 +141,7 @@ def render_register_page(message="", success=False, username=""):
 
 @asynccontextmanager
 async def _app_lifespan(_app):
-    """应用启动时初始化数据库（支持 uvicorn main:app 直接导入启动）。"""
+    """Initialize the database at app startup (supports uvicorn main:app direct import)."""
     init_db()
     yield
 
@@ -159,12 +159,12 @@ async def register_user(request: Request):
     ip = client_ip(request)
     if not register_ip_limiter.hit(ip):
         return HTMLResponse(
-            render_register_page("注册过于频繁，请稍后再试（如仍有问题请联系管理员）"),
+            render_register_page("Too many registration attempts, please try again later (contact the administrator if the issue persists)"),
             status_code=429,
         )
     if not register_global_limiter.hit("__global__"):
         return HTMLResponse(
-            render_register_page("当前注册人数过多，请稍后再试"), status_code=429
+            render_register_page("Too many registrations at the moment, please try again later"), status_code=429
         )
 
     body = (await request.body()).decode("utf-8")
@@ -175,21 +175,21 @@ async def register_user(request: Request):
 
     if username and not register_username_limiter.hit(username):
         return HTMLResponse(
-            render_register_page("该用户名操作过于频繁，请稍后再试", username=username),
+            render_register_page("Too many attempts for this username, please try again later", username=username),
             status_code=429,
         )
     if not re.fullmatch(r"[A-Za-z0-9_-]{3,32}", username):
-        return HTMLResponse(render_register_page("用户名格式不正确", username=username))
+        return HTMLResponse(render_register_page("Invalid username format", username=username))
     if len(password) < 6:
-        return HTMLResponse(render_register_page("密码长度不能少于 6 位", username=username))
+        return HTMLResponse(render_register_page("Password must be at least 6 characters", username=username))
     if password != confirm_password:
-        return HTMLResponse(render_register_page("两次输入的密码不一致", username=username))
+        return HTMLResponse(render_register_page("The two passwords do not match", username=username))
     if not add_user(username, hash_password(password), "user"):
         return HTMLResponse(
-            render_register_page(f"用户 '{username}' 已存在", username=username)
+            render_register_page(f"User '{username}' already exists", username=username)
         )
     return HTMLResponse(
-        render_register_page("注册成功，请返回登录页登录", success=True, username=username)
+        render_register_page("Registration succeeded, please sign in on the login page", success=True, username=username)
     )
 
 
@@ -200,7 +200,7 @@ async def health():
 
 @app.get("/health/ready")
 async def readiness():
-    """数据库就绪检查：SQLite 连接异常时返回 HTTP 503。"""
+    """Database readiness check: returns HTTP 503 when SQLite connection fails."""
     try:
         get_conn().execute("SELECT 1").fetchone()
         return {"status": "ready", "database": "ok"}
@@ -226,13 +226,13 @@ _FORCE_DARK_SCRIPT = (
 )
 
 
-# 管理员界面精简：隐藏四个功能标签页并自动切到管理面板。
-# Gradio 6 的 Tab.visible 动态更新不生效，故由服务端判定角色后注入脚本。
+# Admin UI tweak: hide the four function tabs and auto-switch to the admin panel.
+# Gradio 6 Tab.visible dynamic updates do not work; the server injects scripts based on the role.
 _ADMIN_UI_SCRIPT = (
     "<script>"
     "(function(){"
-    "var labels=['不带划痕的旧照片复原模块','带划痕的旧照片复原模块',"
-    "'划痕检测模块','老照片上色模块'];"
+    "var labels=['Restore Old Photo (No Scratches)','Restore Old Photo (With Scratches)',"
+    "'Scratch Detection','Old Photo Colorization'];"
     "function adminMode(){"
     "var btns=Array.from(document.querySelectorAll('button'));"
     "var tabs=Array.from(document.querySelectorAll('[role=\"tab\"]'));"
@@ -244,7 +244,7 @@ _ADMIN_UI_SCRIPT = (
     "var t=(tab.textContent||'').trim();"
     "if(labels.indexOf(t)>=0){tab.style.display='none';}"
     "});"
-    "var adminTab=tabs.find(function(tab){return (tab.textContent||'').trim()==='管理面板';});"
+    "var adminTab=tabs.find(function(tab){return (tab.textContent||'').trim()==='Admin Panel';});"
     "if(adminTab && adminTab.getAttribute('aria-selected')!=='true'){adminTab.click();}"
     "}"
     "if(document.readyState==='loading'){"
@@ -258,7 +258,7 @@ _ADMIN_UI_SCRIPT = (
 )
 
 
-# 普通用户界面精简：隐藏管理面板标签页。
+# User UI tweak: hide the admin panel tab.
 _USER_UI_SCRIPT = (
     "<script>"
     "(function(){"
@@ -266,10 +266,10 @@ _USER_UI_SCRIPT = (
     "var btns=Array.from(document.querySelectorAll('button'));"
     "var tabs=Array.from(document.querySelectorAll('[role=\"tab\"]'));"
     "btns.forEach(function(b){"
-    "if((b.textContent||'').trim()==='管理面板'){b.style.display='none';}"
+    "if((b.textContent||'').trim()==='Admin Panel'){b.style.display='none';}"
     "});"
     "tabs.forEach(function(tab){"
-    "if((tab.textContent||'').trim()==='管理面板'){tab.style.display='none';}"
+    "if((tab.textContent||'').trim()==='Admin Panel'){tab.style.display='none';}"
     "});"
     "}"
     "if(document.readyState==='loading'){"
@@ -281,7 +281,7 @@ _USER_UI_SCRIPT = (
 )
 
 
-# 管理员界面 CSS：隐藏四个功能标签页并强制显示管理面板。
+# Admin UI CSS: hide the four function tabs and force-show the admin panel.
 _ADMIN_UI_CSS = (
     "<style>"
     "#tab_restore,#tab_scratch,#tab_detect,#tab_colorize{display:none!important}"
@@ -289,7 +289,7 @@ _ADMIN_UI_CSS = (
     "</style>"
 )
 
-# 普通用户界面 CSS：隐藏管理面板。
+# User UI CSS: hide the admin panel.
 _USER_UI_CSS = (
     "<style>"
     "#admin_panel{display:none!important}"
@@ -298,7 +298,7 @@ _USER_UI_CSS = (
 
 
 def _gradio_request_user(request):
-    """读取 Gradio 会话，返回当前登录用户名；未登录返回 None。"""
+    """Read the Gradio session; return the logged-in username, or None if not logged in."""
     gapp = _GRADIO_APP
     if gapp is None:
         return None
@@ -314,7 +314,7 @@ def _gradio_request_user(request):
 
 
 def _rebuild_html_response_headers(raw_headers):
-    """保留全部原始头（含多个 Set-Cookie），仅排除 content-length。"""
+    """Keep all original headers (including multiple Set-Cookie), excluding only content-length."""
     return [
         (k.decode("latin-1"), v.decode("latin-1"))
         for k, v in raw_headers
@@ -351,7 +351,7 @@ async def inject_login_css(request: Request, call_next):
             "register-entry" if has_login_form else "register-entry register-entry-floating"
         )
         link_bytes = (
-            f'<div class="{entry_class}">还没有账号？<a href="/register">立即注册</a></div>'
+            f'<div class="{entry_class}">No account yet? <a href="/register">Sign up now</a></div>'
         ).encode("utf-8")
         if b"</head>" in body:
             body = body.replace(b"</head>", css_bytes + b"</head>")
@@ -362,7 +362,7 @@ async def inject_login_css(request: Request, call_next):
         else:
             body += link_bytes
 
-    # 管理员只保留管理面板：隐藏四个功能标签页
+    # Admin sees only the admin panel: hide the four function tabs
     username = _gradio_request_user(request)
     if username and request.url.path == "/":
         user = get_user(username)
@@ -407,7 +407,7 @@ title_text = f"<center><h1>{APP_TITLE}</h1></center>"
 
 
 def _run_pipeline_wrapper(input_image, user_state, mode):
-    """把流水线异常统一转成 Gradio 用户提示。"""
+    """Convert pipeline exceptions into user-friendly Gradio messages."""
     try:
         res_img, evaluate_text = run_pipeline(input_image, user_state, mode)
         gr.Info("success!")
@@ -417,7 +417,7 @@ def _run_pipeline_wrapper(input_image, user_state, mode):
     except ValueError as exc:
         raise gr.Error(str(exc)) from exc
     except Exception as exc:  # noqa: BLE001
-        raise gr.Error(f"处理失败：{exc}") from exc
+        raise gr.Error(f"Processing failed: {exc}") from exc
 
 
 def process_image_1(input_image, user_state):
@@ -434,15 +434,15 @@ def process_image_3(input_image, user_state):
 
 
 def process_colorize(input_image, user_state):
-    """老照片上色（DDColor）。"""
+    """Old photo colorization (DDColor)."""
     try:
         res_img = run_colorize(input_image, user_state)
-        gr.Info("上色完成!")
+        gr.Info("Colorization complete!")
         return res_img
     except ValueError as exc:
         raise gr.Error(str(exc)) from exc
     except Exception as exc:  # noqa: BLE001
-        raise gr.Error(f"上色失败：{exc}") from exc
+        raise gr.Error(f"Colorization failed: {exc}") from exc
 
 
 def clear_inputs():
@@ -454,7 +454,7 @@ def clear_inputs_3():
 
 
 def on_load(request: gr.Request):
-    """页面加载时设置会话状态（标签页显隐由服务端注入脚本处理）。"""
+    """Set session state on page load (tab visibility is handled by server-injected scripts)."""
     username = request.username
     user = get_user(username) if username else None
     role = user.get("role", "user") if user else "user"
@@ -471,24 +471,24 @@ with gr.Blocks(title=APP_TITLE) as demo:
             <a href="/logout" style="display:inline-block;padding:6px 18px;
                 background:#e74c3c;color:#fff;text-decoration:none;
                 border-radius:6px;font-size:14px;">
-                退出登录 / 切换账户
+                Sign out / Switch account
             </a>
         </div>
         """
     )
 
     with gr.Tabs():
-        with gr.TabItem("不带划痕的旧照片复原模块", elem_id="tab_restore") as tab1:
+        with gr.TabItem("Restore Old Photo (No Scratches)", elem_id="tab_restore") as tab1:
             with gr.Row():
                 with gr.Column():
-                    input_image_1 = gr.Image(label="待修复图像")
+                    input_image_1 = gr.Image(label="Image to Restore")
                     with gr.Row():
-                        clear_button_1 = gr.Button("清空图片输入", elem_classes="clear-button")
-                        submit_button_1 = gr.Button("开始修复", elem_classes="start-button")
+                        clear_button_1 = gr.Button("Clear Image", elem_classes="clear-button")
+                        submit_button_1 = gr.Button("Start Restoration", elem_classes="start-button")
                 with gr.Column():
-                    result_1 = gr.Image(label="修复结果")
+                    result_1 = gr.Image(label="Restored Result")
                     elavuation_logs_1 = gr.Textbox(
-                        label="修复图与原(退化)图的差异指标(PSNR/SSIM/MAE)", lines=3
+                        label="Difference metrics vs. degraded original (PSNR/SSIM/MAE)", lines=3
                     )
             gr.Examples(
                 examples=[
@@ -509,8 +509,8 @@ with gr.Blocks(title=APP_TITLE) as demo:
                     ["./examples/old/c.png"],
                 ],
                 inputs=[input_image_1],
-                label="以下是一些示例输入,点击即可自动装载到上方"
-                "(样例存在第二页,在下方'Pages'处可选择展开第二页样例)",
+                label="Click an example to load it above"
+                "(samples are on a second page; expand it via 'Pages' below)",
             )
             submit_button_1.click(
                 process_image_1,
@@ -523,17 +523,17 @@ with gr.Blocks(title=APP_TITLE) as demo:
                 outputs=[input_image_1, result_1, elavuation_logs_1],
             )
 
-        with gr.TabItem("带划痕的旧照片复原模块", elem_id="tab_scratch") as tab2:
+        with gr.TabItem("Restore Old Photo (With Scratches)", elem_id="tab_scratch") as tab2:
             with gr.Row():
                 with gr.Column():
-                    input_image = gr.Image(label="待修复图像")
+                    input_image = gr.Image(label="Image to Restore")
                     with gr.Row():
-                        clear_button_2 = gr.Button("清空所有内容", elem_classes="clear-button")
-                        submit_button_2 = gr.Button("提交复原", elem_classes="start-button")
+                        clear_button_2 = gr.Button("Clear All", elem_classes="clear-button")
+                        submit_button_2 = gr.Button("Submit Restoration", elem_classes="start-button")
                 with gr.Column():
-                    result_2 = gr.Image(label="修复结果")
+                    result_2 = gr.Image(label="Restored Result")
                     elavuation_logs_2 = gr.Textbox(
-                        label="修复图与原(退化)图的差异指标(PSNR/SSIM/MAE)", lines=3
+                        label="Difference metrics vs. degraded original (PSNR/SSIM/MAE)", lines=3
                     )
             gr.Examples(
                 examples=[
@@ -543,7 +543,7 @@ with gr.Blocks(title=APP_TITLE) as demo:
                     ["./examples/old_w_scratch/d.png"],
                 ],
                 inputs=[input_image],
-                label="以下是一些示例输入,点击即可自动装载到上方",
+                label="Click an example to load it above",
             )
             submit_button_2.click(
                 process_image_2,
@@ -556,15 +556,15 @@ with gr.Blocks(title=APP_TITLE) as demo:
                 outputs=[input_image, result_2, elavuation_logs_2],
             )
 
-        with gr.TabItem("划痕检测模块", elem_id="tab_detect") as tab3:
+        with gr.TabItem("Scratch Detection", elem_id="tab_detect") as tab3:
             with gr.Row():
                 with gr.Column():
-                    input_image = gr.Image(label="待检测图像")
+                    input_image = gr.Image(label="Image to Detect")
                     with gr.Row():
-                        clear_button_3 = gr.Button("清空所有内容", elem_classes="clear-button")
-                        submit_button_3 = gr.Button("提交复原", elem_classes="start-button")
+                        clear_button_3 = gr.Button("Clear All", elem_classes="clear-button")
+                        submit_button_3 = gr.Button("Submit Restoration", elem_classes="start-button")
                 with gr.Column():
-                    result_3 = gr.Image(label="检测结果")
+                    result_3 = gr.Image(label="Detection Result")
             gr.Examples(
                 examples=[
                     ["./examples/old_w_scratch/a.png"],
@@ -573,7 +573,7 @@ with gr.Blocks(title=APP_TITLE) as demo:
                     ["./examples/old_w_scratch/d.png"],
                 ],
                 inputs=[input_image],
-                label="以下是一些示例输入,点击即可自动装载到上方",
+                label="Click an example to load it above",
             )
             submit_button_3.click(
                 process_image_3,
@@ -584,22 +584,22 @@ with gr.Blocks(title=APP_TITLE) as demo:
                 clear_inputs_3, inputs=[], outputs=[input_image, result_3]
             )
 
-        with gr.TabItem("老照片上色模块", elem_id="tab_colorize") as tab4:
+        with gr.TabItem("Old Photo Colorization", elem_id="tab_colorize") as tab4:
             with gr.Row():
                 with gr.Column():
-                    input_image_4 = gr.Image(label="待上色图像（黑白/灰度）")
+                    input_image_4 = gr.Image(label="Image to Colorize (B&W / Grayscale)")
                     with gr.Row():
-                        clear_button_4 = gr.Button("清空所有内容", elem_classes="clear-button")
-                        submit_button_4 = gr.Button("开始上色", elem_classes="start-button")
+                        clear_button_4 = gr.Button("Clear All", elem_classes="clear-button")
+                        submit_button_4 = gr.Button("Start Colorization", elem_classes="start-button")
                 with gr.Column():
-                    result_4 = gr.Image(label="上色结果")
+                    result_4 = gr.Image(label="Colorized Result")
             gr.Examples(
                 examples=[
                     ["./examples/color/o1.jpg"],
                     ["./examples/color/o2.jpg"],
                 ],
                 inputs=[input_image_4],
-                label="以下是一些示例输入,点击即可自动装载到上方",
+                label="Click an example to load it above",
             )
             submit_button_4.click(
                 process_colorize,
@@ -610,7 +610,7 @@ with gr.Blocks(title=APP_TITLE) as demo:
                 clear_inputs_3, inputs=[], outputs=[input_image_4, result_4]
             )
 
-        with gr.TabItem("管理面板", elem_id="admin_panel") as admin_tab:
+        with gr.TabItem("Admin Panel", elem_id="admin_panel") as admin_tab:
             from app.admin_panel import build_admin_panel
 
             build_admin_panel(user_state)
@@ -623,13 +623,13 @@ app = gr.mount_gradio_app(
     demo,
     path="/",
     auth=auth_fn,
-    auth_message="请输入您的用户名和密码",
+    auth_message="Please enter your username and password",
     max_file_size="10mb",
     show_error=False,
     css=custom_css,
 )
 
-# Gradio 以 Mount 形式挂在 "/"（最后一条路由），用于读取会话 token / cookie_id。
+# Gradio is mounted at "/" (last route) for reading session token / cookie_id.
 _GRADIO_MOUNT = app.routes[-1] if app.routes else None
 _GRADIO_APP = getattr(_GRADIO_MOUNT, "app", None) if _GRADIO_MOUNT is not None else None
 
@@ -643,11 +643,11 @@ def _resolve_bind():
 if __name__ == "__main__":
     try:
         n = verify_weights()
-        print(f"[自检] 权重完整性校验通过（{n} 个文件）")
+        print(f"[Self-check] Weight integrity OK ({n} files)")
     except WeightsIntegrityError as exc:
-        print(f"[自检] 权重校验失败，服务拒绝启动：\n{exc}", file=sys.stderr)
+        print(f"[Self-check] Weight verification failed; the service refuses to start:\n{exc}", file=sys.stderr)
         sys.exit(1)
 
     host, port = _resolve_bind()
-    print(f"启动服务: http://{host}:{port}")
+    print(f"Service started: http://{host}:{port}")
     uvicorn.run(app="main:app", host=host, port=port, reload=False)

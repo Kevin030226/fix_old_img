@@ -128,7 +128,7 @@ if __name__ == "__main__":
         input_name = input_loader[i]
         input_file = os.path.join(opt.test_input, input_name)
         if not os.path.isfile(input_file):
-            print("跳过非文件： %s" % input_name)
+            print("Skipping non-file: %s" % input_name)
             continue
         input = Image.open(input_file).convert("RGB")
 
@@ -166,7 +166,7 @@ if __name__ == "__main__":
             with torch.no_grad():
                 generated = model.inference(input, mask)
         except Exception as ex:
-            print("跳过 %s 由于错误:\n%s" % (input_name, str(ex)))
+            print("Skipping %s due to error:\n%s" % (input_name, str(ex)))
             continue
 
         if input_name.endswith(".jpg"):

@@ -373,7 +373,7 @@ if __name__ == "__main__":
         done = time.time()
 
         if len(faces) == 0:
-            print("警告: 图片 %s 中不存在人脸" % (x))
+            print("Warning: no face detected in image %s" % (x))
             continue
 
         blended = image
@@ -396,11 +396,11 @@ if __name__ == "__main__":
 
                 face_name = x[:-4] + "_" + str(face_id + 1) + ".png"
                 cur_url = os.path.join(replace_url, face_name)
-                # B6：增强产物可能缺失（阶段3 未覆盖该人脸）。
-                # 原实现直接 Image.open 会抛 FileNotFoundError 使整个阶段4 崩溃，
-                # 且异常被上游吞掉，表现为"无声降级"。此处退化为使用未增强的对齐人脸。
+                # B6: The enhanced output may be missing (stage 3 did not cover this face).
+                # The original implementation directly calls Image.open, which raises FileNotFoundError and crashes the whole stage 4,
+                # and the exception is swallowed upstream, resulting in a "silent degradation". Here we fall back to using the un-enhanced aligned face.
                 if not os.path.exists(cur_url):
-                    print("警告: 缺少增强人脸 %s，该人脸退化为未增强版本" % cur_url)
+                    print("Warning: missing enhanced face %s; falling back to the un-enhanced version" % cur_url)
                 else:
                     restored_face = Image.open(cur_url).convert("RGB")
                     cur_face = np.array(restored_face)
@@ -435,5 +435,5 @@ if __name__ == "__main__":
         count += 1
 
         if count % 1000 == 0:
-            print("%d 已经完成 ..." % (count))
+            print("%d done ..." % (count))
 

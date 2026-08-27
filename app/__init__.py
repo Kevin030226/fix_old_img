@@ -1,1 +1,1 @@
-"""旧照片修复系统 —— 应用包。"""
+﻿"""Old photo restoration system — application package."""
