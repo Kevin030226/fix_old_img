@@ -50,7 +50,7 @@
 | Web 框架 | Gradio 6.22 + FastAPI 0.141 + Uvicorn 0.52 |
 | 深度学习 | PyTorch 2.7.1+cu128（原生支持 RTX 50 系 sm_120） |
 | 视觉/科学计算 | OpenCV 5.0、scikit-image 0.26、scipy 1.17、numpy 2.4、Pillow 12.3 |
-| 人脸/上色 | dlib 20.0.1（conda-forge）、timm 0.9.2、DDColor（Apache-2.0） |
+| 人脸/上色 | dlib 20.0.1（conda-forge）、timm 0.9.2、DDColor |
 | 存储 | SQLite（WAL 模式） |
 | 模型 | Bringing Old Photos Back to Life + DDColor，共 29 个权重文件 |
 
@@ -248,7 +248,7 @@ python run.py --input_folder ./test_images/old --output_folder ./output --GPU 0
 ├── run.py                   # 四阶段推理流水线 CLI
 ├── app/                     # 应用层：db(SQLite)/pipeline/colorizer/admin_panel
 ├── config/                  # users.yaml / 限流 / 安全 / 权重清单
-├── ddcolor/                 # DDColor 上色模型（Apache-2.0）
+├── ddcolor/                 # DDColor 上色模型
 ├── basicsr/                 # DDColor 所需最小子集
 ├── Global/                  # 整体质量修复 / 划痕检测模型
 ├── Face_Detection/          # dlib 人脸检测 / 回卷
