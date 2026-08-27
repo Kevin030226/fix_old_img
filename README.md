@@ -54,6 +54,52 @@
 | 存储 | SQLite（WAL 模式） |
 | 模型 | Bringing Old Photos Back to Life（MIT）+ DDColor（Apache-2.0），共 29 个权重文件 |
 
+### 3.1 核心算法来源：Bringing Old Photos Back to Life（CVPR 2020）
+
+我的修复链路（整体质量修复 / 划痕检测与修复 / 面部增强）基于微软研究院开源项目
+[Bringing Old Photos Back to Life](https://github.com/microsoft/Bringing-Old-Photos-Back-to-Life)（MIT License），技术部分摘录如下：
+
+**整体质量修复（Global Restoration）**
+
+> A triplet domain translation network is proposed to solve both structured degradation and unstructured degradation of old photos.
+>
+> 我使用了一个三元域翻译网络（triplet domain translation network）来同时处理旧照片的结构化退化与非结构化退化：
+
+- 分别训练域 A（退化旧照）与域 B（高质量新照）的 **VAE**（变分自编码器）模型，二者共享潜空间结构；
+- 训练域间的 **mapping network（映射网络）**，将退化域隐变量翻译到高质量域，从而实现整体质量提升；
+- 映射网络支持多种训练变体：`mapping_quality`（无划痕场景）、`mapping_scratch`（带划痕场景）、`mapping_Patch_Attention`（使用 Multi-Scale Patch Attention，用于高分辨率输入的划痕修复）；
+- 训练采用 `pix2pixHD` 风格的双判别器 GAN 架构，通过 `--l2_feat / --use_l1_feat / --NL_res`（非局部残差）等选项控制损失与结构。
+
+**划痕检测（Scratch Detection）**
+
+> 划痕检测模型（`Global/detection.py`）使用标注数据训练，输出黑白二值 mask（白色为划痕）。
+
+**人脸检测与面部增强（Face Detection & Enhancement）**
+
+> We use a progressive generator to refine the face regions of old photos.
+>
+> 我的面部增强使用了一个**渐进式生成器（progressive generator）**来细化旧照片中的人脸区域：
+
+- 人脸检测使用 dlib 的 `shape_predictor_68_face_landmarks.dat`（68 点人脸关键点检测器）；
+- 检测到的人脸逐一裁剪、对齐后送入面部增强模型（`Face_Enhancement`），增强完成后按原始几何关系**回卷（warp back）**合成回原图；
+- 面部增强模型带同步批归一化（Synchronized-BatchNorm-PyTorch）与渐进式编码器结构。
+
+> NOTE: 该模型用 256×256 预训练，任意分辨率下效果可能非最优（我支持长边 ≤4096px 的输入）。
+
+### 3.2 核心算法来源：DDColor（ICCV 2023）
+
+我的黑白照片自动上色模块基于开源项目 [DDColor](https://github.com/piddnad/DDColor)（Apache-2.0），技术部分摘录如下：
+
+> *In short:* DDColor uses multi-scale visual features to optimize **learnable color tokens** (i.e. color queries) and achieves state-of-the-art performance on automatic image colorization.
+
+> 简言之：DDColor 使用**多尺度视觉特征**去优化**可学习的颜色 token（即颜色查询 color queries）**，在自动图像上色任务上达到 SOTA 水平：
+
+- **双解码器结构（Dual Decoders）**：一个解码器做**颜色解码**（基于可学习颜色 token 与多尺度特征交互），一个解码器做**图像重建**（恢复空间细节），二者共同实现照片级真实的多彩着色；
+- **骨干网络**：基于 ConvNeXt（`ConvNeXt-Large`，22k 预训练），编码器提取多尺度视觉特征；颜色 token 与特征通过类似 Transformer 的交叉注意力（Mask2Former / DETR 风格）进行交互；
+- **颜色查询（color queries）**：一组可学习的颜色 embedding，被视为"颜色字典"，通过多尺度特征的查询得到目标颜色分布；
+- 训练流程基于 **BasicSR** 工具箱（同步最小依赖为 `basicsr/` 子集），支持 `ddcolor_paper / ddcolor_modelscope / ddcolor_artistic / ddcolor_paper_tiny` 四种预训练模型规格；
+- 我的实现中默认使用 `damo/cv_ddcolor_image-colorization`（ModelScope）权重：`weights/ddcolor/pytorch_model.pt`，模型规格 `large`，输入尺寸 512×512（均可通过环境变量调整）。
+
 ## 4. 安装方法
 
 ### 4.1 Windows（conda）
