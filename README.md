@@ -36,7 +36,7 @@
 ### 2.3 平台能力
 
 - 用户登录（pbkdf2 哈希、常量时间比对）与公开注册（IP/全局/用户名三重限流）；
-- 健康检查接口 `GET /health`；
+- 健康检查接口 `GET /health`（存活）与 `GET /health/ready`（数据库就绪，异常时返回 503）；
 - 启动时权重完整性自检（SHA-256 清单，缺失或篡改拒绝启动）；
 - 请求级目录隔离 + 结果 TTL 自动回收；
 - SQLite 存储（用户/历史），首次启动自动从旧版 users.yaml / JSONL 迁移；
@@ -119,7 +119,6 @@ python main.py
 | --- | --- | --- |
 | admin | 安装/初始化时设置 | 管理员（仅管理面板） |
 | user1 | 安装/初始化时设置 | 普通用户 |
-| YCTU | 安装/初始化时设置 | 普通用户 |
 
 > ⚠️ 本地开发环境为方便测试保留了演示口令（如 `admin/admin123`），
 > 仅限开发使用；公开部署前请通过“管理面板 → 用户管理”轮换全部账号口令。
@@ -163,6 +162,9 @@ python run.py --input_folder ./test_images/old --output_folder ./output --GPU 0
 | `FIXIMG_HISTORY_MAX` | `2000` | 历史记录上限 |
 | `FIXIMG_ARCHIVE_TTL` | `604800` | 归档照片保留秒数 |
 | `FIXIMG_DDCOLOR_MODEL` | `weights/ddcolor/pytorch_model.pt` | DDColor 权重路径 |
+| `FIXIMG_COLORIZE_TTL` | `7200` | 上色结果保留秒数 |
+| `FIXIMG_DDCOLOR_INPUT_SIZE` | `512` | DDColor 输入尺寸 |
+| `FIXIMG_DDCOLOR_MODEL_SIZE` | `large` | DDColor 模型规格（large/medium） |
 | `FIXIMG_REGISTER_MAX` / `_GLOBAL_MAX` / `_USERNAME_MAX` | `5/20/3` | 注册限流阈值 |
 | `FIXIMG_REGISTER_WINDOW` | `600` | 注册限流窗口秒数 |
 | `FIXIMG_TRUSTED_PROXIES` | 空 | 允许读取 `X-Forwarded-For` 的代理 IP，逗号分隔。默认不信任转发头，仅当对端地址在此白名单内时使用 |
