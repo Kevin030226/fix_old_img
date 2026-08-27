@@ -1,6 +1,10 @@
 # 基于深度学习的旧照片恢复、划痕修复与老照片上色系统
 
+**中文** | [English](./README_EN.md)
+
 我用 Python 3.11 与 PyTorch（CUDA 12.8）构建了一套面向真实老照片的 Web 端图像修复系统：支持整体质量修复、划痕检测与修复、面部增强，以及黑白老照片自动上色。Web 层我使用了 Gradio 6 + FastAPI + Uvicorn，数据层使用 SQLite（WAL），并附带完整的管理后台（任务记录、照片档案、用户管理）。
+
+![修复效果总览](docs/upstream/bob-0001.jpg)
 
 ---
 
@@ -67,9 +71,13 @@
 - 映射网络支持多种训练变体：`mapping_quality`（无划痕场景）、`mapping_scratch`（带划痕场景）、`mapping_Patch_Attention`（使用 Multi-Scale Patch Attention，用于高分辨率输入的划痕修复）；
 - 训练采用 `pix2pixHD` 风格的双判别器 GAN 架构，通过 `--l2_feat / --use_l1_feat / --NL_res`（非局部残差）等选项控制损失与结构。
 
+![修复流水线架构](docs/upstream/bob-pipeline.png)
+
 **划痕检测（Scratch Detection）**
 
 > 划痕检测模型使用标注数据训练，输出黑白二值 mask（白色为划痕）。
+
+![划痕检测](docs/upstream/bob-scratch-detection.png)
 
 **人脸检测与面部增强（Face Detection & Enhancement）**
 
@@ -78,6 +86,8 @@
 - 人脸检测使用 dlib 的 `shape_predictor_68_face_landmarks.dat`（68 点人脸关键点检测器）；
 - 检测到的人脸逐一裁剪、对齐后送入面部增强模型，增强完成后按原始几何关系**回卷（warp back）**合成回原图；
 - 面部增强模型带同步批归一化（Synchronized-BatchNorm-PyTorch）与渐进式编码器结构。
+
+![面部增强](docs/upstream/bob-face.png)
 
 > 注：该模型用 256×256 预训练，任意分辨率下效果可能非最优（本项目支持长边 ≤4096px 的输入）。
 
@@ -92,6 +102,10 @@
 - **颜色查询（color queries）**：一组可学习的颜色 embedding，被视为"颜色字典"，通过多尺度特征的查询得到目标颜色分布；
 - 训练流程基于 **BasicSR** 工具箱（同步最小依赖为 `basicsr/` 子集），支持 `ddcolor_paper / ddcolor_modelscope / ddcolor_artistic / ddcolor_paper_tiny` 四种预训练模型规格；
 - 我的实现中默认使用 `damo/cv_ddcolor_image-colorization` 权重：`weights/ddcolor/pytorch_model.pt`，模型规格 `large`，输入尺寸 512×512（均可通过环境变量调整）。
+
+![上色网络架构](docs/upstream/ddcolor-network-arch.jpg)
+
+![上色效果展示](docs/upstream/ddcolor-teaser.webp)
 
 ## 4. 安装方法
 
@@ -160,18 +174,18 @@ python main.py
 | user1 | 安装/初始化时设置 | 普通用户 |
 
 > ⚠️ 本地开发环境为方便测试保留了演示口令（如 `admin/admin123`），
-> 仅限开发使用；公开部署前请通过“管理面板 → 用户管理”轮换全部账号口令。
+> 仅限开发使用；公开部署前请通过"管理面板 → 用户管理"轮换全部账号口令。
 
-管理员登录后只显示“管理面板”；普通用户可使用四个图像处理标签页。
+管理员登录后只显示"管理面板"；普通用户可使用四个图像处理标签页。
 
 ### 5.2 Web 操作流程
 
-1. 登录（或点击“立即注册”创建账号）；
+1. 登录（或点击"立即注册"创建账号）；
 2. 选择对应功能标签页；
 3. 上传图片（或点击标签页下方示例图自动填充）；
-4. 点击“开始修复 / 提交复原 / 开始上色”；
+4. 点击"开始修复 / 提交复原 / 开始上色"；
 5. 等待处理完成（GPU 环境单张约 1-60 秒，取决于模块与图片大小），查看结果与指标；
-6. 管理员可在“管理面板”查看任务记录、照片档案并管理用户。
+6. 管理员可在"管理面板"查看任务记录、照片档案并管理用户。
 
 ### 5.3 命令行批量处理
 
@@ -256,15 +270,16 @@ python run.py --input_folder ./test_images/old --output_folder ./output --GPU 0
 ├── examples/                # Web 示例图片（old / old_w_scratch / color）
 ├── test_images/             # CLI 测试图片
 ├── docs/examples/           # README 示例输入输出
+├── docs/upstream/           # 算法展示图片
 ├── weights/ddcolor/         # DDColor 权重（不入库）
 ├── scripts/                 # 安装脚本与权重下载
 ├── Dockerfile
-└── LICENSE / README.md / THIRD_PARTY_NOTICES.md
+└── LICENSE / README.md / README_EN.md / THIRD_PARTY_NOTICES.md
 ```
 
 ## 8. 常见问题
 
-**Q1：启动提示“权重完整性校验失败”**
+**Q1：启动提示"权重完整性校验失败"**
 权重缺失或哈希不符。运行 `bash scripts/download_weights.sh` 补齐，然后执行 `python -m config.weights_check generate` 重新生成清单（本地权重与仓库清单不一致时同样处理）。
 
 **Q2：CUDA 不可用 / 提示 sm_120 不兼容**
