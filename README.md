@@ -1,10 +1,40 @@
+<!--
+  fix_old_img — Deep Learning Old Photo Restoration, Scratch Repair & Colorization
+  中文版;英文版请查看 README_EN.md
+-->
+<div align="center">
+
 # 基于深度学习的旧照片恢复、划痕修复与老照片上色系统
+
+**Deep Learning Based Old Photo Restoration, Scratch Repair & Colorization**
+
+[![Python 3.11](https://img.shields.io/badge/Python-3.11-blue?logo=python&logoColor=white)](https://www.python.org/)
+[![PyTorch](https://img.shields.io/badge/PyTorch-2.7.1%2Bcu128-ee4c2c?logo=pytorch&logoColor=white)](https://pytorch.org/)
+[![Gradio](https://img.shields.io/badge/Gradio-6.22-orange?logo=gradio&logoColor=white)](https://gradio.app/)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.141-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
 **中文** | [English](./README_EN.md)
 
 我用 Python 3.11 与 PyTorch（CUDA 12.8）构建了一套面向真实老照片的 Web 端图像修复系统：支持整体质量修复、划痕检测与修复、面部增强，以及黑白老照片自动上色。Web 层我使用了 Gradio 6 + FastAPI + Uvicorn，数据层使用 SQLite（WAL），并附带完整的管理后台（任务记录、照片档案、用户管理）。
 
 ![修复效果总览](docs/upstream/bob-0001.jpg)
+
+</div>
+
+---
+
+## 📑 目录
+
+- [1. 项目解决的问题](#1-项目解决的问题)
+- [2. 主要功能](#2-主要功能)
+- [3. 我使用的技术](#3-我使用的技术)
+- [4. 安装方法](#4-安装方法)
+- [5. 使用方法](#5-使用方法)
+- [6. 输入输出示例](#6-输入输出示例)
+- [7. 项目结构](#7-项目结构)
+- [8. 常见问题](#8-常见问题)
+- [9. 第三方组件与许可](#9-第三方组件与许可)
 
 ---
 
@@ -71,13 +101,21 @@
 - 映射网络支持多种训练变体：`mapping_quality`（无划痕场景）、`mapping_scratch`（带划痕场景）、`mapping_Patch_Attention`（使用 Multi-Scale Patch Attention，用于高分辨率输入的划痕修复）；
 - 训练采用 `pix2pixHD` 风格的双判别器 GAN 架构，通过 `--l2_feat / --use_l1_feat / --NL_res`（非局部残差）等选项控制损失与结构。
 
-![修复流水线架构](docs/upstream/bob-pipeline.png)
+<table align="center"><tr>
+  <td><img src="docs/upstream/bob-pipeline.png" alt="修复流水线架构" width="400"/></td>
+  <td><img src="docs/upstream/bob-global.png" alt="整体修复效果对比" width="400"/></td>
+</tr><tr>
+  <td align="center">修复流水线架构</td>
+  <td align="center">整体修复效果对比</td>
+</tr></table>
 
 **划痕检测（Scratch Detection）**
 
-> 划痕检测模型使用标注数据训练，输出黑白二值 mask（白色为划痕）。
+> 划痕检测模型使用标注数据训练，输出黑白二值 mask（白色为划痕）。划痕修复链路对高分辨率输入使用 Multi-Scale Patch Attention 的非局部映射，可将带碎裂痕迹的老照片恢复为干净画面。
 
-![划痕检测](docs/upstream/bob-scratch-detection.png)
+| 原图 | 修复结果 |
+| --- | --- |
+| ![划痕检测](docs/upstream/bob-scratch-detection.png) | ![划痕高分辨率修复](docs/upstream/bob-hr-result.png) |
 
 **人脸检测与面部增强（Face Detection & Enhancement）**
 
@@ -85,9 +123,13 @@
 
 - 人脸检测使用 dlib 的 `shape_predictor_68_face_landmarks.dat`（68 点人脸关键点检测器）；
 - 检测到的人脸逐一裁剪、对齐后送入面部增强模型，增强完成后按原始几何关系**回卷（warp back）**合成回原图；
-- 面部增强模型带同步批归一化（Synchronized-BatchNorm-PyTorch）与渐进式编码器结构。
+- 面部增强模型带同步批归一化（Synchronized-BatchNorm-PyTorch）与渐进式编码器结构，通过实例归一化参数调制逐级细化人脸。
 
-![面部增强](docs/upstream/bob-face.png)
+![渐进式人脸增强架构](docs/upstream/bob-face-pipeline.png)
+
+| 输入 | 增强后 |
+| --- | --- |
+| ![面部增强输入](docs/upstream/bob-face.png) | 面部细节恢复，去除退化模糊 |
 
 > 注：该模型用 256×256 预训练，任意分辨率下效果可能非最优（本项目支持长边 ≤4096px 的输入）。
 
@@ -105,7 +147,9 @@
 
 ![上色网络架构](docs/upstream/ddcolor-network-arch.jpg)
 
-![上色效果展示](docs/upstream/ddcolor-teaser.webp)
+| 黑白照片上色 | 动漫/游戏场景上色 |
+| --- | --- |
+| ![上色效果展示](docs/upstream/ddcolor-teaser.webp) | ![动漫场景上色](docs/upstream/ddcolor-anime.webp) |
 
 ## 4. 安装方法
 
@@ -254,7 +298,7 @@ python run.py --input_folder ./test_images/old --output_folder ./output --GPU 0
 
 更多测试样例见 `examples/`（`old/`、`old_w_scratch/`、`color/`）与 `test_images/`。
 
-## 7. 目录结构
+## 7. 项目结构
 
 ```text
 .
@@ -300,3 +344,13 @@ python run.py --input_folder ./test_images/old --output_folder ./output --GPU 0
 - **Bringing Old Photos Back to Life**（修复/检测/面部增强模型）：MIT License，见 [LICENSE-Bringing-Old-Photos-Back-to-Life](LICENSE-Bringing-Old-Photos-Back-to-Life)；
 - **DDColor**（老照片上色，ICCV 2023）：Apache-2.0，见 [ddcolor/LICENSE](ddcolor/LICENSE)；
 - 完整说明见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
+
+---
+
+<div align="center">
+
+*徐康*
+
+<img src="docs/upstream/signature.png" alt="作者签名" width="200"/>
+
+</div>
