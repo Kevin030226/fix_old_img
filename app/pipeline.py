@@ -1,4 +1,4 @@
-"""统一推理流水线。
+﻿"""统一推理流水线。
 
 沿用原有的 Global / Face_Detection / Face_Enhancement 推理脚本，
 以子进程方式串行执行（隔离 cwd 与崩溃）；本模块负责请求隔离、
@@ -105,7 +105,6 @@ def resolve_gpu(gpu_arg="auto"):
         return -1
 
 
-# ===================== 评估指标 =====================
 def _read_image(image_path):
     if not os.path.exists(image_path):
         return None
@@ -198,7 +197,6 @@ def format_evaluation(psnr, ssim, l1, identical, degrade_note=None):
     return "\n".join(lines)
 
 
-# ===================== 流水线 =====================
 def _read_degrade_note(req_output_dir):
     report_path = os.path.join(req_output_dir, "pipeline_report.json")
     if not os.path.exists(report_path):

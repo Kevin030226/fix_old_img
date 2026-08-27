@@ -1,4 +1,4 @@
-"""SQLite 数据层（替代 YAML/JSONL 文件存储）。
+﻿"""SQLite 数据层（替代 YAML/JSONL 文件存储）。
 
 - users：用户表（密码仍为 pbkdf2 哈希，兼容原 users.yaml）
 - history：处理历史表（兼容原 processing_history.json）
@@ -69,7 +69,6 @@ def init_db():
         _migrate_history(conn)
 
 
-# ===================== 用户 =====================
 def get_user(username):
     row = get_conn().execute(
         "SELECT * FROM users WHERE username=?", (username,)
@@ -119,7 +118,6 @@ def delete_user(username):
         conn.commit()
 
 
-# ===================== 历史记录 =====================
 def append_history(record):
     with _write_lock:
         conn = get_conn()
@@ -207,7 +205,6 @@ def history_stats():
     return "\n".join(lines)
 
 
-# ===================== 归档 =====================
 def purge_stale_archives(ttl_seconds=ARCHIVE_TTL_SECONDS):
     now = time.time()
     for d in (ARCHIVE_INPUT_DIR, ARCHIVE_OUTPUT_DIR):
@@ -222,7 +219,6 @@ def purge_stale_archives(ttl_seconds=ARCHIVE_TTL_SECONDS):
                 pass
 
 
-# ===================== 一次性迁移 =====================
 def _migrate_users(conn):
     if conn.execute("SELECT COUNT(*) FROM users").fetchone()[0] > 0:
         return

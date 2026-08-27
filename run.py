@@ -1,4 +1,4 @@
-"""四阶段推理流水线 CLI。
+﻿"""四阶段推理流水线 CLI。
 
 由 Web 层以子进程方式调用，也可命令行独立使用：
     python run.py --input_folder ./test_images/old --output_folder ./output
@@ -71,7 +71,6 @@ def main():
     opts.output_folder = os.path.abspath(opts.output_folder)
     os.makedirs(opts.output_folder, exist_ok=True)
 
-    # ---- Stage 1: 整体质量提升（可先做划痕检测）----
     print("path 1/4: 整体质量提升")
     stage_1_output_dir = os.path.join(opts.output_folder, "stage_1_restore_output")
     os.makedirs(stage_1_output_dir, exist_ok=True)
@@ -124,7 +123,6 @@ def main():
         raise StageError("阶段1未产出任何修复图（restored_image 为空），流水线终止")
     print("path 1: success!\n")
 
-    # ---- Stage 2: 人脸检测 ----
     print("path 2/4: 人脸检测")
     stage_2_output_dir = os.path.join(opts.output_folder, "stage_2_detection_output")
     os.makedirs(stage_2_output_dir, exist_ok=True)
@@ -147,7 +145,6 @@ def main():
         print("未检测到人脸，跳过面部增强，直接采用整体修复结果\n")
         degrade_reason = "no_face_detected"
     else:
-        # ---- Stage 3: 面部增强 ----
         print("path 3/4: 面部增强")
         stage_3_output_dir = os.path.join(opts.output_folder, "stage_3_face_output")
         os.makedirs(stage_3_output_dir, exist_ok=True)
@@ -177,7 +174,6 @@ def main():
         )
         print("path 3: success!\n")
 
-        # ---- Stage 4: 回卷变换 ----
         print("path 4/4: 回卷变换")
         stage_4_output_dir = os.path.join(opts.output_folder, "final_output")
         os.makedirs(stage_4_output_dir, exist_ok=True)
@@ -199,7 +195,6 @@ def main():
         print("path 4: success! Please check the result image!\n")
         degrade_reason = "face_enhance_missing"
 
-    # ---- 事后核对：缺失产物用阶段1结果兜底并标记降级 ----
     os.chdir(main_environment)
     stage_4_output_dir = os.path.join(opts.output_folder, "final_output")
     os.makedirs(stage_4_output_dir, exist_ok=True)
