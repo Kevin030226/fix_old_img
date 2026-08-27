@@ -1,3 +1,3 @@
-#### 测试图像
-- old目录下存储的是不带划痕的旧照片
-- old_w_scratch目录下存储的是带划痕的旧照片，修复时注意区分
+#### Test images
+- `old/` contains old photos **without** scratches
+- `old_w_scratch/` contains old photos **with** scratches; distinguish them before restoration

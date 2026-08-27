@@ -1,6 +1,6 @@
 <!--
   fix_old_img — Deep Learning Old Photo Restoration, Scratch Repair & Colorization
-  English (default). See README_CN.md for 中文版.
+  English (default). See README_CN.md for the Chinese version.
 -->
 <div align="center">
 
