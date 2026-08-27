@@ -79,18 +79,19 @@ class SlidingWindowLimiter:
 
 
 def client_ip(request):
-    """尽力获取客户端 IP。
-
-    若部署在反向代理之后，优先取 X-Forwarded-For 的第一个跳板；
-    否则取 TCP 对端地址；都无法确定时返回 'unknown'。
-    """
-    fwd = request.headers.get("x-forwarded-for")
-    if fwd:
-        return fwd.split(",")[0].strip()
+    """获取客户端 IP；仅在显式配置可信代理（FIXIMG_TRUSTED_PROXIES）时信任转发头。"""
     client = getattr(request, "client", None)
-    if client is not None:
-        return client.host
-    return "unknown"
+    peer = client.host if client is not None else "unknown"
+    trusted = {
+        item.strip()
+        for item in os.environ.get("FIXIMG_TRUSTED_PROXIES", "").split(",")
+        if item.strip()
+    }
+    if peer in trusted:
+        fwd = request.headers.get("x-forwarded-for")
+        if fwd:
+            return fwd.split(",")[0].strip()
+    return peer
 
 
 # ===================== 注册接口的限流器实例 =====================
