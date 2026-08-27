@@ -85,7 +85,9 @@ def run_colorize(input_image, user_state):
     req_output_dir = os.path.join(OUTPUT_ROOT, req_id)
     os.makedirs(req_output_dir, exist_ok=True)
     os.makedirs(UPLOAD_ROOT, exist_ok=True)
-    purge_stale_runs(COLORIZE_RESULT_TTL)
+    # 低频触发清理，避免每次请求扫描大目录阻塞处理请求
+    if uuid.uuid4().int % 20 == 0:
+        purge_stale_runs(COLORIZE_RESULT_TTL)
 
     if isinstance(input_image, np.ndarray):
         input_image = Image.fromarray(input_image)

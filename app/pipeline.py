@@ -133,6 +133,17 @@ def _calculate_psnr(img1, img2):
 
 
 def _calculate_ssim(img1, img2):
+    """计算 SSIM；对小于高斯窗口尺寸的图片退化到全图统计，避免空切片。"""
+    if min(img1.shape[:2]) < 11:
+        x = img1.astype(np.float64)
+        y = img2.astype(np.float64)
+        c1 = (0.01 * 255) ** 2
+        c2 = (0.03 * 255) ** 2
+        ux, uy = x.mean(), y.mean()
+        vx, vy = x.var(), y.var()
+        cov = ((x - ux) * (y - uy)).mean()
+        return float(((2 * ux * uy + c1) * (2 * cov + c2)) / ((ux**2 + uy**2 + c1) * (vx + vy + c2)))
+
     c1 = (0.01 * 255) ** 2
     c2 = (0.03 * 255) ** 2
     img1 = img1.astype(np.float64)
@@ -230,7 +241,9 @@ def run_pipeline(input_image, user_state, mode):
     os.makedirs(UPLOAD_ROOT, exist_ok=True)
     os.makedirs(ARCHIVE_INPUT_DIR, exist_ok=True)
     os.makedirs(ARCHIVE_OUTPUT_DIR, exist_ok=True)
-    purge_stale_runs()
+    # 低频触发清理，避免每次请求扫描大目录阻塞处理请求
+    if uuid.uuid4().int % 20 == 0:
+        purge_stale_runs()
 
     archive_img_path = os.path.join(UPLOAD_ROOT, req_id + ".png")
     temp_img_path = os.path.join(req_input_dir, req_id + ".png")
@@ -321,7 +334,9 @@ def log_task(username, task_type, input_path, output_path, psnr, ssim, mae):
             )
     except Exception:  # noqa: BLE001
         print("[归档] 归档图片失败（不影响主流程）")
-    try:
-        purge_stale_archives()
-    except Exception:  # noqa: BLE001
-        print("[归档] 清理过期归档失败")
+    # 与运行目录清理一致：低频触发，避免阻塞
+    if uuid.uuid4().int % 20 == 0:
+        try:
+            purge_stale_archives()
+        except Exception:  # noqa: BLE001
+            print("[归档] 清理过期归档失败")

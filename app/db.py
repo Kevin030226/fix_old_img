@@ -51,9 +51,11 @@ def get_conn():
     global _conn
     if _conn is None:
         os.makedirs(ADMIN_DATA_DIR, exist_ok=True)
-        _conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+        _conn = sqlite3.connect(DB_PATH, check_same_thread=False, timeout=5.0)
         _conn.row_factory = sqlite3.Row
         _conn.execute("PRAGMA journal_mode=WAL")
+        _conn.execute("PRAGMA busy_timeout=5000")
+        _conn.execute("PRAGMA synchronous=NORMAL")
     return _conn
 
 
@@ -83,13 +85,19 @@ def list_users():
 
 
 def add_user(username, password_hash, role="user"):
+    """创建用户；用户名已存在时返回 False（避免并发注册时的竞态泄漏）。"""
     with _write_lock:
         conn = get_conn()
-        conn.execute(
-            "INSERT INTO users(username, password, role, created_at) VALUES (?,?,?,?)",
-            (username, password_hash, role, datetime.now().strftime("%Y-%m-%d %H:%M:%S")),
-        )
-        conn.commit()
+        try:
+            conn.execute(
+                "INSERT INTO users(username, password, role, created_at) VALUES (?,?,?,?)",
+                (username, password_hash, role, datetime.now().strftime("%Y-%m-%d %H:%M:%S")),
+            )
+            conn.commit()
+        except sqlite3.IntegrityError:
+            conn.rollback()
+            return False
+    return True
 
 
 def update_user(username, password_hash=None, role=None):

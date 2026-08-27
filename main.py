@@ -9,6 +9,7 @@ import os
 import re
 import sys
 import time
+from contextlib import asynccontextmanager
 from urllib.parse import parse_qs
 
 import gradio as gr
@@ -16,7 +17,7 @@ import uvicorn
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, Response
 
-from app.db import add_user, get_user, init_db
+from app.db import add_user, get_user, init_db, get_conn
 from app.colorizer import run_colorize
 from app.pipeline import PIPELINE_MODES, format_evaluation, run_pipeline
 from config.ratelimit import (
@@ -141,7 +142,14 @@ def render_register_page(message="", success=False, username=""):
 
 
 # ============================== FastAPI ==============================
-app = FastAPI()
+@asynccontextmanager
+async def _app_lifespan(_app):
+    """应用启动时初始化数据库（支持 uvicorn main:app 直接导入启动）。"""
+    init_db()
+    yield
+
+
+app = FastAPI(lifespan=_app_lifespan)
 
 
 @app.get("/register", response_class=HTMLResponse)
@@ -179,12 +187,10 @@ async def register_user(request: Request):
         return HTMLResponse(render_register_page("密码长度不能少于 6 位", username=username))
     if password != confirm_password:
         return HTMLResponse(render_register_page("两次输入的密码不一致", username=username))
-    if get_user(username):
+    if not add_user(username, hash_password(password), "user"):
         return HTMLResponse(
             render_register_page(f"用户 '{username}' 已存在", username=username)
         )
-
-    add_user(username, hash_password(password), "user")
     return HTMLResponse(
         render_register_page("注册成功，请返回登录页登录", success=True, username=username)
     )
@@ -193,6 +199,20 @@ async def register_user(request: Request):
 @app.get("/health")
 async def health():
     return {"status": "ok"}
+
+
+@app.get("/health/ready")
+async def readiness():
+    """数据库就绪检查：SQLite 连接异常时返回 HTTP 503。"""
+    try:
+        get_conn().execute("SELECT 1").fetchone()
+        return {"status": "ready", "database": "ok"}
+    except Exception as exc:
+        return Response(
+            content=f'{{"status":"not_ready","database":"error","detail":"{type(exc).__name__}"}}',
+            status_code=503,
+            media_type="application/json",
+        )
 
 
 # ============================== 强制深色主题 ==============================
@@ -633,7 +653,6 @@ if __name__ == "__main__":
         print(f"[自检] 权重校验失败，服务拒绝启动：\n{exc}", file=sys.stderr)
         sys.exit(1)
 
-    init_db()
     host, port = _resolve_bind()
     print(f"启动服务: http://{host}:{port}")
     uvicorn.run(app="main:app", host=host, port=port, reload=False)

@@ -164,6 +164,10 @@ python run.py --input_folder ./test_images/old --output_folder ./output --GPU 0
 | `FIXIMG_ARCHIVE_TTL` | `604800` | 归档照片保留秒数 |
 | `FIXIMG_DDCOLOR_MODEL` | `weights/ddcolor/pytorch_model.pt` | DDColor 权重路径 |
 | `FIXIMG_REGISTER_MAX` / `_GLOBAL_MAX` / `_USERNAME_MAX` | `5/20/3` | 注册限流阈值 |
+| `FIXIMG_REGISTER_WINDOW` | `600` | 注册限流窗口秒数 |
+| `FIXIMG_TRUSTED_PROXIES` | 空 | 允许读取 `X-Forwarded-For` 的代理 IP，逗号分隔。默认不信任转发头，仅当对端地址在此白名单内时使用 |
+
+`GET /health` 返回存活状态；`GET /health/ready` 额外检查 SQLite 连接，数据库异常时返回 HTTP 503。
 
 ## 6. 输入输出示例
 
