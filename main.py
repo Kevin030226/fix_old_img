@@ -1,4 +1,4 @@
-"""旧照片修复系统 —— Web 服务入口（Gradio 6 + FastAPI + SQLite 重写版）。
+"""旧照片修复系统 —— Web 服务入口（Gradio 6 + FastAPI + SQLite）。
 
 运行：
     python main.py

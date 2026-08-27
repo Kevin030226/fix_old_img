@@ -1,4 +1,4 @@
-"""后台管理面板（重写：Gradio 6 + SQLite）。
+"""后台管理面板（Gradio 6 + SQLite）。
 
 所有后台回调在函数入口做服务端角色校验（_require_admin），
 不依赖前端 Tab 隐藏；角色从数据库实时读取。

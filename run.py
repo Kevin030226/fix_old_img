@@ -1,4 +1,4 @@
-"""四阶段推理流水线 CLI（重写版）。
+"""四阶段推理流水线 CLI。
 
 由 Web 层以子进程方式调用，也可命令行独立使用：
     python run.py --input_folder ./test_images/old --output_folder ./output

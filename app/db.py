@@ -1,4 +1,4 @@
-"""SQLite 数据层（重写：替代 YAML/JSONL 文件存储）。
+"""SQLite 数据层（替代 YAML/JSONL 文件存储）。
 
 - users：用户表（密码仍为 pbkdf2 哈希，兼容原 users.yaml）
 - history：处理历史表（兼容原 processing_history.json）

@@ -1,4 +1,4 @@
-"""统一推理流水线（重写）。
+"""统一推理流水线。
 
 沿用原有的 Global / Face_Detection / Face_Enhancement 推理脚本，
 以子进程方式串行执行（隔离 cwd 与崩溃）；本模块负责请求隔离、
