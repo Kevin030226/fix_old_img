@@ -1,0 +1,43 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install ruff
+        run: pip install ruff
+      - name: Ruff lint (app/, scripts/, tests/, root modules)
+        run: ruff check app scripts tests main.py worker.py run.py
+
+  tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      matrix:
+        python-version: ["3.11"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+      # CPU-only torch keeps the CI fast; heavy weights are never downloaded —
+      # unit + integration tests stub model inference at the stage boundary.
+      - name: Install CPU torch
+        run: pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
+      - name: Install project dependencies
+        run: pip install -r requirements.txt
+      - name: Run tests (unit + integration)
+        env:
+          FIXIMG_SKIP_WEIGHT_CHECK: "1"
+          KMP_DUPLICATE_LIB_OK: "True"
+        run: python -m pytest -m "not gpu"

@@ -1,0 +1,60 @@
+# V2 deployment topology (plan section 28):
+#   api    -> FastAPI + Gradio (enqueues tasks only; FIXIMG_INLINE_WORKER=false)
+#   worker -> standalone GPU worker process (`python worker.py`), owns the models
+# Redis/Celery can later replace the DB-backed queue without touching stages.
+#
+#   docker compose up -d --build
+#   docker compose logs -f worker
+services:
+  api:
+    build: .
+    image: fixoldimg:latest
+    container_name: fixoldimg-api
+    environment:
+      FIXIMG_HOST: 0.0.0.0
+      FIXIMG_PORT: "9502"
+      FIXIMG_DEVICE: auto
+      # API process must NOT run GPU inference in this topology.
+      FIXIMG_INLINE_WORKER: "false"
+      # Tells the Gradio UI a worker process consumes the queue (async path).
+      FIXIMG_HAS_EXTERNAL_WORKER: "true"
+      # Bearer token required by every /api/v1/* route. When it is left unset a
+      # token is generated on first start and stored at admin_data/api_token.txt
+      # (the shared `db` volume keeps it stable across restarts).
+      # FIXIMG_API_TOKEN: "change-me"
+    ports:
+      - "9502:9502"
+    volumes:
+      - models:/app/weights
+      - db:/app/admin_data
+      - storage:/app/storage
+    restart: unless-stopped
+
+  worker:
+    build: .
+    image: fixoldimg:latest
+    container_name: fixoldimg-worker
+    command: ["python3", "worker.py"]
+    environment:
+      FIXIMG_DEVICE: auto
+      FIXIMG_WORKER_POLL: "0.5"
+      # Optional: FIXIMG_WORKER_ID must be unique when scaling workers > 1.
+      # FIXIMG_WORKER_ID: worker-gpu0
+    volumes:
+      - models:/app/weights
+      - db:/app/admin_data
+      - storage:/app/storage
+    restart: unless-stopped
+    # GPU access for the worker (uncomment if the API container needs it too):
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: all
+    #           capabilities: [gpu]
+
+volumes:
+  models:
+  db:
+  storage:

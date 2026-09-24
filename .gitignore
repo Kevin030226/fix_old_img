@@ -25,6 +25,12 @@ admin_data/
 runs/
 logs/
 *.log
+# V2 task storage: <year>/<month>/<task_id>/{input,stages,output}
+# Holds user-uploaded photos and their restored results — never commit.
+storage/
+output/
+# Upstream training logs left inside the checkpoint tree by the weights download
+Global/checkpoints/**/*.txt
 
 # ---------- Credentials (never commit) ----------
 config/users.yaml
@@ -36,6 +42,9 @@ config/users.yaml
 *.yaml.tmp
 *.yaml.lock
 config/*.lock
+# Stray HTTP responses / API dumps accidentally saved at the repo root
+dd_api.json
+hf_api.json
 
 # ---------- IDE / system ----------
 .idea/
@@ -48,6 +57,12 @@ Thumbs.db
 .arts/
 .codeartsdoer/
 .workbuddy/
+# WorkBuddy project data (agent memory/logs; contains local paths — keep local)
+.workbuddy-ai/
+.freebuff/
+# Tool caches (they also self-ignore, but be explicit)
+.pytest_cache/
+.ruff_cache/
 
 # ---------- Smoke tests / temporary artifacts (do not commit) ----------
 test_images/gpu_smoke_*/

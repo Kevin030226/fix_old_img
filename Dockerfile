@@ -32,19 +32,21 @@ RUN pip install torch==2.7.1 torchvision==0.22.1 torchaudio==2.7.1 \
 # Project dependencies (dlib builds from source on Linux, ~5-10 minutes)
 RUN pip install -r requirements.txt
 
-# Download all weights (BOB restoration chain + DDColor colorization)
-RUN bash scripts/download_weights.sh
+# Download all weights (BOB restoration chain + DDColor colorization) and
+# rebuild the integrity manifest (plan §19: python entrypoints, resume support)
+RUN python3 -m scripts.download_weights download
 
-# If config/users.yaml is not provided, create the default admin admin/admin123 (please change it after deployment)
-RUN if [ ! -f config/users.yaml ]; then \
-      python3 -c "from config.security import hash_password; import yaml; \
-      yaml.safe_dump({'users': {'admin': {'password': hash_password('admin123'), 'role': 'admin'}}}, \
-      open('config/users.yaml','w',encoding='utf-8'), allow_unicode=True)"; \
-    fi
+# Admin credentials are NOT baked into the image (plan §21): on first start the
+# app reads FIXIMG_ADMIN_PASSWORD when provided, otherwise it generates a random
+# one-time password, prints it once in the container log and stores it at
+# admin_data/initial_admin_password.txt (mode 0600). Change it immediately.
 
-# The weight sources inside the container may differ from local ones; regenerate based on the actual files and verify the integrity manifest
-RUN python3 -m config.weights_check generate && python3 -m config.weights_check verify
+# The JSON API (/api/v1/*) is bearer-token protected: set FIXIMG_API_TOKEN to
+# pin the token at deploy time, otherwise the app generates one on first start,
+# prints it once and stores it at admin_data/api_token.txt (mode 0600).
+
+# The weight sources inside the container may differ from local ones; regenerate the manifest from the actual files and verify it
+RUN python3 -m scripts.download_weights generate && python3 -m scripts.verify_weights
 
 EXPOSE 9502
 CMD ["python3", "main.py"]
-

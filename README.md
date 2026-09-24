@@ -1,4 +1,4 @@
-﻿<!--
+<!--
   fix_old_img — Deep Learning Old Photo Restoration, Scratch Repair & Colorization
   English (default). See README_CN.md for the Chinese version.
 -->
@@ -9,7 +9,7 @@
 **Old Photo Restoration, Scratch Repair & Colorization System**
 
 [![Python 3.11](https://img.shields.io/badge/Python-3.11-blue?logo=python&logoColor=white)](https://www.python.org/)
-[![PyTorch](https://img.shields.io/badge/PyTorch-2.7.1%2Bcu128-ee4c2c?logo=pytorch&logoColor=white)](https://pytorch.org/)
+[![PyTorch](https://img.shields.io/badge/PyTorch-2.7.1%2Bcu128-ee4c2c?logo=pytorch&logoColor=white)](https://www.pytorch.org/)
 [![Gradio](https://img.shields.io/badge/Gradio-6.22-orange?logo=gradio&logoColor=white)](https://gradio.app/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.141-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
@@ -72,10 +72,13 @@ This system provides a complete pipeline to address these issues: **overall qual
 ### 2.3 Platform Capabilities
 
 - User login (PBKDF2 hash, constant-time comparison) and public registration (IP/global/username triple rate limiting);
-- Health check endpoints `GET /health` (liveness) and `GET /health/ready` (database readiness, HTTP 503 on failure);
+- Health check endpoints `GET /health` (liveness) and `GET /health/ready` (database readiness + model manager state, HTTP 503 on failure);
+- V2 task API `POST/GET /api/v1/tasks` (queued execution, progress, cancel, result & report download; every `/api/v1/*` route requires a bearer token);
+- DB-backed task queue with a dedicated GPU worker: inline thread by default (`FIXIMG_INLINE_WORKER=true`), or a standalone `python worker.py` process for the api+worker docker-compose topology; tasks left running by a crashed worker are requeued automatically;
+- `scripts/migrate_v1.py` migrates legacy `history` rows into the V2 `tasks` tables (dry-run by default, `--apply` to write);
 - Weight integrity self-check at startup (SHA-256 manifest; refuses to start if missing or tampered);
-- Per-request directory isolation + result TTL reclamation;
-- SQLite storage (users/history), automatic migration from legacy users.yaml / JSONL on first start;
+- Structured run directories under `storage/tasks/` with `report.json` per run;
+- SQLite storage (users/history + V2 tasks/task_stages/artifacts/metrics), automatic migration from legacy users.yaml / JSONL on first start;
 - Dark-themed UI with automatic admin/user interface differentiation.
 
 ## 3. Technologies Used
@@ -111,10 +114,6 @@ The restoration chain (overall quality restoration / scratch detection & repair 
   <img src="docs/upstream/bob-global.png" width="100%">
 </p>
 
-**Scratch Detection**
-
-> The scratch detection model is trained with labeled data and outputs a binary mask (white = scratches). For high-resolution inputs, the scratch-repair chain uses non-local mapping with Multi-Scale Patch Attention to recover a clean image from heavily cracked photos.
-
 <p align="center">
   <img src="docs/upstream/bob-scratch-detection.png" width="100%">
 </p>
@@ -122,6 +121,10 @@ The restoration chain (overall quality restoration / scratch detection & repair 
 <p align="center">
   <img src="docs/upstream/bob-hr-result.png" width="100%">
 </p>
+
+**Scratch Detection**
+
+> The scratch detection model is trained with labeled data and outputs a binary mask (white = scratches). For high-resolution inputs, the scratch-repair chain uses non-local mapping with Multi-Scale Patch Attention to recover a clean image from heavily cracked photos.
 
 **Face Detection & Face Enhancement**
 
@@ -194,14 +197,15 @@ conda install -n fixoldimg-gpu -c https://mirrors.tuna.tsinghua.edu.cn/anaconda/
     --override-channels -y dlib=20.0.1
 
 # 5. Download model weights (BOB restoration chain + DDColor, ~1.5GB)
-bash scripts/download_weights.sh
+#    (plan §19: python entrypoints, resume support, manifest with versions)
+python -m scripts.download_weights download
 
 # 6. If weights differ from the repo manifest, regenerate and verify
-python -m config.weights_check generate
-python -m config.weights_check verify
+python -m scripts.download_weights generate
+python -m scripts.verify_weights
 ```
 
-> Note: `config/users.yaml` is automatically migrated to SQLite (`admin_data/fixoldimg.db`). If this file is missing, no accounts exist after startup; restore from backup or create users via the admin panel.
+> Note: `config/users.yaml` is automatically migrated to SQLite (`admin_data/fixoldimg.db`). If this file is missing, the first-boot admin bootstrap (§21) creates the initial `admin` account — see the Docker section above.
 
 ### 4.2 Docker (Linux + NVIDIA GPU)
 
@@ -210,7 +214,18 @@ docker build -t fixoldimg .
 docker run --gpus all -p 9502:9502 fixoldimg
 ```
 
-The image installs dependencies, downloads all weights, creates a default admin account (`admin/admin123`) and rebuilds the weight manifest. dlib is compiled from source on first build (about 5–10 minutes).
+Or the V2 two-service topology (the API only enqueues; a separate worker process owns the GPU and models):
+
+```bash
+docker compose up -d --build   # api + worker (see docker-compose.yml)
+docker compose logs -f worker
+```
+
+The image installs dependencies, downloads all weights and rebuilds the weight manifest. dlib is compiled from source on first build (about 5–10 minutes).
+
+**Admin credentials (plan §21):** the image no longer contains any fixed password. On the first start the app reads `FIXIMG_ADMIN_PASSWORD` when provided (e.g. from a Docker secret); otherwise it generates a random one-time password, prints it **once** in the container log and stores it at `admin_data/initial_admin_password.txt` (mode 0600). Change it immediately after the first login. Set `FIXIMG_AUTO_BOOTSTRAP_ADMIN=false` to disable this bootstrap entirely.
+
+**Forced password change (plan §21):** the randomly generated admin account is created with a `must_change_password` flag. While the flag is set, task submission is blocked with a clear message, the Admin Panel shows an "Account" tab with a change-password form, and until the password is replaced the banner keeps prompting. Saving a new password clears the flag; passwords injected via `FIXIMG_ADMIN_PASSWORD` are treated as deployment-managed and do not force a change.
 
 ## 5. Usage
 
@@ -244,7 +259,75 @@ Admin users only see the "Admin Panel"; normal users can use the four image proc
 5. Wait for completion (about 1–60 s per image on GPU depending on module and size), inspect results and metrics;
 6. Admins can view task history, photo archives and manage users in the "Admin Panel".
 
-### 5.3 CLI Batch Processing
+### 5.3 V2 Task API
+
+Every `/api/v1/*` endpoint requires the API token as a bearer credential
+(`/health` and `/health/ready` stay public for probes). The Gradio UI is not
+affected: it calls the service layer in process.
+
+```bash
+# The token comes from FIXIMG_API_TOKEN, or from the file generated on first
+# start (printed once in the console / container log).
+export FIXIMG_API_TOKEN=$(cat admin_data/api_token.txt)
+AUTH="Authorization: Bearer $FIXIMG_API_TOKEN"
+
+# Create a task (queued; executed by the inference pipeline asynchronously)
+curl -X POST http://127.0.0.1:9502/api/v1/tasks -H "$AUTH" -F type=restore -F image=@photo.png
+
+# With options (JSON object; known keys: hr, face_enhance, auto_colorize)
+curl -X POST http://127.0.0.1:9502/api/v1/tasks \
+    -H "$AUTH" -F type=restore -F image=@photo.png -F 'options={"hr": true}'
+
+# Auto Restore (plan §10/§11 Phase 7): the ImageAnalyzer derives the pipeline
+# from the photo (grayscale / scratches / faces / blur) automatically
+curl -X POST http://127.0.0.1:9502/api/v1/tasks -H "$AUTH" -F type=auto_restore -F image=@photo.png
+
+# Ground Truth evaluation (plan §16): attach a reference photo to get LPIPS
+# against it (real lpips/VGG when installed, Laplacian surrogate otherwise)
+curl -X POST http://127.0.0.1:9502/api/v1/tasks \
+    -H "$AUTH" -F type=restore -F image=@photo.png -F ground_truth=@reference.png
+
+# Poll status / progress / current stage. For restore / restore_scratch /
+# auto_restore tasks the report also carries no-reference quality indicators
+# (plan §16) and face identity preservation (plan §17: Face Count / Enhanced
+# Faces / Identity Similarity).
+curl -H "$AUTH" http://127.0.0.1:9502/api/v1/tasks/<task_id>
+
+# Cancel a queued task / fetch result / fetch stage report
+curl -X POST -H "$AUTH" http://127.0.0.1:9502/api/v1/tasks/<task_id>/cancel
+curl -O -H "$AUTH" http://127.0.0.1:9502/api/v1/tasks/<task_id>/result
+curl -H "$AUTH" http://127.0.0.1:9502/api/v1/tasks/<task_id>/report
+
+# Performance stats: success rate + per-stage P50/P95 + model load times /
+# GPU memory peak (plan section 30)
+curl -H "$AUTH" 'http://127.0.0.1:9502/api/v1/stats?days=7'
+```
+
+### 5.4 GPU Worker Deployment
+
+Tasks submitted to `/api/v1/tasks` are consumed by the GPU worker. Two topologies:
+
+- **Inline (default)** — the API process runs a worker thread (`FIXIMG_INLINE_WORKER=true`); simplest for single-machine use.
+- **Standalone** — set `FIXIMG_INLINE_WORKER=false` and run a separate process; models load once in the worker regardless of how many uvicorn workers serve HTTP:
+
+```bash
+FIXIMG_INLINE_WORKER=false python main.py   # terminal 1: API only
+python worker.py                            # terminal 2: GPU worker
+```
+
+`GET /health/ready` reports the active topology, queue depth and worker state; running tasks left behind by a crashed worker are requeued automatically (checked about once a minute).
+
+### 5.5 V1 → V2 Data Migration
+
+```bash
+python -m scripts.migrate_v1                               # dry-run: report only, no writes
+python -m scripts.migrate_v1 --apply                       # perform the migration
+python -m scripts.migrate_v1 --apply --register-artifacts  # also register input/output files
+```
+
+The script copies legacy `history` rows into the V2 `tasks` table (psnr/ssim/mae become metric records with the `input_output_difference` reference type). It is idempotent and safe to re-run.
+
+### 5.6 CLI Batch Processing
 
 ```bash
 # Restoration without scratches
@@ -262,12 +345,19 @@ python run.py --input_folder ./test_images/old --output_folder ./output --GPU 0
 
 The output directory contains `final_output/` (final results), per-stage intermediates and `pipeline_report.json` (degradation report).
 
-### 5.4 Environment Variables
+### 5.7 Environment Variables
 
 | Variable | Default | Description |
 | --- | --- | --- |
 | `FIXIMG_HOST` | `127.0.0.1` | Bind address (`0.0.0.0` for LAN/container) |
 | `FIXIMG_PORT` | `9502` | Listen port |
+| `FIXIMG_DEVICE` | `auto` | Inference device (`auto`/`cuda`/`cpu`) |
+| `FIXIMG_MAX_IMAGE_SIDE` | `4096` | Max accepted long-side pixels |
+| `FIXIMG_INLINE_WORKER` | `true` | Run the DB-queue worker inside the API process (`false` = standalone `python worker.py`) |
+| `FIXIMG_WORKER_POLL` | `0.5` | Worker queue polling interval (seconds) |
+| `FIXIMG_WORKER_MAX_QUEUE` | `100` | Max queued tasks before new submissions return 503 (`0` = unlimited) |
+| `FIXIMG_HAS_EXTERNAL_WORKER` | `false` | Set `true` when a standalone worker consumes the queue, so the Gradio UI uses the async path |
+| `FIXIMG_MAX_UPLOAD_MB` | `10` | API upload size limit (HTTP 413 above it) |
 | `FIXIMG_RESULT_TTL` | `7200` | Inference result retention (seconds) |
 | `FIXIMG_HISTORY_MAX` | `2000` | History record cap |
 | `FIXIMG_ARCHIVE_TTL` | `604800` | Archived photo retention (seconds) |
@@ -275,11 +365,22 @@ The output directory contains `final_output/` (final results), per-stage interme
 | `FIXIMG_COLORIZE_TTL` | `7200` | Colorization result retention (seconds) |
 | `FIXIMG_DDCOLOR_INPUT_SIZE` | `512` | DDColor input size |
 | `FIXIMG_DDCOLOR_MODEL_SIZE` | `large` | DDColor model size (large/medium) |
+| `FIXIMG_TILE_SIZE` / `FIXIMG_TILE_OVERLAP` | `1536` / `128` | High-res tile inference (plan §18); images whose long side exceeds `FIXIMG_TILE_SIZE` are split into overlapping tiles and feather-blended. `0` disables tiling |
 | `FIXIMG_REGISTER_MAX` / `_GLOBAL_MAX` / `_USERNAME_MAX` | `5/20/3` | Registration rate limits |
 | `FIXIMG_REGISTER_WINDOW` | `600` | Registration rate-limit window (seconds) |
 | `FIXIMG_TRUSTED_PROXIES` | empty | Proxy IPs allowed to read `X-Forwarded-For`, comma-separated. Forwarded headers are untrusted by default; used only when the peer address is in this allowlist |
+| `FIXIMG_AUTO_GRAYSCALE_SAT` | `16` | Auto Restore: mean saturation below which a photo counts as B&W |
+| `FIXIMG_AUTO_SHARP_LAPLACIAN` | `120` | Auto Restore: Laplacian variance considered fully sharp |
+| `FIXIMG_AUTO_SCRATCH_THRESHOLD` | `0.5` | Auto Restore: scratch score at/above which scratch repair runs |
+| `FIXIMG_AUTO_BLUR_THRESHOLD` | `0.5` | Auto Restore: blur score flagged as blurry input |
+| `FIXIMG_IDENTITY_BACKEND` | `auto` | Face identity metric backend (plan §17): `auto` (dlib ResNet when weights present, else lightweight fallback), `fallback`, `off` |
+| `FIXIMG_ADMIN_USERNAME` | `admin` | Bootstrap admin account name (plan §20) |
+| `FIXIMG_API_TOKEN` | generated (0600 file) | Bearer token required by every `/api/v1/*` route. When unset, a token is generated on first start, printed once and stored at `admin_data/api_token.txt`. Health probes stay public |
+| `FIXIMG_REDIS_URL` | empty | Optional Redis connection (plan §22, P3). When set — and the `redis` package is installed — registration rate limiting is shared across processes; empty keeps the in-process limiter |
 
-`GET /health` returns liveness; `GET /health/ready` additionally checks the SQLite connection and returns HTTP 503 on database errors.
+`GET /health` returns liveness; `GET /health/ready` additionally checks the SQLite connection plus model-manager and worker/queue state, returning HTTP 503 on database errors. `GET /api/v1/stats?days=N` aggregates task success rate and per-stage P50/P95 durations.
+
+The Gradio UI uses the async path too: submit buttons enqueue a task and stream a per-stage progress bar (plan sections 23/24). When no queue consumer is reachable, the UI automatically falls back to synchronous execution to preserve the V1 experience; set `FIXIMG_HAS_EXTERNAL_WORKER=true` when running the standalone `worker.py` so the UI uses the queue.
 
 ## 6. Input/Output Examples
 
@@ -314,36 +415,53 @@ More test samples are in `examples/` (`old/`, `old_w_scratch/`, `color/`) and `t
 ## 7. Project Structure
 
 ```
-Face_Detection/      # dlib 68-point landmarks & warp-back
-Face_Enhancement/    # Progressive face enhancement model
-Global/              # Overall restoration & scratch detection models
-app/                 # Application layer (db / pipeline / colorizer / admin_panel)
-basicsr/             # Minimal BasicSR subset for DDColor
-config/              # Config & security (ratelimit / weights_check / users)
-ddcolor/             # DDColor colorization model
-docs/                # Example & showcase images
-examples/            # Web example images
-scripts/             # Install & weight download scripts
-test_images/         # CLI test images
-Dockerfile           # NVIDIA CUDA 12.8 container image
-LICENSE              # MIT license (this project)
-LICENSE-Bringing-Old-Photos-Back-to-Life  # MIT license for BOB models
-README.md            # Documentation (English)
-README_CN.md         # Documentation (Chinese)
-THIRD_PARTY_NOTICES.md  # Third-party components & licenses
-main.py              # Web service entry
-requirements.lock    # pip freeze lock file
-requirements.txt     # Python dependencies
-run.py               # Four-stage pipeline CLI
-.gitignore           # Git ignore list
-.dockerignore        # Docker build exclusion list
+main.py                # Web service entry (thin; wiring lives in app/factory.py)
+worker.py              # Standalone GPU worker process (DB-backed task queue)
+run.py                 # Four-stage pipeline CLI (legacy-compatible entry)
+app/
+├── api/               # FastAPI routers (auth / tasks / users / health)
+├── ui/                # Gradio blocks, auth pages, HTML middleware, admin panel
+├── services/          # task / artifact / evaluation / user / history services
+├── inference/         # V2 core: stages / model_manager / planner / orchestrator / worker
+│   └── stages/        # BaseStage + global_restore / scratch / face / colorization
+├── repositories/      # SQL access (user_repository / task_repository)
+├── core/              # config (Settings) / security / logging / exceptions
+├── schemas/           # shared dataclasses (TaskView ...)
+├── db.py              # legacy SQLite layer (users/history + V1 migration)
+└── factory.py         # create_app(): FastAPI + routers + middleware + Gradio
+config/                # ratelimit / security / weights_check / weights manifest
+storage/tasks/         # V2 artifact storage: <year>/<month>/<task_id>/{input,stages,output,report.json}
+Global/                # Overall restoration & scratch detection models
+Face_Detection/        # dlib 68-point landmarks & warp-back
+Face_Enhancement/      # Progressive face enhancement model
+ddcolor/               # DDColor colorization model
+basicsr/               # Minimal BasicSR subset for DDColor
+tests/                 # unit / integration / gpu tests (pytest; gpu tests need CUDA + weights, run `pytest -m gpu`)
+scripts/               # Install, weight download & V1→V2 migration scripts
+docs/                  # Example & showcase images
+examples/              # Web example images
+test_images/           # CLI test images
+Dockerfile             # NVIDIA CUDA 12.8 container image
+docker-compose.yml     # Two-service deployment (API + GPU worker)
 ```
 
 > Top-level entries are listed above; see the source tree for the full structure and per-file details.
+
+### Testing
+
+```bash
+python -m pytest                 # unit + integration (gpu tests auto-skip)
+python -m pytest -m "not gpu"    # explicitly exclude GPU tests (CI default)
+python -m pytest -m gpu          # only GPU tests (need CUDA + DDColor weights)
+ruff check app scripts tests main.py worker.py
+```
+
+Evaluation outputs include the plan §16 families: input-output difference (PSNR/SSIM/MAE), no-reference indicators (sharpness/contrast/brightness/noise), optional natural-scene statistics (NIQE, BRISQUE-style features, color statistics), face identity preservation (§17) and — when a reference photo is attached — Ground-Truth LPIPS (§16).
+
 ## 8. FAQ
 
 **Q1: "Weight integrity check failed" at startup**
-Weights are missing or hashes mismatch. Run `bash scripts/download_weights.sh` to fetch them, then run `python -m config.weights_check generate` to regenerate the manifest (also needed when local weights differ from the repo manifest).
+Weights are missing or hashes mismatch. Run `python -m scripts.download_weights download` to fetch them, then run `python -m scripts.download_weights generate` to regenerate the manifest (also needed when local weights differ from the repo manifest).
 
 **Q2: CUDA unavailable / sm_120 incompatible**
 Make sure torch 2.7.1+cu128 or newer is installed (RTX 50 series requires the cu128 build); older cu121 builds do not support Blackwell.

@@ -1,0 +1,33 @@
+# Ruff configuration (plan §29: lint gate in CI).
+# Kept deliberately minimal: correctness rules + obvious hygiene, no style churn.
+target-version = "py311"
+line-length = 110
+
+[lint]
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes
+    "B",   # bugbear (common bug patterns)
+    "UP",  # pyupgrade
+    "SIM", # simplification
+]
+ignore = [
+    "E501",  # long lines are tolerated (JSON logs, SQL strings)
+    "B008",  # FastAPI Depends()/Form() in defaults is idiomatic
+    "SIM105", # contextlib.suppress less readable than try/except here
+    "SIM117", # nested with-statements kept for clarity
+]
+
+[lint.per-file-ignores]
+# Legacy vendored V1 pipeline code — out of refactor scope.
+"basicsr/**" = ["E", "W", "F", "B", "UP", "SIM"]
+"ddcolor/**" = ["E", "W", "F", "B", "UP", "SIM"]
+"Face_Detection/**" = ["E", "W", "F", "B", "UP", "SIM"]
+"Face_Enhancement/**" = ["E", "W", "F", "B", "UP", "SIM"]
+"Global/**" = ["E", "W", "F", "B", "UP", "SIM"]
+# Tests: fixtures with unused args / long literals are fine.
+"tests/**" = ["SIM"]
+
+[format]
+quote-style = "preserve"

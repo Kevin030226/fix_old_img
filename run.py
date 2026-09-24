@@ -13,9 +13,19 @@ import sys
 
 IMAGE_EXTS = (".png", ".jpg", ".jpeg", ".bmp", ".webp")
 
+#: Machine-readable progress marker consumed by GlobalRestoreStage, which
+#: streams this process' stdout and maps the step onto the task progress bar.
+#: Format: "<PREFIX> <step>/<total> <label>" — kept out of the human log.
+PROGRESS_PREFIX = "@@FIXIMG_PROGRESS"
+
 
 class StageError(RuntimeError):
     """Raised when a pipeline stage exits with a non-zero code."""
+
+
+def emit_progress(step, total, label):
+    """Announce pipeline progress to the parent process (see PROGRESS_PREFIX)."""
+    print(f"{PROGRESS_PREFIX} {step}/{total} {label}", flush=True)
 
 
 def run_cmd(args, cwd=None, stage=""):
@@ -72,6 +82,7 @@ def main():
     os.makedirs(opts.output_folder, exist_ok=True)
 
     print("path 1/4: overall quality restoration")
+    emit_progress(1, 4, "overall quality restoration")
     stage_1_output_dir = os.path.join(opts.output_folder, "stage_1_restore_output")
     os.makedirs(stage_1_output_dir, exist_ok=True)
 
@@ -124,6 +135,7 @@ def main():
     print("path 1: success!\n")
 
     print("path 2/4: face detection")
+    emit_progress(2, 4, "face detection")
     stage_2_output_dir = os.path.join(opts.output_folder, "stage_2_detection_output")
     os.makedirs(stage_2_output_dir, exist_ok=True)
     detect_script = "detect_all_dlib_HR.py" if opts.HR else "detect_all_dlib.py"
@@ -146,6 +158,7 @@ def main():
         degrade_reason = "no_face_detected"
     else:
         print("path 3/4: face enhancement")
+        emit_progress(3, 4, "face enhancement")
         stage_3_output_dir = os.path.join(opts.output_folder, "stage_3_face_output")
         os.makedirs(stage_3_output_dir, exist_ok=True)
         checkpoint = "FaceSR_512" if opts.HR else opts.checkpoint_name
@@ -175,6 +188,7 @@ def main():
         print("path 3: success!\n")
 
         print("path 4/4: warp-back transformation")
+        emit_progress(4, 4, "warp-back transformation")
         stage_4_output_dir = os.path.join(opts.output_folder, "final_output")
         os.makedirs(stage_4_output_dir, exist_ok=True)
         warp_script = (
@@ -196,6 +210,9 @@ def main():
         degrade_reason = "face_enhance_missing"
 
     os.chdir(main_environment)
+    # Final marker: paths 3/4 are skipped when no face is detected, so the bar
+    # would otherwise stall at 2/4 until the stage finishes.
+    emit_progress(4, 4, "finalizing")
     stage_4_output_dir = os.path.join(opts.output_folder, "final_output")
     os.makedirs(stage_4_output_dir, exist_ok=True)
     produced = set(list_images(stage_4_output_dir))

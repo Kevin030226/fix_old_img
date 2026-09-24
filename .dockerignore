@@ -1,14 +1,21 @@
 .git
 .gitignore
 .workbuddy
+.workbuddy-ai
 .arts
 .codeartsdoer
+.freebuff
+.pytest_cache
+.ruff_cache
 __pycache__
 *.pyc
 *.log
 output_img
 user_upload_images
 admin_data
+# Runtime task storage: user-uploaded photos and results — must not enter the image
+storage
+output
 weights
 *.pth
 *.pt

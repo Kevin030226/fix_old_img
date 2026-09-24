@@ -39,3 +39,8 @@ einops==0.8.1
 # ---- Basics ----
 PyYAML==6.0.3
 filelock==3.16.1
+
+# ---- V2 testing ----
+pytest>=8.0
+httpx>=0.27          # fastapi.testclient (integration tests)
+ruff>=0.6            # lint gate (CI installs it explicitly too)

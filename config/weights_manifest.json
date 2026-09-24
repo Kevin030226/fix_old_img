@@ -1,123 +1,182 @@
 {
   "algorithm": "sha256",
-  "generated_at": "2026-08-08T14:39:44.782801+00:00",
-  "file_count": 29,
+  "generated_at": "2026-09-24T12:02:34.494371+00:00",
+  "file_count": 25,
   "files": [
     {
       "path": "Face_Detection/shape_predictor_68_face_landmarks.dat",
-      "sha256": "fbdc2cb80eb9aa7a758672cbfdda32ba6300efe9b6e6c7a299ff7e736b11b92f"
-    },
-    {
-      "path": "Face_Enhancement/checkpoints/FaceSR_512/latest_net_G.pth",
-      "sha256": "3b3dc71f29cc98a61d9a7ccc48f329726feca19b67c2d3710b69b2deb96aef22"
+      "sha256": "fbdc2cb80eb9aa7a758672cbfdda32ba6300efe9b6e6c7a299ff7e736b11b92f",
+      "size_bytes": 99693937,
+      "artifact": "face_detection",
+      "version": "1.0"
     },
     {
       "path": "Face_Enhancement/checkpoints/Setting_9_epoch_100/latest_net_G.pth",
-      "sha256": "eaafe424c22225891f60e672f331e14521bef870e6ce490f988ce6ada4068569"
+      "sha256": "eaafe424c22225891f60e672f331e14521bef870e6ce490f988ce6ada4068569",
+      "size_bytes": 368738923,
+      "artifact": "face_restore",
+      "version": "1.0"
     },
     {
       "path": "Global/checkpoints/detection/FT_Epoch_latest.pt",
-      "sha256": "b2d7ab04e9b3885c6b1991bb7a0b823129dd6e3ac078a9fd059ebd2a7ba59a95"
-    },
-    {
-      "path": "Global/checkpoints/restoration/VAE_A_quality/latest_net_D.pth",
-      "sha256": "9dc693d9430cdf62e6a2a0e140625ad43426e43b38302afab2720561e61629df"
-    },
-    {
-      "path": "Global/checkpoints/restoration/VAE_A_quality/latest_net_G.pth",
-      "sha256": "de39b6d0081746995afd2393a94a11a10ae052fd9484b4fb06b7fa6bd28dcf5d"
-    },
-    {
-      "path": "Global/checkpoints/restoration/VAE_A_quality/latest_net_featD.pth",
-      "sha256": "24cfb20648f52d454f8ab3f6c31323e1ae46348334139141ccc16fbf817abf82"
-    },
-    {
-      "path": "Global/checkpoints/restoration/VAE_A_quality/latest_optimizer_D.pth",
-      "sha256": "23c154620cf57c9874b11baeb79406bc3f24afec7c1494046e83653c83d5dc84"
-    },
-    {
-      "path": "Global/checkpoints/restoration/VAE_A_quality/latest_optimizer_G.pth",
-      "sha256": "b9a84773dad2b877c69f514b5690353016da24803efb953a30bfdd3acb2b03b0"
-    },
-    {
-      "path": "Global/checkpoints/restoration/VAE_A_quality/latest_optimizer_featD.pth",
-      "sha256": "8e80ceba67a0a50149dc1b00636987a6e3f2e88555d612ae88a44b9a786a2b54"
-    },
-    {
-      "path": "Global/checkpoints/restoration/VAE_B_quality/latest_net_D.pth",
-      "sha256": "5badf02e2ee96f74636bc0c02b92b315b83c927d49bdbe7cb163613ed9c5dc5a"
-    },
-    {
-      "path": "Global/checkpoints/restoration/VAE_B_quality/latest_net_G.pth",
-      "sha256": "0e40d6ea7acf27f1420abd29197086c21d0c2a7b8fe98a9e09c60a339457a830"
-    },
-    {
-      "path": "Global/checkpoints/restoration/VAE_B_quality/latest_optimizer_D.pth",
-      "sha256": "5d60fc7c0a6f5dfeaa2a98b4afb59a552ea41cc370c260ac640d12a7b64d71cc"
-    },
-    {
-      "path": "Global/checkpoints/restoration/VAE_B_quality/latest_optimizer_G.pth",
-      "sha256": "603e46ce9aec73a0e385b90d3410cedfe5dcd3256ee4f7b12e1f6eee6d894fb3"
-    },
-    {
-      "path": "Global/checkpoints/restoration/VAE_B_scratch/latest_net_D.pth",
-      "sha256": "63a72c03537bfe061f24d6497e995f544215fa768f204575646ad7ef195b903b"
-    },
-    {
-      "path": "Global/checkpoints/restoration/VAE_B_scratch/latest_net_G.pth",
-      "sha256": "e22bd7274229beaabf27427646d4623c7b5a302829dd9d466514ff639ba40f6a"
-    },
-    {
-      "path": "Global/checkpoints/restoration/VAE_B_scratch/latest_optimizer_D.pth",
-      "sha256": "413edec10026fbd9b94f89b03d46c84e191bbea4d1c4e57acbc5d7d771ecbecb"
-    },
-    {
-      "path": "Global/checkpoints/restoration/VAE_B_scratch/latest_optimizer_G.pth",
-      "sha256": "e45d80c7ff0a6065be95ebdc583d962f222ba26de0af0ac0a610b637dcaae221"
-    },
-    {
-      "path": "Global/checkpoints/restoration/mapping_Patch_Attention/latest_net_D.pth",
-      "sha256": "76228629177a342a95793a4dcf4b3810b00d64f2a918ebe46c27d5740ac3fff6"
-    },
-    {
-      "path": "Global/checkpoints/restoration/mapping_Patch_Attention/latest_net_mapping_net.pth",
-      "sha256": "15f7a145b4eb94565d2f5988f6ca9948d04cef1599f4ca6eb99429e7d2c7d783"
+      "sha256": "b2d7ab04e9b3885c6b1991bb7a0b823129dd6e3ac078a9fd059ebd2a7ba59a95",
+      "size_bytes": 451663663,
+      "artifact": "global_restore",
+      "version": "1.0"
     },
     {
       "path": "Global/checkpoints/restoration/mapping_quality/latest_net_D.pth",
-      "sha256": "619fb1391d32a930bfef1f09f36ed9eaa7868af32d827cb022cea50a25345d4c"
+      "sha256": "619fb1391d32a930bfef1f09f36ed9eaa7868af32d827cb022cea50a25345d4c",
+      "size_bytes": 22146393,
+      "artifact": "global_restore",
+      "version": "1.0"
     },
     {
       "path": "Global/checkpoints/restoration/mapping_quality/latest_net_mapping_net.pth",
-      "sha256": "bb193cc0c82a6f4ed1c746beec5366c8a1e4a1b8dad3c83148afd0f93814624b"
+      "sha256": "bb193cc0c82a6f4ed1c746beec5366c8a1e4a1b8dad3c83148afd0f93814624b",
+      "size_bytes": 144549781,
+      "artifact": "global_restore",
+      "version": "1.0"
     },
     {
       "path": "Global/checkpoints/restoration/mapping_quality/latest_optimizer_D.pth",
-      "sha256": "776741c0d226674a5eb5b620c097f54da33d81cb41561a1e6b248cc711834c8b"
+      "sha256": "776741c0d226674a5eb5b620c097f54da33d81cb41561a1e6b248cc711834c8b",
+      "size_bytes": 44290799,
+      "artifact": "global_restore",
+      "version": "1.0"
     },
     {
       "path": "Global/checkpoints/restoration/mapping_quality/latest_optimizer_mapping_net.pth",
-      "sha256": "8089a1d0126784648649c2cf79ce517ff8a937526edaafaad6293090261fedb6"
+      "sha256": "8089a1d0126784648649c2cf79ce517ff8a937526edaafaad6293090261fedb6",
+      "size_bytes": 289093935,
+      "artifact": "global_restore",
+      "version": "1.0"
+    },
+    {
+      "path": "Global/checkpoints/restoration/mapping_scratch/iter.txt",
+      "sha256": "943d5f529591532f35a029fa5cb6817ce98ddb1b5c9c91f33cf8f378a890cff0",
+      "size_bytes": 6,
+      "artifact": "global_restore",
+      "version": "1.0"
     },
     {
       "path": "Global/checkpoints/restoration/mapping_scratch/latest_net_D.pth",
-      "sha256": "6a3ebb451229f0ffcabeee7f5fadf749b758fc6f4c4f4847f4fa145826cc4a56"
+      "sha256": "6a3ebb451229f0ffcabeee7f5fadf749b758fc6f4c4f4847f4fa145826cc4a56",
+      "size_bytes": 22281214,
+      "artifact": "global_restore",
+      "version": "1.0"
     },
     {
       "path": "Global/checkpoints/restoration/mapping_scratch/latest_net_mapping_net.pth",
-      "sha256": "a63f9e33802a262fa62b160785fa3c53166f3d1449046ad9afc742848e195578"
+      "sha256": "a63f9e33802a262fa62b160785fa3c53166f3d1449046ad9afc742848e195578",
+      "size_bytes": 205392667,
+      "artifact": "global_restore",
+      "version": "1.0"
     },
     {
       "path": "Global/checkpoints/restoration/mapping_scratch/latest_optimizer_D.pth",
-      "sha256": "b6aa331e4438c2845eb61b48a8483b8ce92a598b6a5ad39a26e22bbb136a8ac5"
+      "sha256": "b6aa331e4438c2845eb61b48a8483b8ce92a598b6a5ad39a26e22bbb136a8ac5",
+      "size_bytes": 44290839,
+      "artifact": "global_restore",
+      "version": "1.0"
     },
     {
-      "path": "Global/checkpoints/restoration/mapping_scratch/latest_optimizer_mapping_net.pth",
-      "sha256": "4ab84a0aacb687cb6fe35870bca2b27201a8a34ed1f753c1e0c8eba0865e278e"
+      "path": "Global/checkpoints/restoration/VAE_A_quality/latest_net_D.pth",
+      "sha256": "9dc693d9430cdf62e6a2a0e140625ad43426e43b38302afab2720561e61629df",
+      "size_bytes": 22121817,
+      "artifact": "global_restore",
+      "version": "1.0"
+    },
+    {
+      "path": "Global/checkpoints/restoration/VAE_A_quality/latest_net_G.pth",
+      "sha256": "de39b6d0081746995afd2393a94a11a10ae052fd9484b4fb06b7fa6bd28dcf5d",
+      "size_bytes": 3498887,
+      "artifact": "global_restore",
+      "version": "1.0"
+    },
+    {
+      "path": "Global/checkpoints/restoration/VAE_A_quality/latest_net_featD.pth",
+      "sha256": "24cfb20648f52d454f8ab3f6c31323e1ae46348334139141ccc16fbf817abf82",
+      "size_bytes": 11310935,
+      "artifact": "global_restore",
+      "version": "1.0"
+    },
+    {
+      "path": "Global/checkpoints/restoration/VAE_A_quality/latest_optimizer_D.pth",
+      "sha256": "23c154620cf57c9874b11baeb79406bc3f24afec7c1494046e83653c83d5dc84",
+      "size_bytes": 44241647,
+      "artifact": "global_restore",
+      "version": "1.0"
+    },
+    {
+      "path": "Global/checkpoints/restoration/VAE_A_quality/latest_optimizer_G.pth",
+      "sha256": "b9a84773dad2b877c69f514b5690353016da24803efb953a30bfdd3acb2b03b0",
+      "size_bytes": 6990137,
+      "artifact": "global_restore",
+      "version": "1.0"
+    },
+    {
+      "path": "Global/checkpoints/restoration/VAE_A_quality/latest_optimizer_featD.pth",
+      "sha256": "8e80ceba67a0a50149dc1b00636987a6e3f2e88555d612ae88a44b9a786a2b54",
+      "size_bytes": 22620608,
+      "artifact": "global_restore",
+      "version": "1.0"
+    },
+    {
+      "path": "Global/checkpoints/restoration/VAE_B_quality/latest_net_D.pth",
+      "sha256": "5badf02e2ee96f74636bc0c02b92b315b83c927d49bdbe7cb163613ed9c5dc5a",
+      "size_bytes": 22121817,
+      "artifact": "global_restore",
+      "version": "1.0"
+    },
+    {
+      "path": "Global/checkpoints/restoration/VAE_B_quality/latest_net_G.pth",
+      "sha256": "0e40d6ea7acf27f1420abd29197086c21d0c2a7b8fe98a9e09c60a339457a830",
+      "size_bytes": 3498887,
+      "artifact": "global_restore",
+      "version": "1.0"
+    },
+    {
+      "path": "Global/checkpoints/restoration/VAE_B_scratch/latest_net_D.pth",
+      "sha256": "63a72c03537bfe061f24d6497e995f544215fa768f204575646ad7ef195b903b",
+      "size_bytes": 22121817,
+      "artifact": "global_restore",
+      "version": "1.0"
+    },
+    {
+      "path": "Global/checkpoints/restoration/VAE_B_scratch/latest_net_G.pth",
+      "sha256": "e22bd7274229beaabf27427646d4623c7b5a302829dd9d466514ff639ba40f6a",
+      "size_bytes": 3498887,
+      "artifact": "global_restore",
+      "version": "1.0"
+    },
+    {
+      "path": "Global/checkpoints/restoration/VAE_B_scratch/latest_optimizer_D.pth",
+      "sha256": "413edec10026fbd9b94f89b03d46c84e191bbea4d1c4e57acbc5d7d771ecbecb",
+      "size_bytes": 44241647,
+      "artifact": "global_restore",
+      "version": "1.0"
+    },
+    {
+      "path": "Global/checkpoints/restoration/VAE_B_scratch/latest_optimizer_G.pth",
+      "sha256": "e45d80c7ff0a6065be95ebdc583d962f222ba26de0af0ac0a610b637dcaae221",
+      "size_bytes": 6990137,
+      "artifact": "global_restore",
+      "version": "1.0"
+    },
+    {
+      "path": "weights/yunet/face_detection_yunet_2023mar.onnx",
+      "sha256": "8f2383e4dd3cfbb4553ea8718107fc0423210dc964f9f4280604804ed2552fa4",
+      "size_bytes": 232589,
+      "artifact": "yunet_face_detector",
+      "version": "1.0"
     },
     {
       "path": "weights/ddcolor/pytorch_model.pt",
-      "sha256": "17c460d7e55b32a598370621d77173be59e03c24b0823f06821db23a50c263ce"
+      "sha256": "17c460d7e55b32a598370621d77173be59e03c24b0823f06821db23a50c263ce",
+      "size_bytes": 911950059,
+      "artifact": "ddcolor",
+      "version": "1.0"
     }
   ]
 }

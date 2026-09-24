@@ -3,6 +3,11 @@
 - users: user table (passwords remain pbkdf2 hashes, compatible with the old users.yaml)
 - history: processing history table (compatible with the old processing_history.json)
 - On first startup, automatically migrates from config/users.yaml and admin_data/processing_history.json
+
+V2 note: this module remains the low-level connection owner; the repositories
+layer (app/repositories/) is the only sanctioned access path for new code.
+The V2 tasks/task_stages/artifacts/metrics tables live in
+app/repositories/task_repository.py using the same database file.
 """
 import json
 import os
@@ -30,7 +35,9 @@ CREATE TABLE IF NOT EXISTS users (
     username   TEXT PRIMARY KEY,
     password   TEXT NOT NULL,
     role       TEXT NOT NULL DEFAULT 'user',
-    created_at TEXT NOT NULL
+    created_at TEXT NOT NULL,
+    status     TEXT NOT NULL DEFAULT 'active',
+    updated_at TEXT
 );
 CREATE TABLE IF NOT EXISTS history (
     id          TEXT PRIMARY KEY,
@@ -64,9 +71,35 @@ def init_db():
     with _write_lock:
         conn = get_conn()
         conn.executescript(_SCHEMA)
+        _migrate_users_schema(conn)
         conn.commit()
         _migrate_users(conn)
         _migrate_history(conn)
+
+
+def _migrate_users_schema(conn):
+    """V2 plan section 14: add status/updated_at to pre-existing users tables."""
+    cols = {r["name"] for r in conn.execute("PRAGMA table_info(users)")}
+    if "status" not in cols:
+        conn.execute(
+            "ALTER TABLE users ADD COLUMN status TEXT NOT NULL DEFAULT 'active'"
+        )
+    if "updated_at" not in cols:
+        conn.execute("ALTER TABLE users ADD COLUMN updated_at TEXT")
+    if "must_change_password" not in cols:
+        conn.execute(
+            "ALTER TABLE users ADD COLUMN must_change_password INTEGER NOT NULL DEFAULT 0"
+        )
+
+
+def set_must_change_password(username: str, flag: bool) -> None:
+    """Plan section 21: force (or clear) the change-password requirement."""
+    with _write_lock:
+        get_conn().execute(
+            "UPDATE users SET must_change_password=?, updated_at=? WHERE username=?",
+            (1 if flag else 0, datetime.now().strftime("%Y-%m-%d %H:%M:%S"), username),
+        )
+        get_conn().commit()
 
 
 def get_user(username):
@@ -104,10 +137,14 @@ def update_user(username, password_hash=None, role=None):
         conn = get_conn()
         if password_hash is not None:
             conn.execute(
-                "UPDATE users SET password=? WHERE username=?", (password_hash, username)
+                "UPDATE users SET password=?, must_change_password=0, updated_at=? WHERE username=?",
+                (password_hash, datetime.now().strftime("%Y-%m-%d %H:%M:%S"), username),
             )
         if role is not None:
-            conn.execute("UPDATE users SET role=? WHERE username=?", (role, username))
+            conn.execute(
+                "UPDATE users SET role=?, updated_at=? WHERE username=?",
+                (role, datetime.now().strftime("%Y-%m-%d %H:%M:%S"), username),
+            )
         conn.commit()
 
 
@@ -227,7 +264,7 @@ def _migrate_users(conn):
     try:
         import yaml
 
-        with open(LEGACY_USERS_YAML, "r", encoding="utf-8") as f:
+        with open(LEGACY_USERS_YAML, encoding="utf-8") as f:
             data = yaml.safe_load(f) or {}
         users = data.get("users") or {}
         created = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -277,7 +314,7 @@ def _migrate_history(conn):
     if not os.path.exists(LEGACY_HISTORY_FILE):
         return
     try:
-        with open(LEGACY_HISTORY_FILE, "r", encoding="utf-8") as f:
+        with open(LEGACY_HISTORY_FILE, encoding="utf-8") as f:
             content = f.read().strip()
         if not content:
             return
@@ -302,4 +339,3 @@ def _migrate_history(conn):
         print(f"[Migration] imported {len(records)} history records to SQLite")
     except Exception as exc:  # noqa: BLE001
         print("[Migration] history import failed (skipped):", exc)
-

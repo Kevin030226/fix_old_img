@@ -72,10 +72,13 @@
 ### 2.3 平台能力
 
 - 用户登录（pbkdf2 哈希、常量时间比对）与公开注册（IP/全局/用户名三重限流）；
-- 健康检查接口 `GET /health`（存活）与 `GET /health/ready`（数据库就绪，异常时返回 503）；
+- 健康检查接口 `GET /health`（存活）与 `GET /health/ready`（数据库就绪 + 模型/worker 状态，异常时返回 503）；
+- V2 任务 API `POST/GET /api/v1/tasks`（异步执行、进度、取消、结果与报告下载；所有 `/api/v1/*` 接口均需 Bearer token）；
+- 基于数据库的任务队列与独立 GPU worker：默认内联线程（`FIXIMG_INLINE_WORKER=true`），也可用独立进程 `python worker.py`（api+worker 双服务 compose 拓扑）；worker 崩溃遗留的 running 任务会自动重新入队；
+- `scripts/migrate_v1.py` 将旧版 `history` 记录迁入 V2 `tasks` 表（默认 dry-run，`--apply` 才写入）；
 - 启动时权重完整性自检（SHA-256 清单，缺失或篡改拒绝启动）；
-- 请求级目录隔离 + 结果 TTL 自动回收；
-- SQLite 存储（用户/历史），首次启动自动从旧版 users.yaml / JSONL 迁移；
+- 请求级目录隔离（`storage/tasks/` 结构化产物目录）+ 结果 TTL 自动回收；
+- SQLite 存储（用户/历史 + V2 tasks/task_stages/artifacts/metrics），首次启动自动从旧版 users.yaml / JSONL 迁移；
 - 深色主题界面，管理员/普通用户界面自动区分。
 
 ## 3. 使用的技术
@@ -195,14 +198,15 @@ conda install -n fixoldimg-gpu -c https://mirrors.tuna.tsinghua.edu.cn/anaconda/
     --override-channels -y dlib=20.0.1
 
 # 5. 下载模型权重（BOB 修复链路 + DDColor 上色，约 1.5GB）
-bash scripts/download_weights.sh
+#    （方案 §19：python 入口、断点续传、带版本号的清单）
+python -m scripts.download_weights download
 
 # 6. 若权重来源与仓库清单不同，重新生成并校验
-python -m config.weights_check generate
-python -m config.weights_check verify
+python -m scripts.download_weights generate
+python -m scripts.verify_weights
 ```
 
-> 注意：`config/users.yaml` 会被自动迁移到 SQLite（`admin_data/fixoldimg.db`）。若该文件缺失，服务启动后没有任何账号，请从备份恢复或使用管理端添加。
+> 注意：`config/users.yaml` 会被自动迁移到 SQLite（`admin_data/fixoldimg.db`）。若该文件缺失，首启动引导（§21）会自动创建初始 `admin` 账号——参见上方 Docker 小节。
 
 ### 4.2 Docker（Linux + NVIDIA GPU）
 
@@ -211,7 +215,18 @@ docker build -t fixoldimg .
 docker run --gpus all -p 9502:9502 fixoldimg
 ```
 
-镜像会自动安装依赖、下载全部权重、生成默认管理员账号（`admin/admin123`）并重建权重清单。首次构建时 dlib 为源码编译，耗时约 5-10 分钟。
+或使用 V2 双服务拓扑（API 只入队；独立 worker 进程独占 GPU 与模型）：
+
+```bash
+docker compose up -d --build   # api + worker（见 docker-compose.yml）
+docker compose logs -f worker
+```
+
+镜像会自动安装依赖、下载全部权重并重建权重清单。首次构建时 dlib 为源码编译，耗时约 5-10 分钟。
+
+**管理员凭据（方案 §21）：** 镜像不再内置任何固定密码。首次启动时应用会优先读取 `FIXIMG_ADMIN_PASSWORD`（例如来自 Docker secret）；若未设置，则自动生成随机一次性密码，在容器日志中**仅打印一次**，并写入 `admin_data/initial_admin_password.txt`（权限 0600）。首次登录后请立即修改。设置 `FIXIMG_AUTO_BOOTSTRAP_ADMIN=false` 可完全关闭该引导机制。
+
+**强制修改密码（方案 §21）：** 随机生成的 admin 账号会带上 `must_change_password` 标记。标记未清除前，提交任务会被拦截并给出明确提示，管理面板的「Account」标签页提供改密表单并持续显示横幅提醒。保存新密码后标记自动清除；通过 `FIXIMG_ADMIN_PASSWORD` 注入的密码视为部署方管理，不触发强制修改。
 
 ## 5. 使用方法
 
@@ -245,7 +260,71 @@ python main.py
 5. 等待处理完成（GPU 环境单张约 1-60 秒，取决于模块与图片大小），查看结果与指标；
 6. 管理员可在"管理面板"查看任务记录、照片档案并管理用户。
 
-### 5.3 命令行批量处理
+### 5.3 V2 任务 API
+
+所有 `/api/v1/*` 接口都要求以 Bearer 方式携带 API token（`/health`、`/health/ready`
+保持公开以便探针使用）。Gradio 界面不受影响——它直接调用进程内服务层。
+
+```bash
+# token 来自 FIXIMG_API_TOKEN，或首次启动时生成的文件（控制台/容器日志仅打印一次）
+export FIXIMG_API_TOKEN=$(cat admin_data/api_token.txt)
+AUTH="Authorization: Bearer $FIXIMG_API_TOKEN"
+
+# 创建任务（异步；由推理流水线执行）
+curl -X POST http://127.0.0.1:9502/api/v1/tasks -H "$AUTH" -F type=restore -F image=@photo.png
+
+# 带 options（JSON 对象；可用键：hr、face_enhance、auto_colorize，§12 已接线生效）
+curl -X POST http://127.0.0.1:9502/api/v1/tasks \
+    -H "$AUTH" -F type=restore -F image=@photo.png -F 'options={"face_enhance": true}'
+
+# 一键自动修复（方案 §10/§11 Phase 7）：由 ImageAnalyzer 依据照片特征
+# （黑白/划痕/人脸/模糊）自动编排流水线
+curl -X POST http://127.0.0.1:9502/api/v1/tasks -H "$AUTH" -F type=auto_restore -F image=@photo.png
+
+# 有 Ground Truth 评估（方案 §16）：附上参考照片即可获得与其对比的 LPIPS
+# （安装了 lpips 包用 VGG 真实模型，否则使用拉普拉斯金字塔代理）
+curl -X POST http://127.0.0.1:9502/api/v1/tasks \
+    -H "$AUTH" -F type=restore -F image=@photo.png -F ground_truth=@reference.png
+
+# 轮询状态 / 进度 / 当前阶段。restore / restore_scratch / auto_restore 任务的
+# 报告中还会包含无参考质量指标（方案 §16）与人脸身份保持（方案 §17：
+# Face Count / Enhanced Faces / Identity Similarity）。
+curl -H "$AUTH" http://127.0.0.1:9502/api/v1/tasks/<task_id>
+
+# 取消排队中的任务 / 下载结果 / 下载阶段报告
+curl -X POST -H "$AUTH" http://127.0.0.1:9502/api/v1/tasks/<task_id>/cancel
+curl -O -H "$AUTH" http://127.0.0.1:9502/api/v1/tasks/<task_id>/result
+curl -H "$AUTH" http://127.0.0.1:9502/api/v1/tasks/<task_id>/report
+
+# 性能统计：成功率 + 各阶段 P50/P95 + 模型加载耗时 / GPU 显存峰值（方案 §30）
+curl -H "$AUTH" 'http://127.0.0.1:9502/api/v1/stats?days=7'
+```
+
+### 5.4 GPU Worker 部署
+
+提交到 `/api/v1/tasks` 的任务由 GPU worker 消费，两种拓扑：
+
+- **内联（默认）**：API 进程内以线程运行 worker（`FIXIMG_INLINE_WORKER=true`），单机部署最简单；
+- **独立进程**：设 `FIXIMG_INLINE_WORKER=false` 并单独运行 worker 进程；模型只在 worker 进程加载一次，与 HTTP 服务进程数无关：
+
+```bash
+FIXIMG_INLINE_WORKER=false python main.py   # 终端 1：仅 API
+python worker.py                            # 终端 2：GPU worker
+```
+
+`GET /health/ready` 会报告当前拓扑、队列深度与 worker 状态；worker 崩溃遗留的 running 任务约每分钟检查一次并自动重新入队。
+
+### 5.5 V1 → V2 数据迁移
+
+```bash
+python -m scripts.migrate_v1                               # dry-run：仅报告，不写入
+python -m scripts.migrate_v1 --apply                       # 执行迁移
+python -m scripts.migrate_v1 --apply --register-artifacts  # 同时登记输入/输出文件
+```
+
+脚本将旧版 `history` 记录复制到 V2 `tasks` 表（psnr/ssim/mae 转为 `input_output_difference` 参照类型的指标记录）。脚本幂等，可重复执行。
+
+### 5.6 命令行批量处理
 
 ```bash
 # 不带划痕的旧照片复原
@@ -263,12 +342,19 @@ python run.py --input_folder ./test_images/old --output_folder ./output --GPU 0
 
 输出目录包含 `final_output/`（最终结果）、各阶段中间产物与 `pipeline_report.json`（降级报告）。
 
-### 5.4 常用环境变量
+### 5.7 常用环境变量
 
 | 变量 | 默认值 | 说明 |
 | --- | --- | --- |
 | `FIXIMG_HOST` | `127.0.0.1` | 监听地址（局域网访问设为 `0.0.0.0`） |
 | `FIXIMG_PORT` | `9502` | 监听端口 |
+| `FIXIMG_DEVICE` | `auto` | 推理设备（`auto`/`cuda`/`cpu`） |
+| `FIXIMG_MAX_IMAGE_SIDE` | `4096` | 接受的图片长边上限（像素） |
+| `FIXIMG_INLINE_WORKER` | `true` | 在 API 进程内运行队列 worker（`false` = 独立 `python worker.py`） |
+| `FIXIMG_WORKER_POLL` | `0.5` | worker 队列轮询间隔（秒） |
+| `FIXIMG_WORKER_MAX_QUEUE` | `100` | 队列积压上限，超限后新提交返回 503（`0` = 不限制） |
+| `FIXIMG_HAS_EXTERNAL_WORKER` | `false` | 有独立 worker 消费队列时设为 `true`，Gradio UI 走异步路径 |
+| `FIXIMG_MAX_UPLOAD_MB` | `10` | API 上传大小上限（超过返回 HTTP 413） |
 | `FIXIMG_RESULT_TTL` | `7200` | 推理产物保留秒数 |
 | `FIXIMG_HISTORY_MAX` | `2000` | 历史记录上限 |
 | `FIXIMG_ARCHIVE_TTL` | `604800` | 归档照片保留秒数 |
@@ -276,11 +362,22 @@ python run.py --input_folder ./test_images/old --output_folder ./output --GPU 0
 | `FIXIMG_COLORIZE_TTL` | `7200` | 上色结果保留秒数 |
 | `FIXIMG_DDCOLOR_INPUT_SIZE` | `512` | DDColor 输入尺寸 |
 | `FIXIMG_DDCOLOR_MODEL_SIZE` | `large` | DDColor 模型规格（large/medium） |
+| `FIXIMG_TILE_SIZE` / `FIXIMG_TILE_OVERLAP` | `1536` / `128` | 高分辨率分块推理（方案 §18）：长边超过 `FIXIMG_TILE_SIZE` 的图片自动切块推理后羽化合并，`0` 表示禁用 |
 | `FIXIMG_REGISTER_MAX` / `_GLOBAL_MAX` / `_USERNAME_MAX` | `5/20/3` | 注册限流阈值 |
 | `FIXIMG_REGISTER_WINDOW` | `600` | 注册限流窗口秒数 |
 | `FIXIMG_TRUSTED_PROXIES` | 空 | 允许读取 `X-Forwarded-For` 的代理 IP，逗号分隔。默认不信任转发头，仅当对端地址在此白名单内时使用 |
+| `FIXIMG_AUTO_GRAYSCALE_SAT` | `16` | Auto Restore：平均饱和度低于该值视为黑白照片 |
+| `FIXIMG_AUTO_SHARP_LAPLACIAN` | `120` | Auto Restore：拉普拉斯方差达到该值视为清晰 |
+| `FIXIMG_AUTO_SCRATCH_THRESHOLD` | `0.5` | Auto Restore：划痕得分达到该值启用划痕修复 |
+| `FIXIMG_AUTO_BLUR_THRESHOLD` | `0.5` | Auto Restore：模糊得分达到该值标记为模糊输入 |
+| `FIXIMG_IDENTITY_BACKEND` | `auto` | 人脸身份保持指标后端（方案 §17）：`auto`（有 dlib 权重则用 ResNet，否则轻量回退）、`fallback`、`off` |
+| `FIXIMG_ADMIN_USERNAME` | `admin` | 引导创建的管理员账号名（方案 §20） |
+| `FIXIMG_API_TOKEN` | 自动生成（0600 文件） | 所有 `/api/v1/*` 接口所需的 Bearer token。未设置时首次启动自动生成、打印一次并写入 `admin_data/api_token.txt`；健康探针保持公开 |
+| `FIXIMG_REDIS_URL` | 空 | 可选 Redis 连接（方案 §22/P3）。设置后（且安装 `redis` 包）注册限流跨进程共享；留空保持进程内限流 |
 
-`GET /health` 返回存活状态；`GET /health/ready` 额外检查 SQLite 连接，数据库异常时返回 HTTP 503。
+`GET /health` 返回存活状态；`GET /health/ready` 额外检查 SQLite 连接以及模型管理器与 worker/队列状态，数据库异常时返回 HTTP 503。`GET /api/v1/stats?days=N` 聚合任务成功率与各阶段 P50/P95 耗时。
+
+Gradio 界面同样走异步路径：提交按钮入队任务并以阶段进度条流式展示（方案 §23/§24）。当没有可用的队列消费者时，UI 自动回退到同步执行以保持 V1 体验；运行独立 `worker.py` 时请设置 `FIXIMG_HAS_EXTERNAL_WORKER=true` 让 UI 使用队列。
 
 ## 6. 输入输出示例
 
@@ -318,21 +415,24 @@ python run.py --input_folder ./test_images/old --output_folder ./output --GPU 0
 Face_Detection/      # dlib 68 点人脸关键点检测与回卷
 Face_Enhancement/    # 渐进式人脸增强模型
 Global/              # 整体质量修复与划痕检测模型
-app/                 # 应用层（db / pipeline / colorizer / admin_panel）
+app/                 # 分层应用：api / ui / services / inference / repositories / core / schemas
 basicsr/             # DDColor 所需 BasicSR 最小子集
-config/              # 配置与安全（ratelimit / weights_check / users）
+config/              # 安全与限流（ratelimit / weights_check / users）
 ddcolor/             # DDColor 上色模型
 docs/                # 示例与展示图片
 examples/            # Web 示例图片
-scripts/             # 安装脚本与权重下载
+scripts/             # 安装、权重下载与 V1→V2 数据迁移脚本
+storage/tasks/       # V2 产物存储：<年>/<月>/<任务ID>/{input,stages,output,report.json}
 test_images/         # CLI 测试图片
 Dockerfile           # NVIDIA CUDA 12.8 容器镜像
+docker-compose.yml   # 双服务部署（API + GPU worker）
 LICENSE              # 本项目 MIT 许可
 LICENSE-Bringing-Old-Photos-Back-to-Life  # BOB 模型 MIT 许可
 README.md            # 项目文档（英文主文档）
 README_CN.md         # 项目文档（中文备份）
 THIRD_PARTY_NOTICES.md  # 第三方组件与许可
-main.py              # Web 服务入口
+main.py              # Web 服务入口（瘦身；装配逻辑在 app/factory.py）
+worker.py            # 独立 GPU worker 进程（数据库任务队列）
 requirements.lock    # pip freeze 锁定文件
 requirements.txt     # Python 依赖
 run.py               # 四阶段推理流水线 CLI
@@ -341,10 +441,21 @@ run.py               # 四阶段推理流水线 CLI
 ```
 
 > 以上为顶层目录与文件；完整树形结构与逐文件说明见仓库源码。
+
+### 测试
+
+```bash
+python -m pytest                 # 单元 + 集成（gpu 测试自动跳过）
+python -m pytest -m "not gpu"    # 显式排除 GPU 测试（CI 默认）
+python -m pytest -m gpu          # 仅跑 GPU 测试（需 CUDA + DDColor 权重）
+ruff check app scripts tests main.py worker.py
+```
+
+评估输出覆盖方案 §16 的各指标族：输入-输出差异（PSNR/SSIM/MAE）、无参考指标（清晰度/对比度/亮度/噪声）、可选自然场景统计（NIQE、BRISQUE 风格特征、色彩统计）、人脸身份保持（§17），以及附参考照片时的 Ground-Truth LPIPS（§16）。
 ## 8. 常见问题
 
 **Q1：启动提示"权重完整性校验失败"**
-权重缺失或哈希不符。运行 `bash scripts/download_weights.sh` 补齐，然后执行 `python -m config.weights_check generate` 重新生成清单（本地权重与仓库清单不一致时同样处理）。
+权重缺失或哈希不符。运行 `python -m scripts.download_weights download` 补齐，然后执行 `python -m scripts.download_weights generate` 重新生成清单（本地权重与仓库清单不一致时同样处理）。
 
 **Q2：CUDA 不可用 / 提示 sm_120 不兼容**
 请确认安装的是 torch 2.7.1+cu128 及以上（RTX 50 系需要 cu128 构建）；老版本 cu121 不支持 Blackwell 架构。

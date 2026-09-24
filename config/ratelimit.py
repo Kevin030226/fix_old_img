@@ -94,12 +94,19 @@ def client_ip(request):
 # Tunable via environment variables; defaults target single-process demo + intranet scenarios.
 REGISTER_WINDOW = int(os.environ.get("FIXIMG_REGISTER_WINDOW", 600))
 
-register_ip_limiter = SlidingWindowLimiter(
-    int(os.environ.get("FIXIMG_REGISTER_MAX", 5)), REGISTER_WINDOW
-)
-register_global_limiter = SlidingWindowLimiter(
-    int(os.environ.get("FIXIMG_REGISTER_GLOBAL_MAX", 20)), REGISTER_WINDOW
-)
-register_username_limiter = SlidingWindowLimiter(
-    int(os.environ.get("FIXIMG_REGISTER_USERNAME_MAX", 3)), REGISTER_WINDOW
-)
+# Plan section 22 / P3: when FIXIMG_REDIS_URL is set (and `redis` is
+# installed) the counters live in Redis so all API processes share one
+# allowance; otherwise the V1 in-process limiter is used as a fallback.
+def _make_limiter(max_count: int):
+    from app.core.config import settings
+
+    if (getattr(settings, "redis_url", "") or "").strip():
+        from app.services.rate_limit_backend import SharedSlidingWindowLimiter
+
+        return SharedSlidingWindowLimiter(max_count, REGISTER_WINDOW)
+    return SlidingWindowLimiter(max_count, REGISTER_WINDOW)
+
+
+register_ip_limiter = _make_limiter(int(os.environ.get("FIXIMG_REGISTER_MAX", 5)))
+register_global_limiter = _make_limiter(int(os.environ.get("FIXIMG_REGISTER_GLOBAL_MAX", 20)))
+register_username_limiter = _make_limiter(int(os.environ.get("FIXIMG_REGISTER_USERNAME_MAX", 3)))
