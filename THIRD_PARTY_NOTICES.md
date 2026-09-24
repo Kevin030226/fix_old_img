@@ -32,6 +32,7 @@ against the SHA-256 manifest in `config/weights_manifest.json`.
 | `weights/ddcolor/pytorch_model.pt` | ModelScope / HuggingFace (DDColor) | Apache License 2.0 |
 | `weights/yunet/face_detection_yunet_2023mar.onnx` | OpenCV Zoo (YuNet face detector) | Apache License 2.0 |
 | `Face_Detection/shape_predictor_68_face_landmarks.dat` | dlib.net (68-point facial landmark model) | dlib itself is Boost Software License, but **the pre-trained landmark model is restricted to research/non-commercial use** (trained on the iBUG 300-W dataset). Replace it before commercial deployment |
+| `Face_Detection/dlib_face_recognition_resnet_model_v1.dat` | dlib-models (128-D face embeddings, used for the plan §17 *Identity Similarity* metric) | The upstream model page states no additional restriction, but the network was trained on the FaceScrub and VGG Face datasets, whose own terms are academic/non-commercial — verify before commercial use |
 
 ## Sample and documentation images
 

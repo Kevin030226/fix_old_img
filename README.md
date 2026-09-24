@@ -198,7 +198,7 @@ pip install -r requirements.txt
 conda install -n fixoldimg-gpu -c https://mirrors.tuna.tsinghua.edu.cn/anaconda/cloud/conda-forge \
     --override-channels -y dlib=20.0.1
 
-# 5. Download model weights (BOB restoration chain + DDColor, ~1.5GB)
+# 5. Download model weights (BOB restoration chain + DDColor + dlib models, ~2.8 GB on disk)
 #    (plan §19: python entrypoints, resume support, manifest with versions)
 python -m scripts.download_weights download
 

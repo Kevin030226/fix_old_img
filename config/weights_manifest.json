@@ -1,13 +1,20 @@
 {
   "algorithm": "sha256",
-  "generated_at": "2026-09-24T12:02:34.494371+00:00",
-  "file_count": 25,
+  "generated_at": "2026-09-24T16:02:33.669248+00:00",
+  "file_count": 26,
   "files": [
     {
       "path": "Face_Detection/shape_predictor_68_face_landmarks.dat",
       "sha256": "fbdc2cb80eb9aa7a758672cbfdda32ba6300efe9b6e6c7a299ff7e736b11b92f",
       "size_bytes": 99693937,
       "artifact": "face_detection",
+      "version": "1.0"
+    },
+    {
+      "path": "Face_Detection/dlib_face_recognition_resnet_model_v1.dat",
+      "sha256": "55533b28a95800a551ba546ba62fe69625c7e95a7061c338adffead08719da30",
+      "size_bytes": 22466066,
+      "artifact": "face_recognition",
       "version": "1.0"
     },
     {

@@ -38,6 +38,17 @@ ARTIFACTS = {
         "sources": ["http://dlib.net/files/shape_predictor_68_face_landmarks.dat.bz2"],
         "kind": "bz2",
     },
+    # 128-D face embeddings for the plan §17 identity-preservation metric
+    # (app/inference/identity.py). Without it the metric falls back to the
+    # dependency-free gradient descriptor.
+    "face_recognition": {
+        "version": "1.0",
+        "files": ["Face_Detection/dlib_face_recognition_resnet_model_v1.dat"],
+        "sources": [
+            "http://dlib.net/files/dlib_face_recognition_resnet_model_v1.dat.bz2"
+        ],
+        "kind": "bz2",
+    },
     "face_restore": {
         "version": "1.0",
         "files": ["Face_Enhancement/checkpoints"],

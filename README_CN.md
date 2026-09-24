@@ -199,7 +199,7 @@ pip install -r requirements.txt
 conda install -n fixoldimg-gpu -c https://mirrors.tuna.tsinghua.edu.cn/anaconda/cloud/conda-forge \
     --override-channels -y dlib=20.0.1
 
-# 5. 下载模型权重（BOB 修复链路 + DDColor 上色，约 1.5GB）
+# 5. 下载模型权重（BOB 修复链路 + DDColor 上色 + dlib 模型，磁盘约 2.8 GB）
 #    （方案 §19：python 入口、断点续传、带版本号的清单）
 python -m scripts.download_weights download
 
