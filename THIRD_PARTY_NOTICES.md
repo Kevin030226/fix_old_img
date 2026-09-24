@@ -35,12 +35,17 @@ against the SHA-256 manifest in `config/weights_manifest.json`.
 
 ## Sample and documentation images
 
-- `test_images/old/*`, `test_images/old_w_scratch/*` — evaluation photos published by the
-  Bringing Old Photos Back to Life repository (byte-identical copies);
-- `docs/upstream/*` — README/pipeline illustrations of the upstream projects listed above
-  (a few are re-encoded to reduce size);
-- `examples/*` and `docs/examples/*` — demonstration assets used by the web UI
-  (input/output pairs produced with this pipeline).
+Every demonstration image is either an upstream asset or a derivative of one:
+
+| Path | Origin |
+| --- | --- |
+| `test_images/old/*` | Evaluation photos published by Bringing Old Photos Back to Life (byte-identical copies) |
+| `test_images/old_w_scratch/*` | Same upstream repository, scratch samples (byte-identical copies) |
+| `examples/old/*` | Copies/resizes of the upstream evaluation photos, used by the web UI example galleries |
+| `examples/old_w_scratch/*` | Byte-identical copies of the upstream scratch samples |
+| `examples/color/*` | Grayscale conversions of the upstream evaluation photos, used as colorization demo inputs |
+| `docs/upstream/*` | README/pipeline illustrations of the upstream projects listed above (a few are re-encoded to reduce size) |
+| `docs/examples/*` | Inputs taken from the rows above; output images produced by this project's pipeline on this machine |
 
 These images are included for documentation and demonstration purposes only and are
 not covered by this project's MIT license. If you redistribute this project or use it

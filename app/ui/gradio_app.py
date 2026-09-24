@@ -129,7 +129,7 @@ def build_demo() -> gr.Blocks:
                             label="Evaluation & automatic pipeline decisions", lines=3
                         )
                 gr.Examples(
-                    examples=[["./examples/old/a.png"], ["./examples/old/old_a.png"],
+                    examples=[["./examples/old/a.png"], ["./examples/old/g.png"],
                               ["./examples/old_w_scratch/a.png"]],
                     inputs=[input_image_auto],
                     label="Click an example to load it above",
@@ -157,14 +157,10 @@ def build_demo() -> gr.Blocks:
                             label="Difference metrics vs. degraded original (PSNR/SSIM/MAE)", lines=3
                         )
                 gr.Examples(
-                    examples=[["./examples/old/a.png"], ["./examples/old/old_a.png"],
-                              ["./examples/old/b.png"], ["./examples/old/old_f.png"],
-                              ["./examples/old/old_g.png"], ["./examples/old/old_h.png"],
-                              ["./examples/old/old_i.png"], ["./examples/old/old_b.png"],
-                              ["./examples/old/old_c.png"], ["./examples/old/d.png"],
-                              ["./examples/old/old_d.png"], ["./examples/old/e.png"],
-                              ["./examples/old/old_e.png"], ["./examples/old/f.png"],
-                              ["./examples/old/c.png"]],
+                    examples=[["./examples/old/a.png"], ["./examples/old/b.png"],
+                              ["./examples/old/c.png"], ["./examples/old/d.png"],
+                              ["./examples/old/e.png"], ["./examples/old/f.png"],
+                              ["./examples/old/g.png"], ["./examples/old/h.png"]],
                     inputs=[input_image_1],
                     label="Click an example to load it above"
                           "(samples are on a second page; expand it via 'Pages' below)",
