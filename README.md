@@ -9,10 +9,12 @@
 **Old Photo Restoration, Scratch Repair & Colorization System**
 
 [![Python 3.11](https://img.shields.io/badge/Python-3.11-blue?logo=python&logoColor=white)](https://www.python.org/)
-[![PyTorch](https://img.shields.io/badge/PyTorch-2.7.1%2Bcu128-ee4c2c?logo=pytorch&logoColor=white)](https://www.pytorch.org/)
+[![PyTorch](https://img.shields.io/badge/PyTorch-2.7.1%2Bcu128-ee4c2c?logo=pytorch&logoColor=white)](https://pytorch.org/)
 [![Gradio](https://img.shields.io/badge/Gradio-6.22-orange?logo=gradio&logoColor=white)](https://gradio.app/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.141-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+[![CI](https://github.com/Kevin030226/fix_old_img/actions/workflows/ci.yml/badge.svg)](https://github.com/Kevin030226/fix_old_img/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/Kevin030226/fix_old_img?sort=semver)](https://github.com/Kevin030226/fix_old_img/releases)
 
 **English** | [中文](./README_CN.md)
 
