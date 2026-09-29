@@ -3,14 +3,14 @@ import sqlite3
 
 import pytest
 
-from app.core.config import settings
+from fiximg.config import settings
 
 
 @pytest.fixture()
 def db_env(tmp_path, monkeypatch):
     """Fresh temp database with a legacy history table seeded."""
-    import app.db as legacy_db
-    import app.repositories.task_repository as task_repo
+    import fiximg.infrastructure.db.engine as legacy_db
+    import fiximg.infrastructure.db.repositories.task_repository as task_repo
 
     db_path = str(tmp_path / "migrate.db")
     monkeypatch.setattr(legacy_db, "DB_PATH", db_path)
@@ -38,8 +38,8 @@ def db_env(tmp_path, monkeypatch):
 
 def _run_migrate(monkeypatch, apply: bool):
     """Run the migration main() against the temp db; returns (stats, conn)."""
-    import app.db as legacy_db
-    import scripts.migrate_v1 as mig
+    import fiximg.infrastructure.db.engine as legacy_db
+    import fiximg.cli.migrate_v1 as mig
 
     argv_backup = __import__("sys").argv
     monkeypatch.setattr(
@@ -80,8 +80,10 @@ def test_apply_migrates_history(db_env, monkeypatch):
     assert rows["h1"]["status"] == "completed"
     assert rows["h1"]["user_id"] == "alice"
     assert rows["h1"]["input_path"] == "in1.png"
-    # Metrics copied with the V2 reference type; N/A/empty skipped.
-    assert metrics[("h1", "psnr")] == "20.5"
+    # Metrics copied with the V2 reference type; N/A/empty skipped. The V1
+    # history stored them as text, and the migration parses them into the typed
+    # column (plan §2.7).
+    assert metrics[("h1", "psnr")] == 20.5
     assert ("h2", "psnr") not in metrics
 
 

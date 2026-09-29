@@ -1,0 +1,102 @@
+# Model manifest (plan §3.5.2 / §6 ModelVersion)
+#
+# Declares the model versions this deployment expects, their weights, integrity
+# hashes and — most importantly — their *capabilities*. The planner and the
+# models API reason about capabilities, never about model names (§3.14.2).
+#
+# `sha256` is optional: when present, the runtime verifies the weight file
+# before loading (plan §3.5.2 "sha256 verify" step). Generate it with:
+#     python -m fiximg.cli.download_weights generate
+#
+# `device` accepts auto | cuda | cpu; `warmup` overrides the global
+# FIXIMG_WARMUP strategy per model.
+#
+# Inference optimisation (plan §3.5.4) is declared per model, never globally —
+# legacy checkpoints are frequently incompatible with half precision or
+# torch.compile, so each model opts in on its own:
+#
+#     precision: fp32 | fp16 | bf16    autocast dtype used on CUDA
+#     channels_last: true              memory-format optimisation
+#     compile: true                    torch.compile (opt-in; see §3.5.4 warning)
+#     compile_mode: default | reduce-overhead | max-autotune
+#
+# `torch.inference_mode()` is always applied — it has no compatibility risk.
+# Every optimisation degrades to eager fp32 when it fails, so a wrong
+# declaration costs speed, never availability.
+#
+# To override without editing this file: FIXIMG_PRECISION=fp32
+
+version: 1
+
+models:
+  ddcolor:
+    version: "1.0.0"
+    framework: pytorch
+    device: auto
+    weight: weights/ddcolor/pytorch_model.pt
+    input_size: 512
+    capabilities: [colorize]
+    warmup: first-use
+    # ConvNeXt-based and CUDA-only in practice: autocast is skipped on CPU, so
+    # declaring fp16 does not affect a CPU deployment.
+    precision: fp16
+    channels_last: true
+    compile: false
+    description: DDColor black-and-white image colorization (damo/cv_ddcolor_image-colorization)
+
+  global_restore:
+    version: "1.0.0"
+    # The quality path now runs in-process (fiximg.inference.backends.global_restore);
+    # the vendored CLI remains the fallback and still serves the scratch branch, so
+    # GET /api/v1/models reports the live value in `implementation`.
+    framework: pytorch
+    device: auto
+    # A checkpoint *directory*: this chain loads several networks (VAE A/B plus
+    # the mapping net), so integrity is verified over every weight beneath it.
+    checkpoint: Global/checkpoints/restoration
+    capabilities: [restore, deblur, denoise]
+    # The quality path is native now, so this line is read by
+    # fiximg.inference.backends.global_restore (fp32 = no autocast; the vendored
+    # chain it must stay byte-identical to runs fp32 too). Declaring
+    # channels_last/compile here is applied and reported - not ignored.
+    precision: fp32
+    warmup: lazy
+    description: Triplet-domain-translation overall quality restoration
+
+  scratch_repair:
+    version: "1.0.0"
+    # Same tree as global_restore, so a global-owning worker hosts both branches
+    # resident; the HR variant still runs on the adapter (its checkpoint is not
+    # shipped) and GET /api/v1/models reports the live `implementation`.
+    framework: pytorch
+    device: auto
+    # Spans detection (scratch mask) and restoration, so it is declared at the
+    # checkpoint root rather than one stage's subdirectory.
+    checkpoint: Global/checkpoints
+    capabilities: [restore, scratch_repair]
+    warmup: lazy
+    description: Scratch mask detection + joint scratch/quality restoration
+
+  face_detection:
+    version: "1.0.0"
+    # Neither torch nor inherently a subprocess: dlib owns this model. It can run
+    # in-process on any worker (Face_Detection/ declares no colliding packages),
+    # which is why its switch is separate from FIXIMG_NATIVE_TREE.
+    framework: dlib
+    device: cpu
+    weight: Face_Detection/shape_predictor_68_face_landmarks.dat
+    capabilities: [face_detection]
+    warmup: lazy
+    description: dlib 68-point face detection and alignment
+
+  face_enhancement:
+    version: "1.0.0"
+    # Resident on a worker that owns the Face_Enhancement tree
+    # (FIXIMG_NATIVE_TREE=face); HR selects FaceSR_512, which is not shipped, and
+    # stays on the adapter. `implementation` reports which one served.
+    framework: pytorch
+    device: auto
+    checkpoint: Face_Enhancement/checkpoints/Setting_9_epoch_100
+    capabilities: [face_restore, face_enhance]
+    warmup: lazy
+    description: Progressive face restoration for aligned crops

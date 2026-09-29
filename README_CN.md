@@ -195,17 +195,21 @@ pip install torch==2.7.1 torchvision==0.22.1 torchaudio==2.7.1 \
 # 3. 安装项目依赖（含 Gradio/FastAPI/OpenCV/DDColor 所需 timm 等）
 pip install -r requirements.txt
 
+# 3b. 让 `fiximg` 包可被导入（`python -m fiximg.*` 需要）
+#     也可用可编辑安装替代第 3 步：pip install -e ".[gpu,test]"
+pip install -e . --no-deps
+
 # 4. 安装 dlib 预编译包（conda-forge，无需本机编译工具链）
 conda install -n fixoldimg-gpu -c https://mirrors.tuna.tsinghua.edu.cn/anaconda/cloud/conda-forge \
     --override-channels -y dlib=20.0.1
 
 # 5. 下载模型权重（BOB 修复链路 + DDColor 上色 + dlib 模型，磁盘约 2.8 GB）
 #    （方案 §19：python 入口、断点续传、带版本号的清单）
-python -m scripts.download_weights download
+python -m fiximg.cli.download_weights download
 
 # 6. 若权重来源与仓库清单不同，重新生成并校验
-python -m scripts.download_weights generate
-python -m scripts.verify_weights
+python -m fiximg.cli.download_weights generate
+python -m fiximg.cli.verify_weights
 ```
 
 > 注意：`config/users.yaml` 会被自动迁移到 SQLite（`admin_data/fixoldimg.db`）。若该文件缺失，首启动引导（§21）会自动创建初始 `admin` 账号——参见上方 Docker 小节。
@@ -290,10 +294,11 @@ curl -X POST http://127.0.0.1:9502/api/v1/tasks \
 
 # 轮询状态 / 进度 / 当前阶段。restore / restore_scratch / auto_restore 任务的
 # 报告中还会包含无参考质量指标（方案 §16）与人脸身份保持（方案 §17：
-# Face Count / Enhanced Faces / Identity Similarity）。
+# Faces Detected (in)/(out) / Faces Compared / Identity Similarity，并标明所用
+# 描述子）。某个阶段放弃自身工作时其状态记为 "skipped"，任务整体仍然完成。
 curl -H "$AUTH" http://127.0.0.1:9502/api/v1/tasks/<task_id>
 
-# 取消排队中的任务 / 下载结果 / 下载阶段报告
+# 取消尚未结束的任务（排队中或执行中）/ 下载结果 / 下载阶段报告
 curl -X POST -H "$AUTH" http://127.0.0.1:9502/api/v1/tasks/<task_id>/cancel
 curl -O -H "$AUTH" http://127.0.0.1:9502/api/v1/tasks/<task_id>/result
 curl -H "$AUTH" http://127.0.0.1:9502/api/v1/tasks/<task_id>/report
@@ -319,9 +324,9 @@ python worker.py                            # 终端 2：GPU worker
 ### 5.5 V1 → V2 数据迁移
 
 ```bash
-python -m scripts.migrate_v1                               # dry-run：仅报告，不写入
-python -m scripts.migrate_v1 --apply                       # 执行迁移
-python -m scripts.migrate_v1 --apply --register-artifacts  # 同时登记输入/输出文件
+python -m fiximg.cli.migrate_v1                               # dry-run：仅报告，不写入
+python -m fiximg.cli.migrate_v1 --apply                       # 执行迁移
+python -m fiximg.cli.migrate_v1 --apply --register-artifacts  # 同时登记输入/输出文件
 ```
 
 脚本将旧版 `history` 记录复制到 V2 `tasks` 表（psnr/ssim/mae 转为 `input_output_difference` 参照类型的指标记录）。脚本幂等，可重复执行。
@@ -351,6 +356,9 @@ python run.py --input_folder ./test_images/old --output_folder ./output --GPU 0
 | `FIXIMG_HOST` | `127.0.0.1` | 监听地址（局域网访问设为 `0.0.0.0`） |
 | `FIXIMG_PORT` | `9502` | 监听端口 |
 | `FIXIMG_DEVICE` | `auto` | 推理设备（`auto`/`cuda`/`cpu`） |
+| `FIXIMG_NATIVE_TREE` | `global` | 本进程原生承载哪一棵 vendored 旧树（`global` / `face` / `none`）。`Global/` 与 `Face_Enhancement/` 声明同名顶层包，因此一个进程只能承载一棵；另一条链走 `python run.py` 子进程适配器。按 worker 设置（修复 worker 与人脸 worker）。每个阶段实际由哪个实现服务，会写进元数据并由 `GET /api/v1/models` 报告 |
+| `FIXIMG_TRACING` | `off` | 链路追踪后端（`off`/`sdk`/`otel`/`internal`）；`sdk` 需要 `pip install 'fiximg[otel]'`，并由部署方自行配置导出器 |
+| `FIXIMG_FACE_DETECT_NATIVE` | `true` | dlib 人脸检测也在进程内执行。默认开启：像素级等价测试（`tests/gpu/test_face_detect_equivalence.py`）要求进程内裁剪结果与适配器逐字节一致，并已在装有 dlib + `shape_predictor_68_face_landmarks.dat` 的环境通过；缺 dlib 或该模型时注册表自动回退到子进程适配器 |
 | `FIXIMG_MAX_IMAGE_SIDE` | `4096` | 接受的图片长边上限（像素） |
 | `FIXIMG_INLINE_WORKER` | `true` | 在 API 进程内运行队列 worker（`false` = 独立 `python worker.py`） |
 | `FIXIMG_WORKER_POLL` | `0.5` | worker 队列轮询间隔（秒） |
@@ -417,47 +425,60 @@ Gradio 界面同样走异步路径：提交按钮入队任务并以阶段进度�
 Face_Detection/      # dlib 68 点人脸关键点检测与回卷
 Face_Enhancement/    # 渐进式人脸增强模型
 Global/              # 整体质量修复与划痕检测模型
-app/                 # 分层应用：api / ui / services / inference / repositories / core / schemas
+src/fiximg/          # 分层应用：api / application / domain / inference / infrastructure / ui / cli
+│                    #   inference/versions.py 双版本驻留热切换；ui/history_panel.py 任务历史
+│                    #   inference/versions.py 双版本驻留热切换；ui/history_panel.py 任务历史
 basicsr/             # DDColor 所需 BasicSR 最小子集
-config/              # 安全与限流（ratelimit / weights_check / users）
+configs/             # base / local / docker / production 配置档案
+models/manifest.yaml # 模型版本、权重、哈希与能力声明
+benchmark/           # 延迟 / 吞吐 / 内存基准（默认使用合成阶段）
+docker/              # api/worker 独立镜像与 compose 编排
+migrations/versions/ # 有序 schema 迁移
+config/              # 权重清单与 users.yaml 示例（静态资源）
 ddcolor/             # DDColor 上色模型
-docs/                # 示例与展示图片
+docs/                # architecture.md / api.md / deployment.md 与展示图片
 examples/            # Web 示例图片
-scripts/             # 安装、权重下载与 V1→V2 数据迁移脚本
-storage/tasks/       # V2 产物存储：<年>/<月>/<任务ID>/{input,stages,output,report.json}
+storage/tasks/       # 产物存储：<年>/<月>/<任务ID>/{input,stages,output,report.json}
 test_images/         # CLI 测试图片
-Dockerfile           # NVIDIA CUDA 12.8 容器镜像
+tests/               # unit / api / inference / integration / e2e / gpu 测试套件
+Dockerfile           # NVIDIA CUDA 12.8 一体化容器镜像
 docker-compose.yml   # 双服务部署（API + GPU worker）
+pyproject.toml       # 包元数据、可选依赖分组与工具配置
+Makefile             # install / test / lint / bench / serve / worker / migrate
 LICENSE              # 本项目 MIT 许可
 LICENSE-Bringing-Old-Photos-Back-to-Life  # BOB 模型 MIT 许可
 README.md            # 项目文档（英文主文档）
 README_CN.md         # 项目文档（中文备份）
 THIRD_PARTY_NOTICES.md  # 第三方组件与许可
-main.py              # Web 服务入口（瘦身；装配逻辑在 app/factory.py）
-worker.py            # 独立 GPU worker 进程（数据库任务队列）
-requirements.lock    # pip freeze 锁定文件
-requirements.txt     # Python 依赖
-run.py               # 四阶段推理流水线 CLI
+main.py              # Web 服务入口（薄壳；装配逻辑在 src/fiximg/cli/api.py）
+worker.py            # 独立 GPU worker 进程（薄壳）
+requirements.lock    # 依赖锁定文件（由 scripts/export_locks.py --freeze 生成，内含 Frozen-environment 标记）
+requirements/        # 按用途拆分的安装清单（runtime/gpu/test/...，由 make lock 生成，需入库）
+requirements.txt     # Python 依赖（pyproject.toml 为权威来源）
+run.py               # 四阶段推理流水线 CLI（薄壳）
 .gitignore           # Git 忽略清单
 .dockerignore        # Docker 构建排除清单
 ```
 
-> 以上为顶层目录与文件；完整树形结构与逐文件说明见仓库源码。
+> 以上为顶层目录与文件；分层规则见 `docs/architecture.md`，部署形态见 `docs/deployment.md`。
 
 ### 测试
 
 ```bash
-python -m pytest                 # 单元 + 集成（gpu 测试自动跳过）
-python -m pytest -m "not gpu"    # 显式排除 GPU 测试（CI 默认）
+python -m pytest                 # 全部套件（无 CUDA 时 gpu 测试自动跳过）
+python -m pytest -m "not gpu"    # CPU 套件（CI 默认）
 python -m pytest -m gpu          # 仅跑 GPU 测试（需 CUDA + DDColor 权重）
-ruff check app scripts tests main.py worker.py
+python -m benchmark.latency      # p50/p95 延迟（默认合成阶段，无需权重）
+ruff check src tests benchmark main.py worker.py run.py
 ```
+
+也可使用 Make：`make test`、`make bench`、`make lint`。
 
 评估输出覆盖方案 §16 的各指标族：输入-输出差异（PSNR/SSIM/MAE）、无参考指标（清晰度/对比度/亮度/噪声）、可选自然场景统计（NIQE、BRISQUE 风格特征、色彩统计）、人脸身份保持（§17），以及附参考照片时的 Ground-Truth LPIPS（§16）。
 ## 8. 常见问题
 
 **Q1：启动提示"权重完整性校验失败"**
-权重缺失或哈希不符。运行 `python -m scripts.download_weights download` 补齐，然后执行 `python -m scripts.download_weights generate` 重新生成清单（本地权重与仓库清单不一致时同样处理）。
+权重缺失或哈希不符。运行 `python -m fiximg.cli.download_weights download` 补齐，然后执行 `python -m fiximg.cli.download_weights generate` 重新生成清单（本地权重与仓库清单不一致时同样处理）。
 
 **Q2：CUDA 不可用 / 提示 sm_120 不兼容**
 请确认安装的是 torch 2.7.1+cu128 及以上（RTX 50 系需要 cu128 构建）；老版本 cu121 不支持 Blackwell 架构。

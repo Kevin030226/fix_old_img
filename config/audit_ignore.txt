@@ -1,0 +1,17 @@
+# Reviewed dependency-audit exemptions (plan §3.11).
+#
+# One advisory ID per line — GHSA id (`GHSA-xxxx-xxxx-xxxx`) or CVE id
+# (`CVE-2024-12345`). Lines starting with `#` and blank lines are ignored.
+# `pip-audit` in CI reads this file and skips only the IDs listed here; every
+# other advisory in the pinned runtime requirements fails the build.
+#
+# This file exists so an exemption is a **reviewed, greppable, dated line**
+# instead of a `|| true` on the CI step. The step used to end with
+# `|| true` plus a placeholder `--ignore-vuln GHSA-0000-0000-0000`, which meant
+# the audit could never go red and nobody read its output.
+#
+# Adding a line requires all three:
+#   * why it cannot be fixed by bumping the pin (no release, or the fix breaks
+#     the pinned model stack),
+#   * the affected package and version,
+#   * a date or issue to revisit it by.

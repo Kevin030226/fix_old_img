@@ -1,5 +1,15 @@
 # ============================================================
-# Old photo restoration system — modern stack dependencies (Python 3.11)
+# Old photo restoration system - pinned runtime requirements (Python 3.11)
+#
+# NOTE (V3): `pyproject.toml` is now the source of truth for dependencies and
+# splits them into extras (`gpu`, `redis`, `s3`, `test`, `benchmark`, `dev`).
+# This file is kept as a flat, fully pinned list for deployments that install
+# with pip directly:
+#
+#     pip install -r requirements.txt
+#
+# Preferred (installs the package plus the selected extras):
+#     pip install -e ".[gpu,test]"
 #
 # Windows installation steps:
 #   1) conda create -n fixoldimg-gpu python=3.11 -y
@@ -8,6 +18,7 @@
 #      (China mirror: https://mirror.sjtu.edu.cn/pytorch-wheels/cu128)
 #   3) pip install -r requirements.txt
 #   4) conda install -n fixoldimg-gpu -c conda-forge dlib=20.0.1
+#   5) pip install -e . --no-deps     # make `fiximg` importable
 # ============================================================
 
 # ---- Web layer ----
@@ -15,11 +26,12 @@ gradio==6.22.0
 fastapi==0.141.1
 uvicorn==0.52.1
 python-multipart
+pydantic>=2.7
 
 # ---- Scientific computing / imaging ----
 numpy==2.4.6
 Pillow==12.3.0
-opencv-python==5.0.0.93
+opencv-python-headless==5.0.0.93
 scipy==1.17.1
 scikit-image==0.26.0
 matplotlib==3.11.1
@@ -40,7 +52,7 @@ einops==0.8.1
 PyYAML==6.0.3
 filelock==3.16.1
 
-# ---- V2 testing ----
+# ---- Testing / tooling ----
 pytest>=8.0
 httpx>=0.27          # fastapi.testclient (integration tests)
 ruff>=0.6            # lint gate (CI installs it explicitly too)

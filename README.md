@@ -194,17 +194,22 @@ pip install torch==2.7.1 torchvision==0.22.1 torchaudio==2.7.1 \
 # 3. Install project dependencies (Gradio/FastAPI/OpenCV/timm for DDColor, etc.)
 pip install -r requirements.txt
 
+# 3b. Make the `fiximg` package importable (needed by `python -m fiximg.*`).
+#     Editable install with the GPU/test extras instead of step 3:
+#         pip install -e ".[gpu,test]"
+pip install -e . --no-deps
+
 # 4. Install prebuilt dlib from conda-forge (no local compiler toolchain needed)
 conda install -n fixoldimg-gpu -c https://mirrors.tuna.tsinghua.edu.cn/anaconda/cloud/conda-forge \
     --override-channels -y dlib=20.0.1
 
 # 5. Download model weights (BOB restoration chain + DDColor + dlib models, ~2.8 GB on disk)
 #    (plan §19: python entrypoints, resume support, manifest with versions)
-python -m scripts.download_weights download
+python -m fiximg.cli.download_weights download
 
 # 6. If weights differ from the repo manifest, regenerate and verify
-python -m scripts.download_weights generate
-python -m scripts.verify_weights
+python -m fiximg.cli.download_weights generate
+python -m fiximg.cli.verify_weights
 ```
 
 > Note: `config/users.yaml` is automatically migrated to SQLite (`admin_data/fixoldimg.db`). If this file is missing, the first-boot admin bootstrap (§21) creates the initial `admin` account — see the Docker section above.
@@ -291,11 +296,12 @@ curl -X POST http://127.0.0.1:9502/api/v1/tasks \
 
 # Poll status / progress / current stage. For restore / restore_scratch /
 # auto_restore tasks the report also carries no-reference quality indicators
-# (plan §16) and face identity preservation (plan §17: Face Count / Enhanced
-# Faces / Identity Similarity).
+# (plan §16) and face identity preservation (plan §17: Faces Detected in/out /
+# Faces Compared / Identity Similarity, with the descriptor named). A stage that
+# declined its work reports status "skipped" while the task still completes.
 curl -H "$AUTH" http://127.0.0.1:9502/api/v1/tasks/<task_id>
 
-# Cancel a queued task / fetch result / fetch stage report
+# Cancel a task that has not finished / fetch result / fetch stage report
 curl -X POST -H "$AUTH" http://127.0.0.1:9502/api/v1/tasks/<task_id>/cancel
 curl -O -H "$AUTH" http://127.0.0.1:9502/api/v1/tasks/<task_id>/result
 curl -H "$AUTH" http://127.0.0.1:9502/api/v1/tasks/<task_id>/report
@@ -322,9 +328,9 @@ python worker.py                            # terminal 2: GPU worker
 ### 5.5 V1 → V2 Data Migration
 
 ```bash
-python -m scripts.migrate_v1                               # dry-run: report only, no writes
-python -m scripts.migrate_v1 --apply                       # perform the migration
-python -m scripts.migrate_v1 --apply --register-artifacts  # also register input/output files
+python -m fiximg.cli.migrate_v1                               # dry-run: report only, no writes
+python -m fiximg.cli.migrate_v1 --apply                       # perform the migration
+python -m fiximg.cli.migrate_v1 --apply --register-artifacts  # also register input/output files
 ```
 
 The script copies legacy `history` rows into the V2 `tasks` table (psnr/ssim/mae become metric records with the `input_output_difference` reference type). It is idempotent and safe to re-run.
@@ -354,6 +360,9 @@ The output directory contains `final_output/` (final results), per-stage interme
 | `FIXIMG_HOST` | `127.0.0.1` | Bind address (`0.0.0.0` for LAN/container) |
 | `FIXIMG_PORT` | `9502` | Listen port |
 | `FIXIMG_DEVICE` | `auto` | Inference device (`auto`/`cuda`/`cpu`) |
+| `FIXIMG_NATIVE_TREE` | `global` | Which vendored legacy tree this process loads natively (`global` / `face` / `none`). `Global/` and `Face_Enhancement/` declare the same top-level packages, so one process hosts one tree; the other chain runs through the `python run.py` subprocess adapter. Set it per worker (restore worker vs face worker). The implementation that served each stage is recorded in its metadata and reported by `GET /api/v1/models` |
+| `FIXIMG_TRACING` | `off` | Tracing backend (`off`/`sdk`/`otel`/`internal`); `sdk` needs `pip install 'fiximg[otel]'` and the deployment's own exporter configuration |
+| `FIXIMG_FACE_DETECT_NATIVE` | `true` | dlib face detection in-process as well. On by default: the crop-level equivalence test (`tests/gpu/test_face_detect_equivalence.py`) requires the in-process crops to be byte-identical to the adapter's and passes on an install with dlib + `shape_predictor_68_face_landmarks.dat`; where dlib or that model is missing the registry falls back to the subprocess adapter on its own |
 | `FIXIMG_MAX_IMAGE_SIDE` | `4096` | Max accepted long-side pixels |
 | `FIXIMG_INLINE_WORKER` | `true` | Run the DB-queue worker inside the API process (`false` = standalone `python worker.py`) |
 | `FIXIMG_WORKER_POLL` | `0.5` | Worker queue polling interval (seconds) |
@@ -417,53 +426,85 @@ More test samples are in `examples/` (`old/`, `old_w_scratch/`, `color/`) and `t
 ## 7. Project Structure
 
 ```
-main.py                # Web service entry (thin; wiring lives in app/factory.py)
-worker.py              # Standalone GPU worker process (DB-backed task queue)
-run.py                 # Four-stage pipeline CLI (legacy-compatible entry)
-app/
-├── api/               # FastAPI routers (auth / tasks / users / health)
-├── ui/                # Gradio blocks, auth pages, HTML middleware, admin panel
-├── services/          # task / artifact / evaluation / user / history services
-├── inference/         # V2 core: stages / model_manager / planner / orchestrator / worker
-│   └── stages/        # BaseStage + global_restore / scratch / face / colorization
-├── repositories/      # SQL access (user_repository / task_repository)
-├── core/              # config (Settings) / security / logging / exceptions
-├── schemas/           # shared dataclasses (TaskView ...)
-├── db.py              # legacy SQLite layer (users/history + V1 migration)
-└── factory.py         # create_app(): FastAPI + routers + middleware + Gradio
-config/                # ratelimit / security / weights_check / weights manifest
-storage/tasks/         # V2 artifact storage: <year>/<month>/<task_id>/{input,stages,output,report.json}
-Global/                # Overall restoration & scratch detection models
-Face_Detection/        # dlib 68-point landmarks & warp-back
-Face_Enhancement/      # Progressive face enhancement model
-ddcolor/               # DDColor colorization model
-basicsr/               # Minimal BasicSR subset for DDColor
-tests/                 # unit / integration / gpu tests (pytest; gpu tests need CUDA + weights, run `pytest -m gpu`)
-scripts/               # Install, weight download & V1→V2 migration scripts
-docs/                  # Example & showcase images
+main.py                # Web service entry (thin shim; wiring lives in src/fiximg/cli/api.py)
+worker.py              # Standalone GPU worker process (thin shim)
+run.py                 # Legacy four-stage pipeline CLI (thin shim)
+pyproject.toml         # Package metadata, extras (gpu/redis/s3/test/benchmark/dev), tool config
+Makefile               # install / test / lint / bench / serve / worker / migrate targets
+src/fiximg/
+├── api/
+│   ├── routes/        # tasks / models / users / stats / health / auth endpoints
+│   ├── schemas/       # Pydantic request/response contract (single source of truth)
+│   ├── dependencies.py# Principal resolution + admin guard
+│   ├── errors.py      # exception handlers → unified error envelope
+│   └── security.py    # bearer-token authentication for /api/v1/*
+├── application/       # task / model / auth / history services + pipeline mode labels
+├── domain/            # framework-free models: Task / Artifact / Event / errors / enums
+├── inference/
+│   ├── runtime.py     # PipelineOrchestrator: plan → stages → persist
+│   ├── planner.py     # task type → ordered stage list (capability-driven)
+│   ├── registry.py    # stage registry
+│   ├── scheduler.py   # per-capability GPU concurrency policy
+│   ├── backends/      # ModelBackend implementations (legacy CLI adapters, DDColor)
+│   ├── versions.py    # two-version residency: atomic hot swap + rollback
+│   ├── stages/        # BaseStage + global_restore / scratch / face / colorization
+│   ├── evaluation/    # PSNR/SSIM/MAE, no-reference, NIQE/BRISQUE, LPIPS, identity
+│   ├── manifest.py    # models/manifest.yaml loader
+│   ├── model_manager.py
+│   └── worker.py      # queue consumer: lease / heartbeat / retry
+├── infrastructure/
+│   ├── db/            # SQLite engine, repositories, migration runner
+│   ├── queue/         # QueueBackend: sqlite (default) / redis (P2)
+│   ├── storage/       # ArtifactStore: local (default) / s3 (MinIO, AWS)
+│   ├── observability/ # JSON logging, metrics registry, tracing seam
+│   ├── security/      # password hashing, rate limiting
+│   └── models/        # weight integrity verification
+├── ui/                # Gradio blocks, Before/After + history panel, auth pages, admin panel
+├── cli/               # api / worker / batch / weights / migrate entry points
+├── config.py          # Settings (defaults → configs/*.yaml → FIXIMG_* env)
+└── paths.py           # single source of truth for filesystem locations
+configs/               # base / local / docker / production configuration profiles
+migrations/versions/   # ordered schema migrations (runner in infrastructure/db/migrations)
+models/manifest.yaml   # declared model versions, weights, hashes and capabilities
+benchmark/             # latency / throughput / memory benchmarks (synthetic by default)
+docker/                # api.Dockerfile, worker.Dockerfile, compose.yaml, compose.local.yaml
+config/                # weight manifest + example users.yaml (static assets)
+storage/tasks/         # artifact storage: <year>/<month>/<task_id>/{input,stages,output,report.json}
+Global/                # Overall restoration & scratch detection models (vendored)
+Face_Detection/        # dlib 68-point landmarks & warp-back (vendored)
+Face_Enhancement/      # Progressive face enhancement model (vendored)
+ddcolor/               # DDColor colorization model (vendored)
+basicsr/               # Minimal BasicSR subset for DDColor (vendored)
+tests/                 # unit / api / inference / integration / e2e / gpu test suites
+scripts/               # install helpers, weight download shell script, legacy batch files
+docs/                  # architecture.md, api.md, deployment.md + showcase images
 examples/              # Web example images
 test_images/           # CLI test images
-Dockerfile             # NVIDIA CUDA 12.8 container image
+Dockerfile             # All-in-one CUDA 12.8 image (API + UI + inline worker)
 docker-compose.yml     # Two-service deployment (API + GPU worker)
 ```
 
-> Top-level entries are listed above; see the source tree for the full structure and per-file details.
+> Top-level entries are listed above; see `docs/architecture.md` for the layering
+> rules and `docs/deployment.md` for the topology options.
 
 ### Testing
 
 ```bash
-python -m pytest                 # unit + integration (gpu tests auto-skip)
-python -m pytest -m "not gpu"    # explicitly exclude GPU tests (CI default)
+python -m pytest                 # every suite (gpu tests auto-skip without CUDA)
+python -m pytest -m "not gpu"    # CPU suite (CI default)
 python -m pytest -m gpu          # only GPU tests (need CUDA + DDColor weights)
-ruff check app scripts tests main.py worker.py
+python -m benchmark.latency      # p50/p95 latency (synthetic stage by default)
+ruff check src tests benchmark main.py worker.py run.py
 ```
+
+Or via Make: `make test`, `make bench`, `make lint`.
 
 Evaluation outputs include the plan §16 families: input-output difference (PSNR/SSIM/MAE), no-reference indicators (sharpness/contrast/brightness/noise), optional natural-scene statistics (NIQE, BRISQUE-style features, color statistics), face identity preservation (§17) and — when a reference photo is attached — Ground-Truth LPIPS (§16).
 
 ## 8. FAQ
 
 **Q1: "Weight integrity check failed" at startup**
-Weights are missing or hashes mismatch. Run `python -m scripts.download_weights download` to fetch them, then run `python -m scripts.download_weights generate` to regenerate the manifest (also needed when local weights differ from the repo manifest).
+Weights are missing or hashes mismatch. Run `python -m fiximg.cli.download_weights download` to fetch them, then run `python -m fiximg.cli.download_weights generate` to regenerate the manifest (also needed when local weights differ from the repo manifest).
 
 **Q2: CUDA unavailable / sm_120 incompatible**
 Make sure torch 2.7.1+cu128 or newer is installed (RTX 50 series requires the cu128 build); older cu121 builds do not support Blackwell.

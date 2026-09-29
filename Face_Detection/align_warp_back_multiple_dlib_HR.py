@@ -214,6 +214,11 @@ def blur_blending(im1, im2, mask):
 
 def blur_blending_cv2(im1, im2, mask):
 
+    # `mask` arrives as uint8 from the warp-back mask, and `*= 255.0` promotes it to
+    # float64. NumPy 2 refuses that in-place cast (`UFuncOutputCastingError`), so
+    # widen it first. `align_warp_back_multiple_dlib.py` carries the same line: the
+    # two scripts are copies, and this one missed the fix.
+    mask = mask.astype(np.float64)
     mask *= 255.0
 
     kernel = np.ones((9, 9), np.uint8)

@@ -1,0 +1,39 @@
+# Base configuration profile (plan §3.3)
+#
+# Resolution order, lowest precedence first:
+#     code defaults  →  configs/base.yaml  →  configs/<profile>.yaml  →  FIXIMG_* env vars
+#
+# Keys are derived from the environment-variable names: `FIXIMG_MAX_IMAGE_SIDE`
+# is fed by the key `max_image_side`. Keep only deployment-independent values
+# here; anything environment-specific belongs in local/docker/production.yaml.
+
+# --- inference limits ---
+max_image_side: 4096
+max_upload_mb: 10
+tile_size: 1536
+tile_overlap: 128
+
+# --- auto-restore thresholds (tunable, see plan §10/§11) ---
+auto_grayscale_sat: 16.0
+auto_sharp_laplacian: 120.0
+auto_scratch_structure: 30
+auto_scratch_fraction_full: 0.06
+auto_scratch_threshold: 0.5
+auto_blur_threshold: 0.5
+
+# --- queue reliability (plan §2.6) ---
+worker_poll: 0.5
+worker_max_queue: 100
+worker_lease: 3600.0
+worker_heartbeat: 15.0
+task_max_attempts: 3
+task_retry_backoff: 30.0
+
+# --- GPU concurrency policy (plan §2.4); per-capability overrides via env ---
+concurrency: 1
+
+# --- retention ---
+result_ttl: 7200
+colorize_ttl: 7200
+history_max: 2000
+archive_ttl: 604800

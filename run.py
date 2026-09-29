@@ -1,258 +1,36 @@
-﻿"""Four-stage inference pipeline CLI.
+﻿"""Entry point for the legacy inference pipeline CLI.
 
-Invoked by the web layer as a subprocess; can also be used standalone from the command line:
+The implementation lives in :mod:`fiximg.cli.batch`, which is where the four
+stages are separately runnable (``--stages 1,2,3,4``, plan §3.7). This file is
+only the path `LegacyCliBackend` spawns — it is pinned by
+``backends/legacy_cli.py: self.cli_path = ... os.path.join(PROJECT_ROOT,
+"run.py")`` and by the equivalence tests, so it cannot be renamed or inlined.
+
     python run.py --input_folder ./test_images/old --output_folder ./output
-    python run.py --input_folder ./test_images/old_w_scratch --output_folder ./output --with_scratch
+    python run.py --input_folder IN --output_folder OUT --stages 1
+
+`PROGRESS_PREFIX` is re-exported because it is a contract with the *other* side:
+`LegacyCliBackend` parses this process' stdout for the marker, so the constant
+has to be reachable from both modules and has to be the same string in both.
 """
-import argparse
-import json
 import os
-import shutil
-import subprocess
 import sys
 
-IMAGE_EXTS = (".png", ".jpg", ".jpeg", ".bmp", ".webp")
+sys.path.insert(0, os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), "src"
+))
 
-#: Machine-readable progress marker consumed by GlobalRestoreStage, which
-#: streams this process' stdout and maps the step onto the task progress bar.
-#: Format: "<PREFIX> <step>/<total> <label>" — kept out of the human log.
-PROGRESS_PREFIX = "@@FIXIMG_PROGRESS"
+from fiximg.cli.batch import (  # noqa: E402
+    PROGRESS_PREFIX,
+    StageError,
+    main,
+)
 
-
-class StageError(RuntimeError):
-    """Raised when a pipeline stage exits with a non-zero code."""
-
-
-def emit_progress(step, total, label):
-    """Announce pipeline progress to the parent process (see PROGRESS_PREFIX)."""
-    print(f"{PROGRESS_PREFIX} {step}/{total} {label}", flush=True)
-
-
-def run_cmd(args, cwd=None, stage=""):
-    """Run a subcommand and verify the exit code (shell=False, list arguments)."""
-    if args and args[0] == "python":
-        args[0] = sys.executable
-    try:
-        completed = subprocess.run(args, shell=False, cwd=cwd)
-    except FileNotFoundError as exc:
-        raise StageError(f"Stage [{stage or args}] command or interpreter unreachable: {args}") from exc
-    if completed.returncode != 0:
-        raise StageError(
-            f"Stage [{stage or args}] failed with exit code {completed.returncode}\nCommand: {' '.join(args)}"
-        )
-    return completed.returncode
-
-
-def list_images(directory):
-    if not os.path.isdir(directory):
-        return []
-    return sorted(
-        n
-        for n in os.listdir(directory)
-        if os.path.isfile(os.path.join(directory, n)) and n.lower().endswith(IMAGE_EXTS)
-    )
-
-
-def resolve_gpu(gpu_arg):
-    """Resolve 'auto' to 0 (GPU available) or -1 (CPU)."""
-    if str(gpu_arg).lower() != "auto":
-        return int(gpu_arg)
-    try:
-        import torch
-
-        return 0 if torch.cuda.is_available() else -1
-    except Exception:  # noqa: BLE001
-        return -1
-
-
-def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--input_folder", type=str, default="./test_images/old")
-    parser.add_argument("--output_folder", type=str, default="./output")
-    parser.add_argument("--GPU", type=str, default="auto", help="auto / 0 / 1 / -1")
-    parser.add_argument("--checkpoint_name", type=str, default="Setting_9_epoch_100")
-    parser.add_argument("--with_scratch", action="store_true")
-    parser.add_argument("--HR", action="store_true")
-    opts = parser.parse_args()
-
-    gpu = resolve_gpu(opts.GPU)
-    main_environment = os.getcwd()
-    opts.input_folder = os.path.abspath(opts.input_folder)
-    opts.output_folder = os.path.abspath(opts.output_folder)
-    os.makedirs(opts.output_folder, exist_ok=True)
-
-    print("path 1/4: overall quality restoration")
-    emit_progress(1, 4, "overall quality restoration")
-    stage_1_output_dir = os.path.join(opts.output_folder, "stage_1_restore_output")
-    os.makedirs(stage_1_output_dir, exist_ok=True)
-
-    if opts.with_scratch:
-        mask_dir = os.path.join(stage_1_output_dir, "masks")
-        run_cmd(
-            [
-                "python", "detection.py",
-                "--test_path", opts.input_folder,
-                "--output_dir", mask_dir,
-                "--input_size", "full_size",
-                "--GPU", str(gpu),
-            ],
-            cwd=os.path.join(main_environment, "Global"),
-            stage="1/4 scratch detection",
-        )
-        scratch_args = ["--Scratch_and_Quality_restore"]
-        if opts.HR:
-            scratch_args.append("--HR")
-        run_cmd(
-            [
-                "python", "test.py",
-                *scratch_args,
-                "--test_input", os.path.join(mask_dir, "input"),
-                "--test_mask", os.path.join(mask_dir, "mask"),
-                "--outputs_dir", stage_1_output_dir,
-                "--gpu_ids", str(gpu),
-            ],
-            cwd=os.path.join(main_environment, "Global"),
-            stage="1/4 scratch repair + quality restoration",
-        )
-    else:
-        run_cmd(
-            [
-                "python", "test.py",
-                "--test_mode", "Full",
-                "--Quality_restore",
-                "--test_input", opts.input_folder,
-                "--outputs_dir", stage_1_output_dir,
-                "--gpu_ids", str(gpu),
-            ],
-            cwd=os.path.join(main_environment, "Global"),
-            stage="1/4 overall quality restoration",
-        )
-
-    stage_1_results = os.path.join(stage_1_output_dir, "restored_image")
-    stage_1_names = list_images(stage_1_results)
-    if not stage_1_names:
-        raise StageError("Stage 1 produced no restored image (restored_image is empty); pipeline aborted")
-    print("path 1: success!\n")
-
-    print("path 2/4: face detection")
-    emit_progress(2, 4, "face detection")
-    stage_2_output_dir = os.path.join(opts.output_folder, "stage_2_detection_output")
-    os.makedirs(stage_2_output_dir, exist_ok=True)
-    detect_script = "detect_all_dlib_HR.py" if opts.HR else "detect_all_dlib.py"
-    run_cmd(
-        [
-            "python", detect_script,
-            "--url", stage_1_results,
-            "--save_url", stage_2_output_dir,
-        ],
-        cwd=os.path.join(main_environment, "Face_Detection"),
-        stage="2/4 face detection",
-    )
-    print("path 2: success!\n")
-
-    detected_faces = list_images(stage_2_output_dir)
-    degrade_reason = None
-
-    if not detected_faces:
-        print("No face detected; skipping face enhancement and using the overall restoration result\n")
-        degrade_reason = "no_face_detected"
-    else:
-        print("path 3/4: face enhancement")
-        emit_progress(3, 4, "face enhancement")
-        stage_3_output_dir = os.path.join(opts.output_folder, "stage_3_face_output")
-        os.makedirs(stage_3_output_dir, exist_ok=True)
-        checkpoint = "FaceSR_512" if opts.HR else opts.checkpoint_name
-        size_args = (
-            ["--load_size", "512", "--batchSize", "1"]
-            if opts.HR
-            else ["--load_size", "256", "--batchSize", "4"]
-        )
-        run_cmd(
-            [
-                "python", "test_face.py",
-                "--old_face_folder", stage_2_output_dir,
-                "--old_face_label_folder", "./",
-                "--tensorboard_log",
-                "--name", checkpoint,
-                "--gpu_ids", str(gpu),
-                *size_args,
-                "--label_nc", "18",
-                "--no_instance",
-                "--preprocess_mode", "resize",
-                "--results_dir", stage_3_output_dir,
-                "--no_parsing_map",
-            ],
-            cwd=os.path.join(main_environment, "Face_Enhancement"),
-            stage="3/4 face enhancement",
-        )
-        print("path 3: success!\n")
-
-        print("path 4/4: warp-back transformation")
-        emit_progress(4, 4, "warp-back transformation")
-        stage_4_output_dir = os.path.join(opts.output_folder, "final_output")
-        os.makedirs(stage_4_output_dir, exist_ok=True)
-        warp_script = (
-            "align_warp_back_multiple_dlib_HR.py"
-            if opts.HR
-            else "align_warp_back_multiple_dlib.py"
-        )
-        run_cmd(
-            [
-                "python", warp_script,
-                "--origin_url", stage_1_results,
-                "--replace_url", os.path.join(stage_3_output_dir, "each_img"),
-                "--save_url", stage_4_output_dir,
-            ],
-            cwd=os.path.join(main_environment, "Face_Detection"),
-            stage="4/4 warp-back transformation",
-        )
-        print("path 4: success! Please check the result image!\n")
-        degrade_reason = "face_enhance_missing"
-
-    os.chdir(main_environment)
-    # Final marker: paths 3/4 are skipped when no face is detected, so the bar
-    # would otherwise stall at 2/4 until the stage finishes.
-    emit_progress(4, 4, "finalizing")
-    stage_4_output_dir = os.path.join(opts.output_folder, "final_output")
-    os.makedirs(stage_4_output_dir, exist_ok=True)
-    produced = set(list_images(stage_4_output_dir))
-    enhanced, degraded = [], []
-    for name in stage_1_names:
-        if name in produced:
-            enhanced.append(name)
-        else:
-            shutil.copy(
-                os.path.join(stage_1_results, name),
-                os.path.join(stage_4_output_dir, name),
-            )
-            degraded.append(name)
-
-    report = {
-        "total": len(stage_1_names),
-        "enhanced_count": len(enhanced),
-        "degraded_count": len(degraded),
-        "enhanced": enhanced,
-        "degraded": degraded,
-        "degrade_reason": degrade_reason if degraded else None,
-        "all_degraded": bool(degraded) and not enhanced,
-        "gpu": gpu,
-    }
-    report_path = os.path.join(opts.output_folder, "pipeline_report.json")
-    with open(report_path, "w", encoding="utf-8") as f:
-        json.dump(report, f, ensure_ascii=False, indent=2)
-
-    if degraded:
-        print(
-            f"[Degraded] {len(degraded)}/{len(stage_1_names)} image(s) did not complete face enhancement"
-            f"(reason: {degrade_reason}); fell back to overall restoration result: {degraded}"
-        )
-    print(f"Pipeline report: {report_path}")
-
+__all__ = ["PROGRESS_PREFIX", "StageError", "main"]
 
 if __name__ == "__main__":
     try:
-        main()
+        sys.exit(main())
     except StageError as exc:
         print(f"\n[Pipeline failed] {exc}", file=sys.stderr)
         sys.exit(2)
-

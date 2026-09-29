@@ -3,7 +3,7 @@ import os
 
 import pytest
 
-from scripts import download_weights as dw
+from fiximg.cli import download_weights as dw
 
 
 @pytest.fixture()

@@ -1,0 +1,37 @@
+# Production profile (plan §3.3).
+#
+# Selected by FIXIMG_PROFILE=production. In this mode fiximg.config performs
+# fail-fast validation at startup: a missing model manifest, an S3 backend
+# without a bucket, or a Redis queue without a URL aborts the boot instead of
+# degrading silently.
+#
+# Required environment variables (never commit values):
+#   FIXIMG_API_TOKEN        pin the API bearer token
+#   FIXIMG_ADMIN_PASSWORD   initial admin password (or provision out-of-band)
+#   FIXIMG_DATABASE_URL     PostgreSQL URL once the SQLAlchemy layer lands (P2)
+#   FIXIMG_STORAGE_BUCKET   when storage_backend=s3
+#   FIXIMG_REDIS_URL        when queue_backend=redis
+
+app_env: production
+
+host: 0.0.0.0
+port: 9502
+
+# --- split topology ---
+inline_worker: false
+has_external_worker: true
+
+# --- pluggable backends (override per deployment) ---
+queue_backend: sqlite
+storage_backend: local
+
+# --- models: preload so the first user request is not a cold start ---
+device: auto
+warmup: startup
+
+# --- security: accounts are provisioned deliberately, not auto-created ---
+auto_bootstrap_admin: false
+
+# --- retention: shorter windows keep the shared volume bounded ---
+result_ttl: 3600
+archive_ttl: 259200

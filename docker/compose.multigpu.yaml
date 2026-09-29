@@ -1,0 +1,113 @@
+# Multi-GPU topology (plan §4.3 Step 4).
+#
+# One worker per GPU, each declaring the capabilities it serves, plus in-process
+# routing so different stages of a task can use different cards.
+#
+#   docker compose -f docker/compose.multigpu.yaml up -d --build
+#
+# Two independent mechanisms are at work here:
+#
+#   1. FIXIMG_WORKER_GPU pins a worker process to one card, and
+#      FIXIMG_WORKER_CAPABILITIES decides which tasks it may claim. A worker
+#      that cannot complete a task never picks it up, so no work is wasted and
+#      no model is loaded on the wrong card.
+#   2. FIXIMG_GPU_ROUTING routes *capabilities* to devices inside a process,
+#      which is what lets one worker run restoration on GPU0 and colorization
+#      on GPU1 without loading every model on every card.
+#
+# Adjust the capability names to match your deployment: they come from the
+# stage registry, never from model names (plan §3.14.2). Run
+# `GET /api/v1/health/ready` to see the resolved topology.
+
+name: fiximg-multigpu
+
+x-worker-base: &worker-base
+  build:
+    context: ..
+    dockerfile: docker/worker.Dockerfile
+  image: fiximg-worker:latest
+  environment:
+    FIXIMG_PROFILE: docker
+    FIXIMG_DEVICE: auto
+    FIXIMG_WORKER_POLL: "0.5"
+    FIXIMG_WORKER_LEASE: "3600"
+    FIXIMG_TASK_MAX_ATTEMPTS: "3"
+    # Capability → device table, shared by every worker process. Stages whose
+    # capability is not listed fall back to FIXIMG_DEVICE.
+    FIXIMG_GPU_ROUTING: "0:restore,scratch_repair,scratch_detection,face_detection,face_restore,deblur,denoise;1:colorize"
+  volumes:
+    - db:/app/admin_data
+    - storage:/app/storage
+    - weights:/app/weights
+  restart: unless-stopped
+
+services:
+  api:
+    build:
+      context: ..
+      dockerfile: docker/api.Dockerfile
+    image: fiximg-api:latest
+    container_name: fiximg-api
+    environment:
+      FIXIMG_PROFILE: docker
+      FIXIMG_HOST: 0.0.0.0
+      FIXIMG_PORT: "9502"
+      FIXIMG_INLINE_WORKER: "false"
+      FIXIMG_HAS_EXTERNAL_WORKER: "true"
+    ports:
+      - "9502:9502"
+    volumes:
+      - db:/app/admin_data
+      - storage:/app/storage
+    restart: unless-stopped
+
+  # GPU0 — restoration, scratch repair and the face chain.
+  worker-restore:
+    <<: *worker-base
+    container_name: fiximg-worker-restore
+    environment:
+      FIXIMG_PROFILE: docker
+      FIXIMG_DEVICE: auto
+      FIXIMG_WORKER_POLL: "0.5"
+      FIXIMG_WORKER_LEASE: "3600"
+      FIXIMG_TASK_MAX_ATTEMPTS: "3"
+      FIXIMG_GPU_ROUTING: "0:restore,scratch_repair,scratch_detection,face_detection,face_restore,deblur,denoise;1:colorize"
+      FIXIMG_WORKER_ID: worker-gpu0
+      FIXIMG_WORKER_GPU: "0"
+      FIXIMG_WORKER_CAPABILITIES: "restore,scratch_repair,scratch_detection,face_detection,face_restore,deblur,denoise"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              device_ids: ["0"]
+              capabilities: [gpu]
+
+  # GPU1 — colorization only (DDColor is the only model loaded here).
+  worker-color:
+    <<: *worker-base
+    container_name: fiximg-worker-color
+    environment:
+      FIXIMG_PROFILE: docker
+      FIXIMG_DEVICE: auto
+      FIXIMG_WORKER_POLL: "0.5"
+      FIXIMG_WORKER_LEASE: "3600"
+      FIXIMG_TASK_MAX_ATTEMPTS: "3"
+      FIXIMG_GPU_ROUTING: "0:restore,scratch_repair,scratch_detection,face_detection,face_restore,deblur,denoise;1:colorize"
+      FIXIMG_WORKER_ID: worker-gpu1
+      FIXIMG_WORKER_GPU: "1"
+      FIXIMG_WORKER_CAPABILITIES: "colorize"
+      # Preload only what this worker serves (plan §3.5.3 warmup strategies).
+      FIXIMG_WARMUP: startup
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              device_ids: ["1"]
+              capabilities: [gpu]
+
+volumes:
+  db:
+  storage:
+  weights:

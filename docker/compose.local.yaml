@@ -1,0 +1,50 @@
+# Single-container profile (plan §3.13): API + Gradio + inline worker thread,
+# SQLite for state and the local filesystem for artifacts.
+#
+#   docker compose -f docker/compose.local.yaml up -d --build
+#
+# Use this for a personal machine or a demo box. For production, prefer
+# docker/compose.yaml (separate API and GPU worker).
+
+name: fiximg-local
+
+services:
+  app:
+    build:
+      context: ..
+      dockerfile: docker/worker.Dockerfile
+    image: fiximg:local
+    container_name: fiximg-local
+    # This image's own CMD is the standalone queue worker (it carries the CUDA
+    # stack). Here the one process must also serve, so name the API explicitly:
+    # FIXIMG_HOST/FIXIMG_PORT/FIXIMG_INLINE_WORKER below are read by
+    # fiximg.cli.api, and nothing else binds the published port.
+    command: ["python", "-m", "fiximg.cli.api"]
+    environment:
+      FIXIMG_PROFILE: docker
+      FIXIMG_HOST: 0.0.0.0
+      FIXIMG_PORT: "9502"
+      FIXIMG_DEVICE: auto
+      # One process does everything: API, UI and the queue consumer.
+      FIXIMG_INLINE_WORKER: "true"
+      FIXIMG_HAS_EXTERNAL_WORKER: "false"
+      FIXIMG_WARMUP: first-use
+    ports:
+      - "9502:9502"
+    volumes:
+      - db:/app/admin_data
+      - storage:/app/storage
+      - weights:/app/weights
+    restart: unless-stopped
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+volumes:
+  db:
+  storage:
+  weights:

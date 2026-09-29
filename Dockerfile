@@ -1,13 +1,17 @@
-# Old photo restoration system — modern stack Docker image
+# Old photo restoration system — all-in-one image (V3)
 # Python 3.11 + PyTorch 2.7.1 cu128 (RTX 50 / sm_120) + Gradio 6 + FastAPI
 #
 # Build: docker build -t fixoldimg .
-# Run: docker run --gpus all -p 9502:9502 fixoldimg
+# Run:   docker run --gpus all -p 9502:9502 fixoldimg
+#
+# For a split API/worker deployment use docker/compose.yaml instead; this
+# Dockerfile keeps the single-container topology working.
 FROM nvidia/cuda:12.8.0-cudnn-runtime-ubuntu22.04
 
 ENV DEBIAN_FRONTEND=noninteractive \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
+    FIXIMG_PROFILE=docker \
     FIXIMG_HOST=0.0.0.0 \
     FIXIMG_PORT=9502
 
@@ -32,9 +36,13 @@ RUN pip install torch==2.7.1 torchvision==0.22.1 torchaudio==2.7.1 \
 # Project dependencies (dlib builds from source on Linux, ~5-10 minutes)
 RUN pip install -r requirements.txt
 
+# Make the `fiximg` package importable so the `python -m fiximg.*` entry points
+# (weight download, verification, migration) resolve inside the image.
+RUN pip install -e . --no-deps
+
 # Download all weights (BOB restoration chain + DDColor colorization) and
 # rebuild the integrity manifest (plan §19: python entrypoints, resume support)
-RUN python3 -m scripts.download_weights download
+RUN python3 -m fiximg.cli.download_weights download
 
 # Admin credentials are NOT baked into the image (plan §21): on first start the
 # app reads FIXIMG_ADMIN_PASSWORD when provided, otherwise it generates a random
@@ -46,7 +54,10 @@ RUN python3 -m scripts.download_weights download
 # prints it once and stores it at admin_data/api_token.txt (mode 0600).
 
 # The weight sources inside the container may differ from local ones; regenerate the manifest from the actual files and verify it
-RUN python3 -m scripts.download_weights generate && python3 -m scripts.verify_weights
+RUN python3 -m fiximg.cli.download_weights generate && python3 -m fiximg.cli.verify_weights
 
 EXPOSE 9502
+HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
+    CMD curl -fsS http://127.0.0.1:9502/api/v1/health/live || exit 1
 CMD ["python3", "main.py"]
+

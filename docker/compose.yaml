@@ -1,0 +1,127 @@
+# V3 deployment topology (plan §3.13).
+#
+# Lightweight (default) — API + GPU worker sharing SQLite and a local volume:
+#
+#   docker compose -f docker/compose.yaml up -d --build
+#
+# Full platform — add Redis (queue/rate limit), PostgreSQL (state) and MinIO
+# (artifacts). Each is behind a compose profile so the default stays simple:
+#
+#   docker compose -f docker/compose.yaml --profile platform up -d
+#
+# The matching backend settings must then be selected via environment:
+#   FIXIMG_QUEUE_BACKEND=redis      FIXIMG_REDIS_URL=redis://redis:6379/0
+#   FIXIMG_STORAGE_BACKEND=s3       FIXIMG_STORAGE_BUCKET=fiximg
+#   FIXIMG_S3_ENDPOINT=http://minio:9000   (the keys and region are in x-common-env
+#                                           and must match the minio service below)
+#   FIXIMG_DATABASE_URL=postgresql+psycopg://fiximg:fiximg@postgres:5432/fiximg
+#
+# A single-container variant lives in docker/compose.local.yaml.
+
+name: fiximg
+
+x-common-env: &common-env
+  FIXIMG_PROFILE: docker
+  FIXIMG_DEVICE: auto
+  # Object-store identity for the `platform` profile's MinIO, which it cannot get
+  # any other way: boto3's ambient credential chain (instance profile, ~/.aws)
+  # finds nothing inside these containers, and SigV4 needs a region to sign with.
+  # Harmless while FIXIMG_STORAGE_BACKEND=local, required the moment it is not.
+  FIXIMG_STORAGE_ACCESS_KEY: fiximg
+  FIXIMG_STORAGE_SECRET_KEY: fiximg-secret
+  FIXIMG_STORAGE_REGION: us-east-1
+
+services:
+  api:
+    build:
+      context: ..
+      dockerfile: docker/api.Dockerfile
+    image: fiximg-api:latest
+    container_name: fiximg-api
+    environment:
+      <<: *common-env
+      FIXIMG_HOST: 0.0.0.0
+      FIXIMG_PORT: "9502"
+      # The API must not run GPU inference in this topology.
+      FIXIMG_INLINE_WORKER: "false"
+      FIXIMG_HAS_EXTERNAL_WORKER: "true"
+      # Pin the bearer token at deploy time; otherwise one is generated and
+      # persisted at admin_data/api_token.txt inside the shared volume.
+      # FIXIMG_API_TOKEN: "change-me"
+    ports:
+      - "9502:9502"
+    volumes:
+      - db:/app/admin_data
+      - storage:/app/storage
+      - config:/app/config
+    depends_on:
+      worker:
+        condition: service_started
+    restart: unless-stopped
+
+  worker:
+    build:
+      context: ..
+      dockerfile: docker/worker.Dockerfile
+    image: fiximg-worker:latest
+    container_name: fiximg-worker
+    environment:
+      <<: *common-env
+      FIXIMG_WORKER_POLL: "0.5"
+      # Unique id per replica; required when scaling workers beyond one.
+      # FIXIMG_WORKER_ID: worker-gpu0
+    volumes:
+      - db:/app/admin_data
+      - storage:/app/storage
+      - weights:/app/weights
+    restart: unless-stopped
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+  # ---------------------------------------------------------- optional platform
+  redis:
+    image: redis:7-alpine
+    container_name: fiximg-redis
+    profiles: ["platform"]
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis:/data
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: fiximg-postgres
+    profiles: ["platform"]
+    environment:
+      POSTGRES_USER: fiximg
+      POSTGRES_PASSWORD: fiximg
+      POSTGRES_DB: fiximg
+    volumes:
+      - postgres:/var/lib/postgresql/data
+    restart: unless-stopped
+
+  minio:
+    image: minio/minio:latest
+    container_name: fiximg-minio
+    profiles: ["platform"]
+    command: ["server", "/data", "--console-address", ":9001"]
+    environment:
+      MINIO_ROOT_USER: fiximg
+      MINIO_ROOT_PASSWORD: fiximg-secret
+    volumes:
+      - minio:/data
+    restart: unless-stopped
+
+volumes:
+  db:
+  storage:
+  weights:
+  config:
+  redis:
+  postgres:
+  minio:

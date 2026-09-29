@@ -63,8 +63,13 @@ Thumbs.db
 # Tool caches (they also self-ignore, but be explicit)
 .pytest_cache/
 .ruff_cache/
+# mypy was missing from this list while every other tool cache was named, which is
+# how 123 MB of cache became stageable. `tests/unit/test_ignore_files.py` now
+# requires the two ignore lists to agree on what must never be shipped.
+.mypy_cache/
 
 # ---------- Smoke tests / temporary artifacts (do not commit) ----------
 test_images/gpu_smoke_*/
 test_images/detect_smoke_out/
+.gates/
 examples/bi_li_daxiao.py

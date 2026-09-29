@@ -1,14 +1,15 @@
 """Unit tests for V2 round-3 additions: options passthrough, sha256 artifacts,
-system_events and the §30 stats aggregation."""
+system_events and the 搂30 stats aggregation."""
 import pytest
 
-from app.repositories import task_repository as repo
+from fiximg.infrastructure.db import timestamps
+from fiximg.infrastructure.db.repositories import task_repository as repo
 
 
 @pytest.fixture()
 def db_env(tmp_path, monkeypatch):
-    import app.db as legacy_db
-    import app.core.config as config_mod
+    import fiximg.infrastructure.db.engine as legacy_db
+    import fiximg.config as config_mod
 
     db_path = str(tmp_path / "test.db")
     monkeypatch.setattr(legacy_db, "DB_PATH", db_path)
@@ -59,7 +60,7 @@ def test_add_and_list_events(db_env):
     assert len(errs) == 1 and errs[0]["message"] == "boom"
 
 
-# ----------------------------------------------------------------- stats §30
+# ----------------------------------------------------------------- stats 搂30
 def test_task_stats_aggregation(db_env):
     # Two completed + one failed restore tasks, two stages each.
     for i, (status, dur) in enumerate([("completed", 100), ("completed", 300), ("failed", 200)]):
@@ -96,10 +97,13 @@ def test_task_stats_window_filters(db_env):
     repo.finish_stage("w1", 0, "completed", 500)
     repo.finish_task("w1", "/tmp/w1.png", None, 500)
 
-    # Backdate created_at beyond the window.
+    # Backdate created_at beyond the window, in the form the code stores (plan
+    # 搂2.7) 鈥?writing the old naive-local layout would only exercise the
+    # date-prefix of a comparison that production no longer relies on.
     conn = sqlite3.connect(db_env)
     conn.execute(
-        "UPDATE task_stages SET created_at=datetime('now','localtime','-30 days')"
+        "UPDATE task_stages SET created_at=?",
+        (timestamps.cutoff(30 * 86400),),
     )
     conn.commit()
     conn.close()

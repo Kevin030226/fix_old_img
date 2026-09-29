@@ -1,0 +1,9 @@
+# Known-accepted image findings for the CI trivy scan (CRITICAL/HIGH).
+#
+# One entry per line: a CVE id or a vulnerability matcher, with the reason and an
+# expiry note above it. An empty file means the image is expected to scan clean --
+# that is the default, and a red scan is the correct answer until a finding is
+# either fixed or recorded here with a reason.
+#
+# Example (deliberally commented out so this file cannot silently swallow findings):
+# CVE-2099-00000  # pinned by <dependency>, upstream fix blocked by <reason>; revisit <date>

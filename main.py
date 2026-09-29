@@ -1,35 +1,19 @@
-"""Old photo restoration system — V2 web entry (plan section 26).
+"""Old photo restoration system — V3 web entry point.
 
     python main.py            # http://127.0.0.1:9502 (override: FIXIMG_HOST / FIXIMG_PORT)
 
-All wiring lives in app/factory.py; this file only performs the weight
-self-check and starts Uvicorn.
+This file is intentionally a thin shim: it only puts ``src/`` on ``sys.path``
+(for source checkouts that did not ``pip install -e .``) and delegates to
+:mod:`fiximg.cli.api`, which owns the real bootstrap.
 """
 import os
 import sys
 
-os.environ.setdefault("KMP_DUPLICATE_LIB_OK", "True")
+_SRC = os.path.join(os.path.dirname(os.path.abspath(__file__)), "src")
+if os.path.isdir(_SRC) and _SRC not in sys.path:
+    sys.path.insert(0, _SRC)
 
-from app.core.config import settings  # noqa: E402
-from app.factory import create_app  # noqa: E402
-
-app = create_app()
-
+from fiximg.cli.api import app, run  # noqa: E402,F401  (app: uvicorn "main:app")
 
 if __name__ == "__main__":
-    from config.weights_check import WeightsIntegrityError, verify_weights
-
-    try:
-        n = verify_weights()
-        print(f"[Self-check] Weight integrity OK ({n} files)")
-    except WeightsIntegrityError as exc:
-        print(
-            f"[Self-check] Weight verification failed; the service refuses to start:\n{exc}",
-            file=sys.stderr,
-        )
-        sys.exit(1)
-
-    print(f"Service started: http://{settings.host}:{settings.port}")
-    import uvicorn
-
-    uvicorn.run(app="main:app", host=settings.host, port=settings.port, reload=False)
+    sys.exit(run())

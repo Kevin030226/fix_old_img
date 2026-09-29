@@ -1,17 +1,17 @@
 """Unit tests for §16 Ground Truth evaluation and §21 force password change."""
 import pytest
 
-from app.core.exceptions import PasswordChangeRequiredError
-from app.services import gt_metrics_service as gt
-from app.services.task_service import TaskService
+from fiximg.domain.errors import PasswordChangeRequiredError
+import fiximg.inference.evaluation.ground_truth as gt
+from fiximg.application.task_service import TaskService
 
 
 @pytest.fixture()
 def isolated_db(tmp_path, monkeypatch):
     """Isolated SQLite file for every test (same pattern as test_bootstrap)."""
-    import app.core.config as config_mod
-    import app.db as legacy_db
-    from app.repositories import task_repository as task_repo
+    import fiximg.config as config_mod
+    import fiximg.infrastructure.db.engine as legacy_db
+    import fiximg.infrastructure.db.repositories.task_repository as task_repo
 
     db_path = str(tmp_path / "test.db")
     monkeypatch.setattr(legacy_db, "DB_PATH", db_path)
@@ -82,8 +82,8 @@ def test_gt_report_contains_notice():
 
 
 def test_gt_reference_type_is_ground_truth():
-    from app.services.evaluation_service import REFERENCE_TYPE as DIFF
-    from app.services.metrics_service import REFERENCE_TYPE as NR
+    from fiximg.inference.evaluation.reference import REFERENCE_TYPE as DIFF
+    from fiximg.inference.evaluation.no_reference import REFERENCE_TYPE as NR
 
     assert gt.REFERENCE_TYPE == "ground_truth"
     assert len({gt.REFERENCE_TYPE, DIFF, NR}) == 3
@@ -96,8 +96,8 @@ def service():
 
 
 def _make_user(username, must_change=False):
-    from app.core.security import hash_password
-    from app.repositories import user_repository as user_repo
+    from fiximg.infrastructure.security.passwords import hash_password
+    import fiximg.infrastructure.db.repositories.user_repository as user_repo
 
     user_repo.add_user(username, hash_password("pw-initial-123"), "user")
     if must_change:
@@ -117,7 +117,7 @@ def test_normal_user_can_submit(service, isolated_db):
 
 def test_updating_password_clears_flag(service, isolated_db):
     _make_user("forcee2", must_change=True)
-    from app.services import user_service
+    from fiximg.application import auth_service as user_service
 
     user_service.update_user("forcee2", password="brand-new-pw")
     service._require_password_changed({"username": "forcee2"})  # no raise

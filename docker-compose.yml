@@ -1,16 +1,28 @@
-# V2 deployment topology (plan section 28):
-#   api    -> FastAPI + Gradio (enqueues tasks only; FIXIMG_INLINE_WORKER=false)
-#   worker -> standalone GPU worker process (`python worker.py`), owns the models
-# Redis/Celery can later replace the DB-backed queue without touching stages.
+# V3 deployment topology (plan §3.13).
+#
+# This file is the two-service GPU topology: the API container enqueues only and
+# a standalone worker container owns the models.
 #
 #   docker compose up -d --build
 #   docker compose logs -f worker
+#
+# Other topologies:
+#   docker/compose.local.yaml  single container (API + Gradio + inline worker)
+#   docker/compose.yaml        full platform (+ Redis / PostgreSQL / MinIO)
+#
+# The queue is DB-backed by default; set FIXIMG_QUEUE_BACKEND=redis together
+# with FIXIMG_REDIS_URL to move the transport to Redis without code changes.
 services:
   api:
     build: .
     image: fixoldimg:latest
+    # The image is built from the repository Dockerfile, whose CMD is `main.py`.
+    # Spelled out here too, so a reader (and the topology gate) does not have to
+    # know the image's history to tell a serving container from a queue consumer.
+    command: ["python3", "main.py"]
     container_name: fixoldimg-api
     environment:
+      FIXIMG_PROFILE: docker
       FIXIMG_HOST: 0.0.0.0
       FIXIMG_PORT: "9502"
       FIXIMG_DEVICE: auto
@@ -22,6 +34,7 @@ services:
       # token is generated on first start and stored at admin_data/api_token.txt
       # (the shared `db` volume keeps it stable across restarts).
       # FIXIMG_API_TOKEN: "change-me"
+      # FIXIMG_API_TOKEN_USER: "api"   # account API traffic is attributed to
     ports:
       - "9502:9502"
     volumes:
@@ -34,10 +47,15 @@ services:
     build: .
     image: fixoldimg:latest
     container_name: fixoldimg-worker
-    command: ["python3", "worker.py"]
+    command: ["python3", "-m", "fiximg.cli.worker"]
     environment:
+      FIXIMG_PROFILE: docker
       FIXIMG_DEVICE: auto
       FIXIMG_WORKER_POLL: "0.5"
+      # Lease/retry policy (plan §2.6): a task whose lease expires is requeued,
+      # and a failed attempt is retried with backoff up to max attempts.
+      FIXIMG_WORKER_LEASE: "3600"
+      FIXIMG_TASK_MAX_ATTEMPTS: "3"
       # Optional: FIXIMG_WORKER_ID must be unique when scaling workers > 1.
       # FIXIMG_WORKER_ID: worker-gpu0
     volumes:

@@ -5,6 +5,15 @@
 .arts
 .codeartsdoer
 .freebuff
+# Local scratch: a PostgreSQL data directory, live SQLite databases holding the
+# admin and test accounts, the bearer token, both test-account passwords, and
+# run logs. `.gitignore` covers `.gates/` but this file is a separate list, and
+# `COPY . /app` is the only copy instruction — so without the line below a build
+# bakes all of it into the image, which contradicts the Dockerfile's own
+# statement that "Admin credentials are NOT baked into the image".
+# `tests/unit/test_ignore_files.py` keeps the two lists in step.
+.gates
+.mypy_cache
 .pytest_cache
 .ruff_cache
 __pycache__
@@ -26,4 +35,23 @@ test_images/gpu_smoke_in
 test_images/gpu_smoke_out
 test_images/gpu_smoke_out2
 test_images/detect_smoke_out
+
+# Tracked in git, deliberately not in the image. The Dockerfile's only copy
+# instruction is `COPY . /app`, so everything not listed above is baked in.
+#
+# tests/  1.0 MB, 1517 tests. CI runs them (`.github/workflows/ci.yml` lints and
+#         runs pytest over this path), and the Dockerfile neither installs the
+#         `test` extra nor runs pytest, so nothing at build or run time needs
+#         them. `tests/unit/test_ignore_files.py` asserts the CI still points
+#         here, so "not in the image" cannot quietly become "not in the project".
+# docs/   12.9 MB, of which 12.7 MB is images. The prose is the API contract
+#         (docs/api.md), the deployment guide and the project audit log; the
+#         images are the README gallery and upstream comparison shots. The
+#         Gradio Examples tab does NOT read these -- it serves the root
+#         `examples/` directory, which stays in the image.
+#
+# Deliberately NOT added to .gitignore: both are tracked source. Excluding them
+# from git would delete the project's only evidence that any of this works.
+tests
+docs
 

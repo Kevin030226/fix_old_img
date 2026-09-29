@@ -1,4 +1,4 @@
-"""GPU-marked tests (plan §29: `pytest -m gpu`).
+"""GPU-marked tests (plan 搂29: `pytest -m gpu`).
 
 These exercise the real model-loading and inference path (ModelManager +
 DDColor) and are therefore skipped unless ALL of the following hold:
@@ -14,7 +14,7 @@ import os
 
 import pytest
 
-from app.core.config import settings
+from fiximg.config import settings
 
 
 def _gpu_ready() -> bool:
@@ -42,7 +42,7 @@ pytestmark = [
 
 @pytest.fixture(scope="module")
 def colorization_model():
-    from app.inference.model_manager import ModelManager
+    from fiximg.inference.model_manager import ModelManager
 
     manager = ModelManager()
     return manager.load("ddcolor")
@@ -54,7 +54,7 @@ def test_ddcolor_loads_on_cuda(colorization_model):
 
 
 def test_ddcolor_load_time_recorded():
-    from app.inference.model_manager import ModelManager
+    from fiximg.inference.model_manager import ModelManager
 
     manager = ModelManager()
     manager.load("ddcolor")
@@ -87,10 +87,75 @@ def test_ddcolor_real_inference(colorization_model):
 def test_gpu_stats_report_memory_peak():
     import torch
 
-    from app.inference.model_manager import ModelManager
+    from fiximg.inference.model_manager import ModelManager
 
     manager = ModelManager()
     manager.load("ddcolor")
     torch.cuda.reset_peak_memory_stats()
     stats = manager.gpu_stats()
     assert stats.get("gpu_memory_peak_mb", 0) > 0
+
+
+def test_the_declared_optimisations_really_are_applied():
+    """`channels_last: true` in the manifest must be visible in the weights.
+
+    DDColor is the one model that declares an optimisation, so it is the case that
+    proves the declaration reaches a loaded model rather than only the policy
+    object - and the record the backend reports is what an operator reads in
+    `GET /api/v1/models` (plan 搂3.5.4).
+    """
+    import torch
+
+    from fiximg.inference.backends.ddcolor import DDColorBackend
+    from fiximg.inference.precision import cached_policy
+
+    backend = DDColorBackend()
+    backend.load("0")
+    policy = cached_policy("ddcolor")
+    assert policy.channels_last, "the manifest declares it; this test assumes that"
+
+    conv = next(
+        module for module in backend._manager.get("ddcolor").model.modules()
+        if isinstance(module, torch.nn.Conv2d)
+    )
+    assert conv.weight.is_contiguous(memory_format=torch.channels_last), (
+        "declared channels_last did not reach the weights"
+    )
+    assert backend.optimisations_applied.get("channels_last") is True, (
+        backend.optimisations_applied
+    )
+
+
+def test_the_builder_honours_the_configured_device(monkeypatch):
+    """`FIXIMG_DEVICE=cpu` must not be answered with a CUDA-resident model.
+
+    The vendored builder defaults to "cuda if torch sees one" 鈥?device 0, whatever the
+    process was told 鈥?so a CPU-pinned worker put colour weights on the card it had
+    been told not to use, while the stage's memory figure was charged to the device the
+    runtime had scheduled. Both halves of that are wrong together: the number and the
+    placement disagree with the configuration.
+    """
+    from fiximg.inference.model_manager import ModelManager
+
+    monkeypatch.setattr(settings, "device", "cpu")
+    pipeline = ModelManager().load("ddcolor")
+
+    device = next(pipeline.model.parameters()).device
+    assert device.type == "cpu", device
+    assert str(pipeline.device) == "cpu"
+
+
+def test_reside_on_moves_a_real_pipeline(colorization_model):
+    """The move is exercised on a model that can actually be moved.
+
+    The unit-level checks use a seam for availability; this one proves the torch call
+    does what the report claims, in both directions, and leaves the fixture on the card
+    the rest of the file expects.
+    """
+    from fiximg.inference.backends.ddcolor import reside_on
+
+    assert reside_on(colorization_model, "-1") == "cpu"
+    assert next(colorization_model.model.parameters()).device.type == "cpu"
+
+    assert reside_on(colorization_model, "0") == "cuda:0"
+    assert next(colorization_model.model.parameters()).is_cuda

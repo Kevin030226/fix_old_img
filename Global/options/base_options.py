@@ -279,7 +279,7 @@ class BaseOptions:
         self.parser.add_argument(
             "--random_hole",
             action="store_true",
-            help="While training the full model, 50% probability add hole",
+            help="While training the full model, 50%% probability add hole",
         )
 
         self.parser.add_argument("--NL_res", action="store_true", help="NL+Resdual Block")

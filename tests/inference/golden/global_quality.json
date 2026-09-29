@@ -1,0 +1,21 @@
+{
+  "channels": 3,
+  "dtype_range": [
+    0.0,
+    255.0
+  ],
+  "mean": 106.4906,
+  "mode": "RGB",
+  "psnr_vs_input": 20.2058,
+  "shape": [
+    64,
+    96,
+    3
+  ],
+  "size": [
+    96,
+    64
+  ],
+  "ssim_vs_input": 0.8745,
+  "std": 49.4946
+}

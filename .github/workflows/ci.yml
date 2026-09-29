@@ -15,29 +15,187 @@ jobs:
           python-version: "3.11"
       - name: Install ruff
         run: pip install ruff
-      - name: Ruff lint (app/, scripts/, tests/, root modules)
-        run: ruff check app scripts tests main.py worker.py run.py
+      - name: Ruff lint (src/, tests/, benchmark/, scripts/, entry points)
+        run: ruff check src tests benchmark scripts main.py worker.py run.py
+      - name: Parse every file with the target interpreter's grammar
+        # ruff does not reject syntax that only the *newer* grammar allows, and the
+        # development machines here run a newer Python than the deployment target:
+        # a nested-quote f-string (PEP 701, 3.12+) passed lint and mypy and only
+        # blew up as a SyntaxError at collection time in the 3.11 environment.
+        # compileall is that check, run by the interpreter the project supports.
+        run: python -m compileall -q src tests benchmark scripts main.py worker.py run.py
+
+  typecheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+      - name: Install mypy + runtime deps
+        run: |
+          pip install mypy
+          pip install -e ".[test]"
+      - name: mypy (fiximg package)
+        # A real gate: the package type-checks clean, including the bodies of
+        # untyped functions (`check_untyped_defs` in pyproject). This job used to
+        # run with continue-on-error, which made it a report and not a check —
+        # 44 findings sat behind it for three releases, several of them in files
+        # that had simply lost their annotations.
+        run: python -m mypy
 
   tests:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
     strategy:
       matrix:
-        python-version: ["3.11"]
+        python-version: ["3.11", "3.12"]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
           cache: pip
-      # CPU-only torch keeps the CI fast; heavy weights are never downloaded —
-      # unit + integration tests stub model inference at the stage boundary.
+      # CPU-only torch keeps CI fast; heavy weights are never downloaded — the
+      # tests stub model inference at the stage/backend boundary (plan §3.11).
       - name: Install CPU torch
         run: pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
-      - name: Install project dependencies
-        run: pip install -r requirements.txt
-      - name: Run tests (unit + integration)
+      - name: Install project (editable, test extras)
+        run: pip install -e ".[test]"
+      - name: Run tests (unit + api + inference + integration + e2e)
         env:
           FIXIMG_SKIP_WEIGHT_CHECK: "1"
           KMP_DUPLICATE_LIB_OK: "True"
         run: python -m pytest -m "not gpu"
+
+  postgres:
+    # The data path against a real server (plan §4.3 Step 2, §3.10.1). The
+    # fake-driver tests cannot stand in for this: they answer exactly the
+    # statements the code sends, so they cannot reject a SQLite-only spelling, a
+    # reserved word or a type the server enforces — four defects came out of
+    # running this against PostgreSQL 18 the first time.
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: fiximg
+          POSTGRES_PASSWORD: fiximg
+          POSTGRES_DB: fiximg_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U fiximg"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      FIXIMG_TEST_POSTGRES_URL: postgresql://fiximg:fiximg@localhost:5432/fiximg_test
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: Install project (test + postgres extras)
+        run: pip install -e ".[test,postgres]"
+      - name: Migrations apply, roll back to base and re-apply on PostgreSQL
+        env:
+          FIXIMG_DATABASE_URL: postgresql://fiximg:fiximg@localhost:5432/fiximg_test
+        run: |
+          python -m fiximg.infrastructure.db.migrations.runner upgrade
+          python -m fiximg.infrastructure.db.migrations.runner status
+          python -m fiximg.infrastructure.db.migrations.runner downgrade base
+          python -m fiximg.infrastructure.db.migrations.runner upgrade
+          python -m fiximg.infrastructure.db.migrations.runner check
+      - name: Data path against the real server
+        run: python -m pytest tests/integration/test_postgres_server.py -q
+
+  benchmark:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: Install CPU torch
+        run: pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
+      - name: Install project
+        run: pip install -e ".[test]"
+      # Synthetic-stage benchmarks need no weights and gate platform overhead:
+      # the stage sleeps a known time, so p50 above the sleep is queue claim +
+      # dispatch + artifact + logging cost, and exceeding the ceiling exits 1
+      # (plan §3.11 "benchmark regression").
+      - name: Migrations apply, roll back and re-apply on a fresh database
+        run: |
+          export FIXIMG_DATABASE_URL="sqlite:///$RUNNER_TEMP/migrate.db"
+          python -m fiximg.infrastructure.db.migrations.runner upgrade
+          python -m fiximg.infrastructure.db.migrations.runner status
+          python -m fiximg.infrastructure.db.migrations.runner downgrade base
+          python -m fiximg.infrastructure.db.migrations.runner upgrade
+      - name: Latency baseline
+        run: python -m benchmark.latency --runs 2 --sizes small
+      - name: Throughput baseline
+        run: python -m benchmark.throughput --tasks 10
+
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build API image (torch-free)
+        run: docker build -f docker/api.Dockerfile -t fiximg-api:ci .
+      # The worker image carries the GPU stack and the vendored model code, so it
+      # is the one that actually breaks when a dependency or COPY path moves.
+      - name: Build worker image
+        run: docker build -f docker/worker.Dockerfile -t fiximg-worker:ci .
+      - name: Validate compose files
+        run: |
+          for f in docker-compose.yml docker/compose.yaml docker/compose.local.yaml docker/compose.multigpu.yaml; do
+            echo "== $f"
+            docker compose -f "$f" config --quiet
+          done
+      - name: Scan the API image for known vulnerabilities
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: fiximg-api:ci
+          format: table
+          # Blocking. A scan that cannot fail the job is a report nobody reads, and
+          # `exit-code: "0"` was exactly the soft step this workflow bans elsewhere.
+          # When a CRITICAL/HIGH finding is real but not actionable yet, record it in
+          # .trivyignore with the CVE id and the reason - never by relaxing this.
+          exit-code: "1"
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          ignore-file: .trivyignore
+
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      # Lock freshness first: the generated group files are what deployments
+      # install, so a pyproject edit that forgot `make lock` fails here. A group
+      # is only compared when its roots are installed (see the script's docstring),
+      # which is why this job installs `.[test]`.
+      - name: Verify the locked requirement groups are current
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[test]" --quiet
+          python scripts/export_locks.py --check
+      # Dependency audit: a real gate. Every advisory in the pinned runtime
+      # requirements fails the build, and an exemption has to be a reviewed line
+      # in config/audit_ignore.txt. This step used to end with `|| true` next to a
+      # placeholder `--ignore-vuln GHSA-0000-0000-0000`, so nothing downstream
+      # could ever read its result — the audit equivalent of `continue-on-error`.
+      - name: Audit dependencies
+        run: |
+          python -m pip install --upgrade pip pip-audit
+          ignores=""
+          while read -r id; do
+            [ -n "$id" ] || continue
+            ignores="$ignores --ignore-vuln $id"
+          done < <(grep -Ev '^[[:space:]]*(#|$)' config/audit_ignore.txt)
+          echo "reviewed exemptions:${ignores:- none}"
+          pip-audit --requirement requirements.txt --strict ${ignores}

@@ -1,0 +1,55 @@
+{
+  "_comment": [
+    "Committed latency baseline for `python -m benchmark.latency` (plan 3.10.3).",
+    "Before this file the p50/p95 existed only as prose in docs, so 'baseline' could",
+    "not be compared against by a person or a test, and the only number with teeth",
+    "was the overhead ceiling in benchmark/latency.py.",
+    "Numbers are seconds per task from the SYNTHETIC stage mode: the stage sleeps a",
+    "known 0.050s, so everything above that is platform cost (queue claim, stage",
+    "dispatch, artifact rows, logging). Absolute milliseconds are meaningful only",
+    "relative to the platform that measured them, which is why reference_platform is",
+    "part of the record and why the gate uses a ceiling instead of an expectation.",
+    "Only `gated_size` is enforced: image preparation is part of the measured span",
+    "and scales with pixels, so a ceiling tuned for 512 px would false-alarm on",
+    "4096 px for reasons unrelated to the platform.",
+    "Refresh with: python -m benchmark.latency --runs 6 --sizes small,medium,large,xlarge",
+    "and review the diff. tests/unit/test_benchmark_samples.py fails if this file and",
+    "the constants in benchmark/latency.py disagree, or if a size disappears."
+  ],
+  "measured_at": "2026-09-27",
+  "reference_platform": "Windows 10, Python 3.14.2, torch 2.13.0+cpu (no CUDA), SQLite",
+  "stage_delay_seconds": 0.05,
+  "max_overhead_seconds": 1.0,
+  "gated_size": "small",
+  "runs_per_size": {"small": 6, "medium": 6, "large": 3, "xlarge": 3},
+  "sizes": {
+    "small": {
+      "px": 512,
+      "cold_s": 0.0575,
+      "p50_s": 0.0514,
+      "p95_s": 0.0575,
+      "overhead_s": 0.0014
+    },
+    "medium": {
+      "px": 1024,
+      "cold_s": 0.0516,
+      "p50_s": 0.0513,
+      "p95_s": 0.0516,
+      "overhead_s": 0.0013
+    },
+    "large": {
+      "px": 2048,
+      "cold_s": 0.0575,
+      "p50_s": 0.0513,
+      "p95_s": 0.0575,
+      "overhead_s": 0.0013
+    },
+    "xlarge": {
+      "px": 4096,
+      "cold_s": 0.0519,
+      "p50_s": 0.0519,
+      "p95_s": 0.0519,
+      "overhead_s": 0.0019
+    }
+  }
+}

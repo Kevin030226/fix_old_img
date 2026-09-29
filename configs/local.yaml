@@ -1,0 +1,31 @@
+# Local development profile (default).
+#
+# Everything runs in one process: FastAPI + Gradio + an inline worker thread,
+# SQLite for state, the local filesystem for artifacts, models loaded lazily.
+# Selected by FIXIMG_PROFILE=local (the default).
+
+app_env: local
+
+host: 127.0.0.1
+port: 9502
+
+# --- single-process topology ---
+inline_worker: true
+has_external_worker: false
+
+# --- storage / queue / database ---
+# No database_url here on purpose: the engine opens admin_data/fixoldimg.db
+# under base_dir, and only FIXIMG_DATABASE_URL relocates it (plan §3.3 keeps the
+# connection string a deployment concern, not a checked-in one).
+queue_backend: sqlite
+storage_backend: local
+redis_url: ""
+
+# --- models ---
+device: auto
+warmup: lazy
+identity_backend: auto
+
+# --- security bootstrap (dev convenience: a known password is fine locally) ---
+auto_bootstrap_admin: true
+api_token_user: api

@@ -1,0 +1,28 @@
+# Container profile (plan §3.13): API and worker are separate processes sharing
+# a database and an artifact volume.
+#
+#   FIXIMG_PROFILE=docker
+#   api    → FIXIMG_INLINE_WORKER=false (enqueue only)
+#   worker → `python -m fiximg.cli.worker` (owns the models)
+
+app_env: staging
+
+host: 0.0.0.0
+port: 9502
+
+# --- split topology: the API must not run GPU inference ---
+inline_worker: false
+has_external_worker: true
+
+# --- shared volumes (paths are container-absolute via the compose mounts) ---
+# The database is base_dir/admin_data/fixoldimg.db, which the compose volume
+# already mounts at that path; set FIXIMG_DATABASE_URL to put it elsewhere.
+queue_backend: sqlite
+storage_backend: local
+
+# --- models ---
+device: auto
+warmup: first-use
+
+# --- security ---
+auto_bootstrap_admin: true

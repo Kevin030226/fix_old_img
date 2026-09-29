@@ -1,0 +1,222 @@
+[build-system]
+requires = ["hatchling>=1.24"]
+build-backend = "hatchling.build"
+
+[project]
+name = "fiximg"
+version = "3.0.0"
+description = "Old photo restoration, scratch repair and colorization platform (V3)"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { file = "LICENSE" }
+authors = [{ name = "Kevin030226" }]
+keywords = ["image-restoration", "colorization", "fastapi", "gradio", "gpu", "worker"]
+classifiers = [
+    "Programming Language :: Python :: 3.11",
+    "Topic :: Scientific/Engineering :: Image Processing",
+]
+
+# Runtime core: the web layer + the light imaging stack. The heavy inference
+# stack (torch/dlib) lives in the `gpu` extra so a CPU-only API container does
+# not have to install it (plan §3.12).
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn>=0.30",
+    "python-multipart>=0.0.9",
+    "gradio>=5.0",
+    "pydantic>=2.7",
+    "numpy>=1.26",
+    "Pillow>=10.0",
+    "opencv-python-headless>=4.9",
+    "scipy>=1.11",
+    "scikit-image>=0.22",
+    "PyYAML>=6.0",
+    "filelock>=3.13",
+]
+
+[project.optional-dependencies]
+# GPU / model inference stack (torch itself is installed from the cu12x index).
+gpu = [
+    "torch>=2.4",
+    "torchvision>=0.19",
+    "timm>=0.9",
+    "easydict>=1.13",
+    "dill>=0.4",
+    "dominate>=2.9",
+    "tensorboardX>=2.6",
+    "einops>=0.8",
+    "pyspng>=0.1",
+    "dlib>=19.24",
+]
+# Optional transports/stores (plan §3.13 P2).
+redis = ["redis>=5.0"]
+s3 = ["boto3>=1.34"]
+# Alembic drives the migrations; SQLAlchemy is its engine (plan §4.3 Step 2).
+# psycopg is only needed once the repositories stop using SQLite-specific SQL.
+postgres = ["SQLAlchemy>=2.0", "psycopg[binary]>=3.1", "alembic>=1.13"]
+# Observability exporters (the in-process registry needs nothing).
+otel = ["opentelemetry-api>=1.24", "opentelemetry-sdk>=1.24"]
+test = [
+    "pytest>=8.0",
+    "pytest-cov>=5.0",
+    "httpx>=0.27",
+    # fakeredis implements the real Redis Streams commands, so the queue
+    # backend is tested against the protocol rather than a hand-written fake.
+    "fakeredis>=2.20",
+    # Migrations are tested end to end (upgrade / downgrade / stamp).
+    "SQLAlchemy>=2.0",
+    "alembic>=1.13",
+    # Same argument for object storage: moto answers the real S3 API in-process,
+    # so the artifact store's publish / read-through / reclaim paths run against
+    # boto3 instead of against a hand-written client double. Without these the
+    # S3 leg of tests/integration/test_artifact_store.py silently skips.
+    "boto3>=1.34",
+    "moto>=5.0",
+    # scripts/export_locks.py evaluates environment markers so a group file cannot
+    # demand `audioop-lts; python_version >= "3.13"` from a 3.11 install.
+    "packaging>=23",
+]
+# The benchmark tier imports only the standard library and `fiximg` itself, so it
+# needs nothing extra. It used to declare `tabulate`, which no code imported —
+# `benchmark/common.py` prints its own fixed-width table.
+benchmark = []
+dev = ["ruff>=0.6", "mypy>=1.10"]
+
+[project.scripts]
+fiximg-api = "fiximg.cli.api:run"
+fiximg-worker = "fiximg.cli.worker:main"
+fiximg-batch = "fiximg.cli.batch:main"
+fiximg-weights = "fiximg.cli.download_weights:main"
+fiximg-verify-weights = "fiximg.cli.verify_weights:main"
+fiximg-migrate = "fiximg.cli.migrate_v1:main"
+fiximg-db = "fiximg.infrastructure.db.migrations.runner:_main"
+
+[project.urls]
+Homepage = "https://github.com/Kevin030226/fix_old_img"
+Repository = "https://github.com/Kevin030226/fix_old_img"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/fiximg"]
+
+[tool.pytest.ini_options]
+# Every directory under tests/ that holds a test_*.py must appear here. `tests/ui`
+# was missing while `make test`, `make test-all`, `make test-gpu`, `make cov` and CI
+# all invoke a bare `pytest`, so its 32 tests never ran in the project's own gate.
+# `tests/unit/test_test_layout.py` fails if a new test directory is not registered.
+testpaths = [
+    "tests/unit",
+    "tests/api",
+    "tests/ui",
+    "tests/inference",
+    "tests/integration",
+    "tests/e2e",
+    "tests/gpu",
+]
+python_files = "test_*.py"
+addopts = "-q"
+pythonpath = ["src", "."]
+markers = [
+    "gpu: requires model weights and/or a CUDA GPU (deselect with -m \"not gpu\")",
+    "integration: cross-layer tests over a real temp database (queue, repository, artifact store)",
+]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 110
+extend-exclude = [
+    "basicsr",
+    "ddcolor",
+    "Face_Detection",
+    "Face_Enhancement",
+    "Global",
+    "tools",
+]
+
+[tool.ruff.lint]
+# "N" (pep8-naming) was absent, so the only naming rule in the project's gate was
+# the one nobody had to think about: two accessors in inference/planner.py were
+# named AUTO_SCRATCH_THRESHOLD / AUTO_BLUR_THRESHOLD, reading as module constants
+# while proxying settings.auto_scratch_threshold. Every remaining N hit is
+# deliberate and is exempted below with its reason.
+select = ["E", "W", "F", "B", "UP", "SIM", "N"]
+ignore = [
+    "E501",    # long lines are tolerated (JSON logs, SQL strings)
+    "B008",    # FastAPI Depends()/Form() in defaults is idiomatic
+    "SIM105",  # contextlib.suppress less readable than try/except here
+    "SIM117",  # nested with-statements kept for clarity
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["SIM"]
+# Alembic looks the migration context up by the class name `Config` in the module
+# namespace. Renaming it disables env.py, so the name is not ours to choose.
+"src/fiximg/infrastructure/db/migrations/runner.py" = ["N806"]
+# Five modules each export a `REFERENCE_TYPE` constant. The names are disambiguated
+# by what they are aliased to (NR_/GT_/NR_IQA_/identity_), and this file imports all
+# five into one scope, where the bare name would collide.
+"src/fiximg/inference/runtime.py" = ["N811"]
+# Same pair of names, in the migration and in the test that drives it.
+"migrations/versions/0001_v3_baseline.py" = ["N811"]
+"tests/unit/test_migrations_alembic.py" = ["N811"]
+# A local class defined inside a test function: N806 reads a class statement in a
+# function body as a variable, but a class name is PascalCase by definition.
+"tests/unit/test_face_detect_native.py" = ["N806"]
+# A local frozenset literal, read as a constant because it is one. Constants do
+# not have to be spelled in caps to be constant.
+"tests/unit/test_model_catalog.py" = ["N806"]
+# "vN" in the name is the directory layout the test asserts, not a capital letter.
+"tests/unit/test_error_code_and_versions.py" = ["N802"]
+# Deliberate: the test uses MUE four times in a long parametrized body.
+"tests/unit/test_global_native_backend.py" = ["N817"]
+
+[tool.ruff.format]
+quote-style = "preserve"
+
+[tool.mypy]
+python_version = "3.11"
+mypy_path = "src"
+packages = ["fiximg"]
+ignore_missing_imports = true
+warn_unused_ignores = true
+# Bodies of untyped functions are checked too. That costs nothing today (the
+# package is clean) and it is the difference between "the file that forgot its
+# annotations is checked" and "the file that forgot is silently skipped" — the
+# latter is how `skimage` imports and `Image.BILINEAR` went unnoticed for a release.
+check_untyped_defs = true
+# Progressive strictness: the domain and api layers are fully typed. The
+# inference adapters keep `disallow_untyped_defs` off — not because they are
+# legacy (they are the native backends now) but because their parameters *are*
+# untyped vendored objects, so requiring signatures would buy `: Any` ceremony
+# rather than information. Their bodies are still checked, which is the part that
+# finds real problems (`Image.BILINEAR`, the unofficial skimage re-export).
+[[tool.mypy.overrides]]
+module = ["fiximg.inference.stages.*", "fiximg.inference.backends.*"]
+disallow_untyped_defs = false
+
+# Third-party numeric stacks are not our type debt, and skipping them is also a
+# correctness fix: importing scikit-image drags in tifffile, whose PEP 695 `type`
+# statement mypy refuses to parse while targeting python_version=3.11 — that single
+# syntax error aborts the whole run rather than reporting one file.
+#
+# The vendored model trees (`basicsr`, `ddcolor`) are in the same category: they
+# are upstream code, copied under its own licence, and a type error inside a
+# copied U-Net is not ours to "fix" — patching it would also make the copy differ
+# from the upstream it must stay bit-exact with. `silent` rather than `skip` so
+# our own calls into them still resolve to `Any` without losing checks elsewhere.
+[[tool.mypy.overrides]]
+module = [
+    "skimage.*",
+    "tifffile.*",
+    "imageio.*",
+    "matplotlib.*",
+    "dlib.*",
+    "cv2",
+    "cv2.*",
+    "torch.*",
+    "torchvision.*",
+    "basicsr.*",
+    "ddcolor.*",
+    "facenet_pytorch.*",
+]
+ignore_missing_imports = true
+follow_imports = "skip"

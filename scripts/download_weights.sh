@@ -49,5 +49,5 @@ else
 fi
 
 echo "==> Done. If this is a first deployment, re-generate the weights manifest:"
-echo "    python -m config.weights_check generate"
+echo "    python -m fiximg.cli.download_weights generate"
 

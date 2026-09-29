@@ -1,0 +1,213 @@
+name: Release
+
+# Plan §3.11: CI proves the code, this workflow ships it.
+#
+# Pushing a tag `vX.Y.Z` builds the Python distribution and both container
+# images, verifies they actually run, then publishes to GitHub Releases + GHCR.
+# A manual run defaults to dry-run, so rehearsing the pipeline cannot publish
+# anything by accident.
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: "Actually push artifacts and images (a tag push always publishes)"
+        type: boolean
+        default: false
+
+permissions:
+  contents: write # GitHub Release + build artifacts
+  packages: write # GHCR images
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAMESPACE: ${{ github.repository_owner }}
+
+jobs:
+  # One job decides two things every later step consumes: the version, and
+  # whether this run is allowed to publish. Keeping the decision here means no
+  # individual step can guess its own way into pushing something.
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.verify.outputs.version }}
+      publish: ${{ steps.decide.outputs.publish }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+      - name: Verify the tag and the packaged version agree
+        id: verify
+        run: |
+          declared=$(python -c 'import tomllib;print(tomllib.load(open("pyproject.toml","rb"))["project"]["version"])')
+          if [ "${GITHUB_EVENT_NAME}" = push ] && [ "$GITHUB_REF_NAME" != "v$declared" ]; then
+            echo "::error::tag '$GITHUB_REF_NAME' does not match pyproject version 'v$declared'"
+            exit 1
+          fi
+          echo "version=$declared" >> "$GITHUB_OUTPUT"
+      - name: Decide whether to publish
+        id: decide
+        # A tag push publishes; a manual run only when explicitly asked to.
+        run: echo "publish=${{ github.event_name == 'push' || inputs.publish }}" >> "$GITHUB_OUTPUT"
+
+  artifacts:
+    needs: version
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+      - name: Build sdist + wheel
+        run: |
+          pip install --upgrade pip build
+          python -m build
+      - name: Checksums
+        run: cd dist && sha256sum * > sha256sums.txt && cat sha256sums.txt
+      # The wheel is installed into a throwaway venv and the backend registry is
+      # built from it: a distribution that packages fewer files than the tree has
+      # is the failure this catches, and it is invisible to a source-tree test run.
+      - name: Smoke-test the wheel in a clean environment
+        run: |
+          python -m venv .venv-smoke
+          .venv-smoke/bin/pip install --quiet dist/*.whl
+          .venv-smoke/bin/python -c "
+          from fiximg.config import settings
+          from fiximg.inference.backends.registry import backend_registry
+          names = backend_registry.names()
+          for expected in ('ddcolor', 'global_restore', 'scratch_repair',
+                           'face_detection', 'face_enhancement', 'warp_back'):
+              assert expected in names, f'{expected} missing from the built wheel'
+          assert settings.native_tree in ('global', 'face', 'none'), 'config not loaded'
+          print('wheel ok, backends =', names)
+          "
+      - uses: actions/upload-artifact@v4
+        with:
+          name: fiximg-${{ needs.version.outputs.version }}
+          path: |
+            dist/*.whl
+            dist/*.tar.gz
+            dist/sha256sums.txt
+          if-no-files-found: error
+
+  images:
+    needs: version
+    strategy:
+      fail-fast: false
+      matrix:
+        image: [api, worker]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: docker/setup-buildx-action@v3
+      - name: Log in to GHCR
+        if: needs.version.outputs.publish == 'true'
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Compute tags
+        id: tags
+        run: |
+          name="${IMAGE_NAMESPACE}/fiximg-${{ matrix.image }}"
+          echo "name=$name" >> "$GITHUB_OUTPUT"
+          echo "tags=${REGISTRY}/$name:${{ needs.version.outputs.version }},${REGISTRY}/$name:latest" >> "$GITHUB_OUTPUT"
+      - name: Build the image
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/${{ matrix.image }}.Dockerfile
+          push: ${{ needs.version.outputs.publish == 'true' }}
+          tags: ${{ steps.tags.outputs.tags }}
+          provenance: mode-max
+          sbom: true
+          cache-from: type=gha,scope=${{ matrix.image }}-release
+          cache-to: type=gha,mode=max,scope=${{ matrix.image }}-release
+      # A dry run has no registry digest to report, and writing an empty one next
+      # to a green check is exactly the sort of "passed, proved nothing" this
+      # project keeps having to unlearn.
+      - name: Record what was produced
+        run: |
+          {
+            echo "### fiximg-${{ matrix.image }}"
+            echo ""
+            echo '```'
+            echo "repository: ${REGISTRY}/${{ steps.tags.outputs.name }}"
+            echo "version:    ${{ needs.version.outputs.version }}"
+            if [ "${{ needs.version.outputs.publish }}" = "true" ]; then
+              echo "digest:     ${{ steps.build.outputs.digest }}"
+            else
+              echo "digest:     (not pushed — dry run)"
+            fi
+            echo '```'
+          } >> "$DIGEST_FILE"
+        env:
+          DIGEST_FILE: ${{ runner.temp }}/image-${{ matrix.image }}.md
+      - uses: actions/upload-artifact@v4
+        with:
+          name: image-notes-${{ matrix.image }}
+          path: ${{ runner.temp }}/image-*.md
+
+  release:
+    needs: [version, artifacts, images]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - uses: actions/download-artifact@v4
+        with:
+          name: fiximg-${{ needs.version.outputs.version }}
+          path: dist
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: image-notes-*
+          merge-multiple: true
+          path: image-notes
+      - name: Image summary
+        run: cat image-notes/*.md >> "$GITHUB_STEP_SUMMARY"
+      - name: Release notes
+        run: |
+          {
+            echo "### Changes"
+            echo ""
+            prev=$(git describe --tags --abbrev=0 "${GITHUB_REF_NAME}^" 2>/dev/null || true)
+            if [ -n "$prev" ]; then
+              git log --no-merges --pretty='- %s (%h)' "$prev..${GITHUB_REF_NAME}"
+            else
+              echo '- First tagged release.'
+            fi
+            echo ""
+            echo '### Artifact checksums'
+            echo ""
+            echo '```'
+            cat dist/sha256sums.txt
+            echo '```'
+            echo ""
+            echo "Images: \`ghcr.io/${IMAGE_NAMESPACE}/fiximg-api:${{ needs.version.outputs.version }}\`"
+            echo "and \`ghcr.io/${IMAGE_NAMESPACE}/fiximg-worker:${{ needs.version.outputs.version }}\`."
+            echo ""
+            echo "Run one worker process per legacy tree (\`FIXIMG_NATIVE_TREE\`); see docs/deployment.md."
+          } > notes.md
+      - name: Create the GitHub release
+        if: needs.version.outputs.publish == 'true'
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            --target "$GITHUB_SHA" \
+            --title "fiximg $GITHUB_REF_NAME" \
+            --notes-file notes.md \
+            dist/*.whl dist/*.tar.gz dist/sha256sums.txt
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Dry-run banner
+        if: needs.version.outputs.publish != 'true'
+        run: echo "::notice::dry run — nothing published (wheel + both images built and verified)"
