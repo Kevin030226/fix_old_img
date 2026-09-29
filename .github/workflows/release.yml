@@ -128,16 +128,18 @@ jobs:
           file: docker/${{ matrix.image }}.Dockerfile
           push: ${{ needs.version.outputs.publish == 'true' }}
           tags: ${{ steps.tags.outputs.tags }}
-          provenance: mode-max
+          # `mode=max`, not `mode-max`: buildx reads this as `mode=<level>`.
+          # The dashed spelling failed both image jobs with "buildx failed
+          # with: invalid value mode-max" before a Dockerfile was read, and the
+          # message was taken for a complaint about the GHA cache exporter --
+          # which was then removed. The next tagged run failed with the same
+          # message and no exporter in the file, which is what disproved that.
+          provenance: mode=max
           sbom: true
-          # The GHA cache exporter is off for now. It failed with
-          # `invalid value mode-max` on both images under buildx v3, which
-          # skipped the release job entirely; the build itself was never
-          # reached, so nothing about the Dockerfiles has been disproved.
+          # The GHA cache exporter stays off until a build has published both
+          # images without it, so a further failure cannot be blamed on it.
           # Re-add `cache-from: type=gha,scope=...` and
-          # `cache-to: type=gha,mode=max,scope=...` once a no-cache build has
-          # published both images -- then the remaining fault, if any, is
-          # isolated to the exporter.
+          # `cache-to: type=gha,mode=max,scope=...` after that.
       # A dry run has no registry digest to report, and writing an empty one next
       # to a green check is exactly the sort of "passed, proved nothing" this
       # project keeps having to unlearn.

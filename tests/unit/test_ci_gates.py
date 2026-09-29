@@ -237,6 +237,35 @@ def test_no_action_step_is_parametrised_to_pass_anyway():
     )
 
 
+#: buildx spells its provenance levels `mode=min` / `mode=max`. A dash is not a
+#: value it accepts, and it rejects the build before any Dockerfile is read.
+PROVENANCE_OK = re.compile(r"^(true|false|mode=(min|max))$")
+
+
+def test_provenance_input_uses_the_syntax_buildx_accepts():
+    """`provenance: mode-max` failed both release images without building either.
+
+    The message it produced -- "buildx failed with: invalid value mode-max" -- was
+    read as a complaint about the GHA cache exporter, which was removed; the next
+    tagged run failed identically with no exporter left to blame. The value was the
+    fault the whole time, and unlike the exporter it is checkable from here.
+    """
+    offenders = []
+    for file_name, job_id, step in _steps():
+        with_block = step.get("with") or {}
+        if not isinstance(with_block, dict):
+            continue
+        value = with_block.get("provenance")
+        if value is None:
+            continue
+        if not PROVENANCE_OK.match(str(value).strip()):
+            offenders.append(f"{file_name}:{job_id}/{step.get('name') or '?'}: provenance={value}")
+    assert not offenders, (
+        "buildx takes `mode=min`/`mode=max` for provenance, never a dash: "
+        + "; ".join(offenders)
+    )
+
+
 def test_referenced_ignore_files_exist():
     """An ignore list that is not in the repository means an unbounded exemption."""
     import os
@@ -247,7 +276,13 @@ def test_referenced_ignore_files_exist():
         if not isinstance(with_block, dict):
             continue
         for key, value in with_block.items():
-            if "ignore-file" in str(key).lower() or "ignorelist" in str(key).lower():
+            # `trivyignores` is the name the scan action actually reads. The
+            # spelling CI used before that (`ignore-file`) stays in the list: a
+            # workflow that goes back to it is still referencing a file.
+            if any(
+                token in str(key).lower()
+                for token in ("ignore-file", "ignorelist", "trivyignores")
+            ):
                 if not os.path.exists(os.path.join(PROJECT_ROOT, str(value))):
                     missing.append(f"{job_id}/{step.get('name') or '?'}: {value}")
     assert not missing, f"CI references ignore files that are not committed: {missing}"

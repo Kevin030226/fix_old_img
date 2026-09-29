@@ -169,7 +169,12 @@ jobs:
           exit-code: "1"
           severity: CRITICAL,HIGH
           ignore-unfixed: true
-          ignore-file: .trivyignore
+          # `trivyignores`, not `ignore-file`: the action has no `ignore-file`
+          # input, so the committed .trivyignore was never read. CI logged
+          # "Unexpected input(s) 'ignore-file'" and scanned with no exemptions
+          # at all, while the self-check below still saw a referenced file that
+          # exists. This is the name the pinned version accepts.
+          trivyignores: .trivyignore
 
   audit:
     runs-on: ubuntu-latest
