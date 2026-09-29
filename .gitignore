@@ -4,12 +4,13 @@ __pycache__/
 *$py.class
 *.so
 .Python
+# Anchored for the same reason as the runtime-artifact block below.
 build/
-dist/
+/dist/
 *.egg-info/
 .venv/
-venv/
-env/
+/venv/
+/env/
 
 # ---------- Model weights (large; not committed; distributed separately) ----------
 *.pth
@@ -19,16 +20,26 @@ env/
 *.onnx
 
 # ---------- Runtime artifacts / user data (private; never commit) ----------
-user_upload_images/
-output_img/
-admin_data/
-runs/
-logs/
+# Every entry in this block is anchored with a leading slash, and that is load
+# bearing rather than tidiness. An unanchored `storage/` matches a directory of
+# that name at ANY depth, so it silently excluded src/fiximg/infrastructure/
+# storage/ -- base.py, s3.py and the package __init__ that defines
+# fetch_to_local, publish_local_file, purge_expired_published and
+# get_artifact_store. The commit passed its own type check, because the files
+# were on disk; it failed on CI, where they are genuinely absent. Nothing
+# reported it until mypy ran on a clean checkout.
+# tests/unit/test_ignore_files.py now fails when a .py file under src/ or
+# tests/ is untracked, which is the general form of this defect.
+/user_upload_images/
+/output_img/
+/admin_data/
+/runs/
+/logs/
 *.log
 # V2 task storage: <year>/<month>/<task_id>/{input,stages,output}
 # Holds user-uploaded photos and their restored results — never commit.
-storage/
-output/
+/storage/
+/output/
 # Upstream training logs left inside the checkpoint tree by the weights download
 Global/checkpoints/**/*.txt
 

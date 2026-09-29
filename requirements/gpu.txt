@@ -14,7 +14,7 @@ dlib==20.0.1
 dominate==2.9.1
 easydict==1.13
 einops==0.8.1
-filelock==3.16.1
+filelock==3.20.3
 fsspec==2025.3.0
 h11==0.16.0
 hf-xet==1.6.0

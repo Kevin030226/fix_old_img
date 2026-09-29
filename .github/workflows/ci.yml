@@ -155,7 +155,10 @@ jobs:
             docker compose -f "$f" config --quiet
           done
       - name: Scan the API image for known vulnerabilities
-        uses: aquasecurity/trivy-action@0.28.0
+        # The tag needs its `v`. Every release of this action is published as
+        # `vX.Y.Z`; pinned as `0.28.0` the reference did not resolve, CI failed
+        # with "unable to find version 0.28.0", and the scan never ran at all.
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: fiximg-api:ci
           format: table

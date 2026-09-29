@@ -13,7 +13,7 @@ certifi==2026.2.25
 click==8.4.2
 colorama==0.4.6
 fastapi==0.141.1
-filelock==3.16.1
+filelock==3.20.3
 fsspec==2025.3.0
 gradio==6.22.0
 gradio_client==2.6.0

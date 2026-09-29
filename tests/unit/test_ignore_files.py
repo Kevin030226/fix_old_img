@@ -46,14 +46,26 @@ MUST_BE_EXCLUDED_EVERYWHERE = [
 ]
 
 
-def _entries(path: Path) -> set[str]:
-    out: set[str] = set()
+def _raw_entries(path: Path) -> list[str]:
+    """Pattern entries exactly as written, comments and blanks removed."""
+    out: list[str] = []
     for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
         line = line.strip()
-        if not line or line.startswith("#"):
-            continue
-        out.add(line.rstrip("/"))
+        if line and not line.startswith("#"):
+            out.append(line)
     return out
+
+
+def _entries(path: Path) -> set[str]:
+    """Pattern entries normalised to a bare name.
+
+    Both slashes are stripped so `/storage/` and `storage/` compare equal. The
+    anchor is load bearing rather than cosmetic -- it is what keeps the root
+    runtime directory from swallowing `src/fiximg/infrastructure/storage/` -- so
+    it is asserted on its own in `test_root_only_patterns_are_anchored` instead
+    of being flattened away here.
+    """
+    return {line.strip("/") for line in _raw_entries(path)}
 
 
 def _names(path: Path, names: list[str]) -> set[str]:
@@ -64,6 +76,83 @@ def _names(path: Path, names: list[str]) -> set[str]:
         if bare in entries or name in entries:
             found.add(name)
     return found
+
+
+#: Directories that exist at the repository root as runtime or build output, and
+#: whose names also occur *inside* the package. An unanchored `storage/` matches
+#: at any depth, so it excluded src/fiximg/infrastructure/storage/ in its
+#: entirety -- base.py, s3.py and the __init__ that defines get_artifact_store.
+#: `local.py` alone was already tracked, which is why the package looked half
+#: present and nothing local failed: the missing files were on disk the whole
+#: time and only absent from the checkout CI built.
+ROOT_ONLY_PATTERNS = [
+    "storage",
+    "output",
+    "logs",
+    "runs",
+    "admin_data",
+    "user_upload_images",
+    "output_img",
+    "venv",
+    "env",
+    "dist",
+]
+
+
+@pytest.mark.parametrize("name", ROOT_ONLY_PATTERNS)
+def test_root_only_patterns_are_anchored(name):
+    """A leading slash is what confines a pattern to the repository root."""
+    raw = _raw_entries(GITIGNORE)
+    variants = {n for n in raw if n.strip("/") == name}
+    assert variants, f"{name} is not in .gitignore at all"
+    for variant in variants:
+        assert variant.startswith("/"), (
+            f".gitignore has {variant!r} unanchored, so it also matches any "
+            f"directory named {name!r} at any depth -- that is how "
+            "src/fiximg/infrastructure/storage/ was excluded from the commit"
+        )
+
+
+def test_no_source_file_is_left_untracked():
+    """The general form of the defect: source that exists but is not in git.
+
+    Every `.py` under `src/` must be tracked. An ignore rule that matches one of
+    them produces a commit that is internally consistent on the author's machine
+    and broken on everyone else's, which is the failure mode that reached CI:
+    the local type check passed because the files were on disk.
+    """
+    untracked: list[str] = []
+    for path in sorted((ROOT / "src").rglob("*.py")):
+        if "__pycache__" in path.parts:
+            continue
+        rel = path.relative_to(ROOT).as_posix()
+        if matches_ignore(rel, _raw_entries(GITIGNORE)):
+            untracked.append(rel)
+    assert not untracked, (
+        "these source files are excluded by .gitignore and would not be in the "
+        f"commit: {untracked}. Anchor the pattern (leading `/`) or narrow it."
+    )
+
+
+def matches_ignore(rel: str, patterns: list[str]) -> bool:
+    """gitignore semantics, reduced to what this file needs.
+
+    A pattern matches a path when it matches any single segment (for a bare
+    name), the whole path, or a prefix of it. Unanchored bare names therefore
+    match at any depth -- which is the behaviour under test.
+    """
+    import fnmatch
+
+    parts = rel.split("/")
+    for pattern in patterns:
+        candidate = pattern.rstrip("/")
+        if "/" in candidate:
+            if fnmatch.fnmatch(rel, candidate) or rel.startswith(candidate + "/"):
+                return True
+        else:
+            if any(fnmatch.fnmatch(part, candidate) for part in parts):
+                return True
+    return False
 
 
 def test_both_files_exist_and_are_readable():
