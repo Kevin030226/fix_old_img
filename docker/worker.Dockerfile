@@ -47,7 +47,7 @@ RUN pip install torch==2.7.1 torchvision==0.22.1 torchaudio==2.7.1 \
 # the comment there lists the advisories. Only the API image is scanned by CI, so
 # this is the untested half of the same problem: fixed on the same reasoning, to
 # be confirmed by the release build rather than by a gate.
-RUN pip install --upgrade setuptools wheel \
+RUN pip install --upgrade "setuptools>=78.1.1" "wheel>=0.46.2" \
     && pip install -e ".[gpu,postgres,redis,s3]"
 
 # Weights are deliberately NOT baked in by default.

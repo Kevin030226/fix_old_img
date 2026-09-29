@@ -52,7 +52,12 @@ COPY main.py worker.py run.py ./
 # nothing in the resolved `.[postgres,redis,s3]` tree declares it, so how it
 # arrives is untraced -- it is pinned up rather than removed, and the scan is
 # the authority on whether it is still there.
-RUN pip install --upgrade pip setuptools wheel "msgpack>=1.2.1" \
+#
+# Floors, not a bare `--upgrade`. An unbounded upgrade installed setuptools
+# 78.1.0 while the advisory needs 78.1.1, because "latest" is whatever the index
+# serves that day and the build had a cached copy. An image should not change its
+# own security properties between two builds of the same source.
+RUN pip install --upgrade "setuptools>=78.1.1" "wheel>=0.46.2" "msgpack>=1.2.1" \
     && pip install -e ".[postgres,redis,s3]"
 
 # The JSON API is bearer-token protected: set FIXIMG_API_TOKEN to pin it,

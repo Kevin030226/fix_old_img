@@ -38,7 +38,7 @@ RUN pip install torch==2.7.1 torchvision==0.22.1 torchaudio==2.7.1 \
 # tooling, and the base image's 2022-era copies carry CVE-2025-47273 and
 # CVE-2026-24049. The same reasoning, and the same advisories, as in
 # docker/api.Dockerfile, where Trivy first reported them.
-RUN pip install --upgrade setuptools wheel && pip install -r requirements.txt
+RUN pip install --upgrade "setuptools>=78.1.1" "wheel>=0.46.2" && pip install -r requirements.txt
 
 # Make the `fiximg` package importable so the `python -m fiximg.*` entry points
 # (weight download, verification, migration) resolve inside the image.

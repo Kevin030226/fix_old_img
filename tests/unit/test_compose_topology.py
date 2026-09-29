@@ -440,3 +440,14 @@ def test_every_image_upgrades_its_own_install_tooling():
             f"{name} installs without upgrading wheel, so the base image's copy ships"
             " in it (CVE-2026-24049 at 0.45.1)"
         )
+        # A bare --upgrade is not enough. It installed setuptools 78.1.0 while
+        # the advisory needs 78.1.1, because "latest" is whatever the index
+        # serves that day and the build had a cached copy. The floor is what
+        # makes the image's security properties a property of this file rather
+        # than of the day it was built.
+        for specifier in ('"setuptools>=78.1.1"', '"wheel>=0.46.2"'):
+            assert specifier in installs, (
+                f"{name} does not pin {specifier}, so the build resolves whatever the "
+                "index serves that day -- an image should not change its own security "
+                "properties between two builds of the same source"
+            )
