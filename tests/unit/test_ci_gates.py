@@ -266,6 +266,33 @@ def test_provenance_input_uses_the_syntax_buildx_accepts():
     )
 
 
+def test_container_paths_built_from_the_owner_are_lowercased():
+    """GHCR paths are lowercase; `github.repository_owner` is not.
+
+    Both v3.0.0 image jobs failed with
+
+        invalid tag "ghcr.io/Kevin030226/fiximg-api:3.0.0":
+        repository name must be lowercase
+
+    before buildx read a Dockerfile. A workflow that builds a registry path out of
+    the owner has to fold the case in the shell -- Actions expressions have no
+    `lower()` -- so this checks the fold is still written down beside the
+    reference, not that the resulting build works.
+    """
+    offenders = []
+    for name in sorted(os.listdir(WORKFLOWS)):
+        if not name.endswith(".yml"):
+            continue
+        with open(os.path.join(WORKFLOWS, name), encoding="utf-8") as handle:
+            text = handle.read()
+        if "repository_owner" in text and "[:lower:]" not in text:
+            offenders.append(name)
+    assert not offenders, (
+        "a workflow builds a container path from github.repository_owner without "
+        "lowercasing it: " + ", ".join(offenders)
+    )
+
+
 def test_referenced_ignore_files_exist():
     """An ignore list that is not in the repository means an unbounded exemption."""
     import os

@@ -117,7 +117,14 @@ jobs:
       - name: Compute tags
         id: tags
         run: |
-          name="${IMAGE_NAMESPACE}/fiximg-${{ matrix.image }}"
+          # A GHCR repository path must be lowercase and this account is not
+          # (`Kevin030226`), so every tag read
+          #   invalid tag "ghcr.io/Kevin030226/fiximg-api:3.0.0":
+          #   repository name must be lowercase
+          # and both images failed before buildx read a Dockerfile. Folding the
+          # case here is what makes the reference legal.
+          namespace="$(printf '%s' "${IMAGE_NAMESPACE}" | tr '[:upper:]' '[:lower:]')"
+          name="${namespace}/fiximg-${{ matrix.image }}"
           echo "name=$name" >> "$GITHUB_OUTPUT"
           echo "tags=${REGISTRY}/$name:${{ needs.version.outputs.version }},${REGISTRY}/$name:latest" >> "$GITHUB_OUTPUT"
       - name: Build the image
@@ -185,6 +192,9 @@ jobs:
         run: cat image-notes/*.md >> "$GITHUB_STEP_SUMMARY"
       - name: Release notes
         run: |
+          # The notes quote the same lowercase path the images are tagged with;
+          # ${IMAGE_NAMESPACE} is the account name, capitals included.
+          namespace="$(printf '%s' "${IMAGE_NAMESPACE}" | tr '[:upper:]' '[:lower:]')"
           {
             echo "### Changes"
             echo ""
@@ -201,8 +211,8 @@ jobs:
             cat dist/sha256sums.txt
             echo '```'
             echo ""
-            echo "Images: \`ghcr.io/${IMAGE_NAMESPACE}/fiximg-api:${{ needs.version.outputs.version }}\`"
-            echo "and \`ghcr.io/${IMAGE_NAMESPACE}/fiximg-worker:${{ needs.version.outputs.version }}\`."
+            echo "Images: \`ghcr.io/${namespace}/fiximg-api:${{ needs.version.outputs.version }}\`"
+            echo "and \`ghcr.io/${namespace}/fiximg-worker:${{ needs.version.outputs.version }}\`."
             echo ""
             echo "Run one worker process per legacy tree (\`FIXIMG_NATIVE_TREE\`); see docs/deployment.md."
           } > notes.md
