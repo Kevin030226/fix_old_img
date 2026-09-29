@@ -15,7 +15,7 @@ ENV DEBIAN_FRONTEND=noninteractive \
 
 # Python 3.11 + dlib build toolchain + OpenCV runtime libraries.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    python3.11 python3.11-venv python3-pip python3-dev \
+    python3.11 python3.11-venv python3.11-dev python3-pip python3-dev \
     git curl unzip bzip2 build-essential cmake ninja-build \
     libgl1 libglib2.0-0 libsm6 libxext6 libxrender-dev \
     && rm -rf /var/lib/apt/lists/*

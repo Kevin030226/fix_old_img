@@ -90,11 +90,11 @@ def test_backend_defaults_to_every_stage():
     assert LegacyCliBackend().stages == ALL_STAGES
 
 
-def test_each_stage_backend_runs_only_its_own_path(recorder):
-    """搂3.6/搂3.7: one backend instance == one legacy path."""
+def test_each_stage_backend_runs_only_its_own_path(recorder, tmp_path):
     rec = recorder()
     for stage in ALL_STAGES:
-        LegacyCliBackend(stages=(stage,)).run_folder("/in", "/out")
+        LegacyCliBackend(stages=(stage,)).run_folder(
+            str(tmp_path / "in"), str(tmp_path / "out"))
     assert [r[0][r[0].index("--stages") + 1] for r in rec.calls] == list(ALL_STAGES)
 
 
@@ -105,9 +105,10 @@ def test_warp_back_backend_owns_the_finalize_stage():
     assert "warp_back" in backend.capabilities
 
 
-def test_restore_backend_passes_with_scratch(recorder):
+def test_restore_backend_passes_with_scratch(recorder, tmp_path):
     rec = recorder()
-    LegacyCliBackend(with_scratch=True, stages=(STAGE_RESTORE,)).run_folder("/in", "/out")
+    LegacyCliBackend(with_scratch=True, stages=(STAGE_RESTORE,)).run_folder(
+        str(tmp_path / "in"), str(tmp_path / "out"))
     assert "--with_scratch" in rec.flags()
     assert rec.value_of("--stages") == STAGE_RESTORE
 
@@ -118,22 +119,25 @@ def test_scratch_backend_renames_itself():
     assert "scratch_repair" in backend.capabilities
 
 
-def test_hr_flag_is_forwarded(recorder):
+def test_hr_flag_is_forwarded(recorder, tmp_path):
     rec = recorder()
-    LegacyCliBackend(stages=(STAGE_RESTORE,)).run_folder("/in", "/out", hr=True)
+    LegacyCliBackend(stages=(STAGE_RESTORE,)).run_folder(
+        str(tmp_path / "in"), str(tmp_path / "out"), hr=True)
     assert "--HR" in rec.flags()
 
 
-def test_gpu_id_is_forwarded(recorder):
+def test_gpu_id_is_forwarded(recorder, tmp_path):
     rec = recorder()
-    LegacyCliBackend(stages=(STAGE_RESTORE,)).run_folder("/in", "/out", gpu=3)
+    LegacyCliBackend(stages=(STAGE_RESTORE,)).run_folder(
+        str(tmp_path / "in"), str(tmp_path / "out"), gpu=3)
     assert rec.value_of("--GPU") == "3"
 
 
-def test_run_folder_returns_the_shared_root(recorder):
+def test_run_folder_returns_the_shared_root(recorder, tmp_path):
     recorder()
-    out = LegacyCliBackend(stages=(STAGE_RESTORE,)).run_folder("/in", "/out")
-    assert out == "/out"
+    out = LegacyCliBackend(stages=(STAGE_RESTORE,)).run_folder(
+        str(tmp_path / "in"), str(tmp_path / "out"))
+    assert out == str(tmp_path / "out")
 
 
 def test_run_folder_creates_the_output_root(recorder, tmp_path):
@@ -588,7 +592,8 @@ def test_a_complete_branch_passes_the_check(recorder, monkeypatch, tmp_path):
 
     rec = recorder()
     legacy_cli.LegacyCliBackend(with_scratch=True,
-                                stages=(legacy_cli.STAGE_RESTORE,)).run_folder("/in", "/out", hr=True)
+                                stages=(legacy_cli.STAGE_RESTORE,)).run_folder(
+        str(tmp_path / "in"), str(tmp_path / "out"), hr=True)
     assert "--HR" in rec.flags(), "the run went ahead and forwarded the flag"
 
 
@@ -606,7 +611,8 @@ def test_a_model_that_is_not_installed_at_all_is_not_reported_as_broken(
     monkeypatch.setattr(legacy_cli, "RESTORATION_DIR", str(tmp_path / "absent"))
     rec = recorder()
     legacy_cli.LegacyCliBackend(with_scratch=True,
-                                stages=(legacy_cli.STAGE_RESTORE,)).run_folder("/in", "/out", hr=True)
+                                stages=(legacy_cli.STAGE_RESTORE,)).run_folder(
+        str(tmp_path / "in"), str(tmp_path / "out"), hr=True)
     assert rec.last, "the subprocess command was still assembled"
 
 
@@ -621,7 +627,8 @@ def test_stages_that_do_not_restore_skip_the_restoration_check(
     monkeypatch.setattr(legacy_cli, "RESTORATION_DIR", root)
 
     rec = recorder()
-    legacy_cli.LegacyCliBackend(stages=(legacy_cli.STAGE_FACE_DETECT,)).run_folder("/in", "/out")
+    legacy_cli.LegacyCliBackend(stages=(legacy_cli.STAGE_FACE_DETECT,)).run_folder(
+        str(tmp_path / "in"), str(tmp_path / "out"))
     assert rec.last
 
 

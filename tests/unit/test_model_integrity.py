@@ -328,8 +328,18 @@ def test_discovery_ignores_dot_directories_and_caches(sandbox, monkeypatch):
 
     leaked = sorted(f for f in found if any(d in f for d in decoys))
     assert not leaked, f"weights discovered inside an excluded directory: {leaked}"
-    # And the real ones are still found, so the pruning is not over-eager.
-    assert any("ddcolor" in f for f in found), found[:5]
+    # And a weight that *is* in a kept directory is still found, so the pruning
+    # is not over-eager. It has to be planted: this test must not depend on the
+    # checkout carrying model weights, and CI has none -- asserting against a
+    # real `weights/` directory made this fail there with `assert []`.
+    keep = root / "weights" / "ddcolor"
+    keep.mkdir(parents=True, exist_ok=True)
+    (keep / "pytorch_model.pt").write_bytes(DDCOLOR_BYTES)
+    try:
+        after = sorted(rel for rel, _abs in weights_check._discover())
+    finally:
+        (keep / "pytorch_model.pt").unlink(missing_ok=True)
+    assert any("ddcolor" in f for f in after), after[:5]
 
 
 def test_the_exclude_list_still_omits_caches_when_pruned_alone(sandbox, monkeypatch):

@@ -449,7 +449,11 @@ def test_run_folder_loads_on_demand(fake_dlib, tmp_path):
 
     instance.run_folder(str(tmp_path), root)
     assert instance.is_loaded is True
-    assert os.listdir(detection_dir(root)) == ["a_1.png", "a_2.png"]
+    # sorted(): os.listdir returns directory order, which is creation order on
+    # some filesystems and something else on others. Asserting the raw listing
+    # passed on NTFS and failed on ext4, for a pipeline that is correct either
+    # way.
+    assert sorted(os.listdir(detection_dir(root))) == ["a_1.png", "a_2.png"]
 
 
 def test_aligning_without_loading_is_refused(fake_dlib):
