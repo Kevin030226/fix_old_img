@@ -583,28 +583,9 @@ def test_restoring_without_a_model_is_refused(tmp_path):
 
 
 def test_detecting_without_the_detector_is_refused(monkeypatch):
-    """The refusal is about the *detector*, not about the vendored tree importing.
-
-    `_detect_mask` loads `Global/detection.py`, preprocesses through its
-    `data_transforms`/`scale_tensor`, and only then checks whether the detector
-    itself is loaded. Leaving the import to chance made the test assert on
-    whichever failure came first: "not loaded" on a machine whose vendored tree
-    imports, "failed to import" on CI. Supplying the two names it uses makes the
-    check under test reachable regardless of that environment.
-    """
     import numpy as np
     from PIL import Image
 
-    class _FakeDetection:
-        @staticmethod
-        def data_transforms(image, size):
-            return image
-
-        @staticmethod
-        def scale_tensor(tensor):
-            return tensor
-
-    monkeypatch.setattr(gr, "_detection_module", lambda: _FakeDetection)
     backend = gr.NativeScratchRepairBackend()
     monkeypatch.setattr(backend, "_opt", _Opt())
     with pytest.raises(ModelUnavailableError, match="not loaded"):
