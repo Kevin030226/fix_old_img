@@ -40,12 +40,32 @@ ENV PATH="/opt/venv/bin:$PATH"
 RUN pip install torch==2.7.1 torchvision==0.22.1 torchaudio==2.7.1 \
     --index-url https://download.pytorch.org/whl/cu128
 
-# Project + GPU extras (dlib builds from source on Linux, ~5-10 minutes).
-RUN pip install -e ".[gpu]"
+# Project + GPU stack, plus the three transports the `platform` profile points a worker at
+# (PostgreSQL state, Redis queue, S3 artifacts). dlib builds from source on Linux, ~5-10 min.
+RUN pip install -e ".[gpu,postgres,redis,s3]"
 
-# Fetch the weights and rebuild the integrity manifest (plan §19: python
-# entrypoints, resumable downloads). Cache this layer across rebuilds.
-RUN python -m fiximg.cli.download_weights download \
-    && python -m fiximg.cli.verify_weights
+# Weights are deliberately NOT baked in by default.
+#
+#   * THIRD_PARTY_NOTICES.md records this distribution as "code only", and two of the
+#     six artifacts (dlib's landmark predictor and its face-recognition ResNet) are
+#     licensed for research/non-commercial use, so a published image must not carry them.
+#   * The upstream host for the restoration checkpoints, facevc.blob.core.windows.net,
+#     did not resolve from GitHub's runners on 2026-09-29 ("Name or service not known"),
+#     so a build that depends on it cannot validate the Dockerfile at all -- that is what
+#     failed both `images (worker)` jobs for v3.0.0.
+#
+# A weights-free worker is a supported shape: the registry reports each model
+# unavailable through the readiness probe instead of crashing. Fill the volumes with
+# `docker compose exec worker python -m fiximg.cli.download_weights download`, or set
+# FIXIMG_BAKE_WEIGHTS=true for a private build on a machine that is entitled to them:
+#
+#   docker build -f docker/worker.Dockerfile --build-arg FIXIMG_BAKE_WEIGHTS=true .
+ARG FIXIMG_BAKE_WEIGHTS=false
+RUN if [ "$FIXIMG_BAKE_WEIGHTS" = "true" ]; then \
+        python -m fiximg.cli.download_weights download \
+        && python -m fiximg.cli.verify_weights; \
+    else \
+        echo "[build] weights not baked -- see docker/worker.Dockerfile comments"; \
+    fi
 
 CMD ["python", "-m", "fiximg.cli.worker"]

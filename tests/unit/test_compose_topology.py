@@ -191,3 +191,213 @@ def test_the_object_store_credentials_compose_offers_are_usable_by_the_app():
                 f"{name}: SigV4 needs a region even for a path-style endpoint"
             )
     assert pairs, "no compose file passes storage credentials to the app at all"
+
+
+#: Where a container's models live, as paths inside the image's workdir. The pipeline
+#: reads these three, so they are the whole of what "the weights are available" means.
+WEIGHT_MOUNTS = ("/app/weights", "/app/Global/checkpoints", "/app/Face_Enhancement/checkpoints")
+
+
+def _volume_targets(service: dict) -> set[str]:
+    targets = set()
+    for entry in service.get("volumes") or []:
+        text = entry if isinstance(entry, str) else str(entry.get("target", ""))
+        target = text.split(":")[-1].strip()
+        if target:
+            targets.add(target)
+    return targets
+
+
+@pytest.mark.parametrize("path", COMPOSE_FILES, ids=lambda p: os.path.basename(p))
+def test_every_named_volume_a_service_uses_is_declared(path):
+    """`docker compose up` refuses an undeclared volume -- but only after the build.
+
+    The images now carry no weights, so the volumes that hold what the operator
+    downloads are load-bearing: a typo there is a worker that reports every model
+    unavailable for a reason nothing in the suite explains.
+    """
+    document = _load(path)
+    declared = set(document.get("volumes") or {})
+    offenders = []
+    for name, service in (document.get("services") or {}).items():
+        for entry in (service or {}).get("volumes") or []:
+            text = entry if isinstance(entry, str) else str(entry.get("source", ""))
+            source = text.split(":")[0].strip()
+            # Bind mounts (`./x:/app/y`) and absolute paths need no declaration.
+            if not source or source.startswith((".", "/", "~")) or "${" in source:
+                continue
+            if source not in declared:
+                offenders.append(f"{name}: uses undeclared volume {source!r}")
+    assert not offenders, f"{os.path.basename(path)}: {offenders}"
+
+
+@pytest.mark.parametrize("path", COMPOSE_FILES, ids=lambda p: os.path.basename(p))
+def test_a_service_that_runs_inference_mounts_every_weight_location(path):
+    """The compose half of the no-weights-in-the-image decision.
+
+    Checked against the services that actually execute stages -- the queue consumer and
+    the inline-worker app -- because a weights-free image is only a working deployment if
+    the downloaded files land somewhere that survives `docker compose up -d`.
+    """
+    document = _load(path)
+    offenders = []
+    for name, service in (document.get("services") or {}).items():
+        service = service or {}
+        if not _runs_this_repo(service):
+            continue
+        environment = service.get("environment") or {}
+        inline = str(environment.get("FIXIMG_INLINE_WORKER", "")).lower() == "true"
+        if not (inline or _consumes_queue_only(_command(path, name, service))):
+            continue
+        missing = [want for want in WEIGHT_MOUNTS if want not in _volume_targets(service)]
+        if missing:
+            offenders.append(f"{name}: does not mount {missing}")
+    assert not offenders, (
+        f"{os.path.basename(path)}: the image ships no weights, so an inference service "
+        f"without these mounts re-downloads them on every recreate: {offenders}"
+    )
+
+
+DOCKERFILES = [
+    os.path.join(PROJECT_ROOT, name)
+    for name in ("Dockerfile", os.path.join("docker", "api.Dockerfile"),
+                 os.path.join("docker", "worker.Dockerfile"))
+]
+
+
+@pytest.mark.parametrize("path", DOCKERFILES, ids=lambda p: os.path.basename(p))
+def test_building_an_image_does_not_depend_on_a_third_party_weight_host(path):
+    """No weight download outside an opt-in `FIXIMG_BAKE_WEIGHTS` guard.
+
+    `docker/worker.Dockerfile` fetched the restoration checkpoints unconditionally, so
+    both `images (worker)` jobs for v3.0.0 died on `facevc.blob.core.windows.net` not
+    resolving -- before the Dockerfile itself had been exercised at all. THIRD_PARTY_
+    NOTICES.md also records this distribution as code-only, with two of the six artifacts
+    restricted to research/non-commercial use, so baking them into a published image was
+    never the shape the project licenses itself to ship.
+    """
+    instructions = _dockerfile_instructions(path)
+    fetching = [
+        text for text in instructions
+        if "download_weights" in text and text.upper().startswith("RUN")
+    ]
+    if os.path.basename(path) == "api.Dockerfile":
+        assert not fetching, "the API image runs no inference and must fetch no weights"
+    for text in fetching:
+        assert "FIXIMG_BAKE_WEIGHTS" in text, (
+            f"{os.path.relpath(path, PROJECT_ROOT)} fetches weights in an unconditional "
+            "RUN step, which makes every build depend on an upstream host: " + text[:160]
+        )
+    if fetching:
+        arguments = [text for text in instructions if text.upper().startswith("ARG")]
+        assert any(
+            argument.strip().split() == ["ARG", "FIXIMG_BAKE_WEIGHTS=false"]
+            for argument in arguments
+        ), (
+            f"{os.path.relpath(path, PROJECT_ROOT)} guards the download, but not with an "
+            "off-by-default ARG -- so CI and the release build still reach for the network"
+        )
+
+
+def _dockerfile_instructions(path: str) -> list[str]:
+    """The file's instructions, with backslash continuations joined.
+
+    Needed because a `#` inside a continued RUN is *not* a shell comment: it would eat the
+    rest of the line and quietly truncate the download to half its steps.
+    """
+    with open(path, encoding="utf-8") as handle:
+        raw = handle.read()
+    instructions: list[str] = []
+    current: list[str] = []
+    for line in raw.splitlines():
+        stripped = line.strip()
+        if not current and (not stripped or stripped.startswith("#")):
+            continue
+        if stripped.endswith("\\"):
+            current.append(stripped[:-1].strip())
+            continue
+        current.append(stripped)
+        instructions.append(" ".join(part for part in current if part))
+        current = []
+    return instructions
+
+
+#: A transport name, and what a compose file says to set to select it. The set is
+#: scraped from the deployment declarations rather than listed here: an image that
+#: cannot reach a backend the document offers is the bug, so the document is the source.
+TRANSPORT_SELECTORS = {
+    "postgres": ("postgresql+psycopg://",),
+    "redis": ("redis://",),
+    "s3": ("FIXIMG_STORAGE_BACKEND=s3",),
+}
+
+
+def _compose_files_building(dockerfile: str) -> list[str]:
+    """Which compose files build this Dockerfile -- resolved the way Docker resolves it."""
+    target = os.path.normpath(dockerfile)
+    builders: list[str] = []
+    for path, document in _documents():
+        for service in (document.get("services") or {}).values():
+            build = (service or {}).get("build")
+            if not isinstance(build, dict):
+                continue
+            relative = build.get("dockerfile") or "Dockerfile"
+            context = os.path.join(os.path.dirname(path), build.get("context") or ".")
+            if os.path.normpath(os.path.join(context, relative)) == target:
+                builders.append(path)
+                break
+    return builders
+
+
+def _offered_transports(paths: list[str]) -> set[str]:
+    """Transports a deployment tells an operator they may select.
+
+    Scraped from those files rather than listed per image, so an image is only held to the
+    backends its own topology offers.
+    """
+    offered: set[str] = set()
+    for path in paths:
+        with open(path, encoding="utf-8") as handle:
+            text = handle.read()
+        for extra, markers in TRANSPORT_SELECTORS.items():
+            if any(marker in text for marker in markers):
+                offered.add(extra)
+    return offered
+
+
+def _installed_extras(path: str) -> set[str]:
+    """Extras the Dockerfile asks pip to install, from every `.[a,b]` requirement."""
+    with open(path, encoding="utf-8") as handle:
+        text = handle.read()
+    found = re.findall(r'pip install[^\n&|;]*?"\.?\[([a-z0-9,_ -]+)\]"', text)
+    return {piece.strip() for group in found for piece in group.split(",") if piece.strip()}
+
+
+def test_an_image_can_reach_every_transport_its_own_topology_offers():
+    """`--profile platform` documents PostgreSQL, Redis and MinIO; the images had no driver.
+
+    `docker/api.Dockerfile` installed the `test` extra -- pytest, moto and fakeredis in a
+    published image -- while `psycopg` was in none of them, so the documented
+    `FIXIMG_DATABASE_URL=postgresql+psycopg://postgres:5432/fiximg` failed on import the
+    moment an operator tried it.
+    """
+    checked = 0
+    for path in DOCKERFILES:
+        builders = _compose_files_building(path)
+        offered = _offered_transports(builders)
+        installed = _installed_extras(path)
+        if installed & {"test", "dev"}:
+            raise AssertionError(
+                f"{os.path.relpath(path, PROJECT_ROOT)} ships test/dev tooling "
+                f"in a runtime image: {sorted(installed & {'test', 'dev'})}"
+            )
+        if not offered:
+            continue
+        checked += 1
+        missing = sorted(offered - installed)
+        assert not missing, (
+            f"{os.path.relpath(path, PROJECT_ROOT)} is built by "
+            f"{[os.path.basename(p) for p in builders]}, which offers {sorted(offered)}, "
+            f"but the image installs {sorted(installed) or 'nothing'}; missing: {missing}"
+        )
+    assert checked, "no image is offered a transport, so this check would prove nothing"

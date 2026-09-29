@@ -30,7 +30,12 @@ COPY models ./models
 COPY config ./config
 COPY main.py worker.py run.py ./
 
-RUN pip install --upgrade pip && pip install -e ".[test]"
+# The deployment transports this process can be pointed at, per docker/compose.yaml's
+# `platform` profile: PostgreSQL for state, Redis for the queue and rate limiter, an S3
+# object store for artifacts. The `test` extra used to be installed here instead, which
+# shipped pytest/moto/fakeredis in a published image while leaving the three backends the
+# document names with no driver to reach them.
+RUN pip install --upgrade pip && pip install -e ".[postgres,redis,s3]"
 
 # The JSON API is bearer-token protected: set FIXIMG_API_TOKEN to pin it,
 # otherwise a token is generated on first start and persisted at

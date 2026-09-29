@@ -40,9 +40,22 @@ RUN pip install -r requirements.txt
 # (weight download, verification, migration) resolve inside the image.
 RUN pip install -e . --no-deps
 
-# Download all weights (BOB restoration chain + DDColor colorization) and
-# rebuild the integrity manifest (plan §19: python entrypoints, resume support)
-RUN python3 -m fiximg.cli.download_weights download
+# Weights are not baked in by default: THIRD_PARTY_NOTICES.md records this
+# distribution as "code only", two of the six artifacts are licensed for
+# research/non-commercial use, and the upstream restoration host did not resolve
+# from GitHub's runners on 2026-09-29 -- so a build that requires it validates
+# nothing. A weights-free container still serves: the registry reports each model
+# unavailable through the readiness probe. Fill it with
+#   docker compose exec <service> python -m fiximg.cli.download_weights download
+# or build with --build-arg FIXIMG_BAKE_WEIGHTS=true where you are entitled to them.
+ARG FIXIMG_BAKE_WEIGHTS=false
+RUN if [ "$FIXIMG_BAKE_WEIGHTS" = "true" ]; then \
+        python3 -m fiximg.cli.download_weights download \
+        && python3 -m fiximg.cli.download_weights generate \
+        && python3 -m fiximg.cli.verify_weights; \
+    else \
+        echo "[build] weights not baked -- see the ARG above"; \
+    fi
 
 # Admin credentials are NOT baked into the image (plan §21): on first start the
 # app reads FIXIMG_ADMIN_PASSWORD when provided, otherwise it generates a random
@@ -53,8 +66,8 @@ RUN python3 -m fiximg.cli.download_weights download
 # pin the token at deploy time, otherwise the app generates one on first start,
 # prints it once and stores it at admin_data/api_token.txt (mode 0600).
 
-# The weight sources inside the container may differ from local ones; regenerate the manifest from the actual files and verify it
-RUN python3 -m fiximg.cli.download_weights generate && python3 -m fiximg.cli.verify_weights
+# The weight sources inside the container may differ from local ones; the conditional
+# step above regenerates the manifest from the actual files and verifies it.
 
 EXPOSE 9502
 HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \

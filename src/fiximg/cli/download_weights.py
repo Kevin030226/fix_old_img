@@ -55,9 +55,17 @@ ARTIFACTS = {
     "face_restore": {
         "version": "1.0",
         "files": ["Face_Enhancement/checkpoints"],
+        # The upstream project publishes these as GitHub release assets, and
+        # github.com resolves from the runners. The Azure blob host this used to
+        # come from stopped resolving, which aborted the worker image build with
+        # `Name or service not known`; both URLs are kept so the fetch survives
+        # either one going away again. Verified: both assets answer HTTP 200 and
+        # their Content-Length matches the size this entry unpacks to.
         "sources": [
+            "https://github.com/microsoft/Bringing-Old-Photos-Back-to-Life/"
+            "releases/download/v1.0/face_checkpoints.zip",
             "https://facevc.blob.core.windows.net/zhanbo/old_photo/pretrain/"
-            "Face_Enhancement/checkpoints.zip"
+            "Face_Enhancement/checkpoints.zip",
         ],
         "kind": "zip",
     },
@@ -65,8 +73,10 @@ ARTIFACTS = {
         "version": "1.0",
         "files": ["Global/checkpoints"],
         "sources": [
+            "https://github.com/microsoft/Bringing-Old-Photos-Back-to-Life/"
+            "releases/download/v1.0/global_checkpoints.zip",
             "https://facevc.blob.core.windows.net/zhanbo/old_photo/pretrain/"
-            "Global/checkpoints.zip"
+            "Global/checkpoints.zip",
         ],
         "kind": "zip",
     },
