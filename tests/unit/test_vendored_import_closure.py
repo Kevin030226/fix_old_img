@@ -170,19 +170,52 @@ def closure_roots(entry: str) -> tuple[set[str], set[str]]:
 
 def declared_dependencies() -> set[str]:
     """Every distribution ``pyproject.toml`` declares: base plus every extra."""
+    return _declared_groups()[0]
+
+
+#: Distributions the CI test jobs install by command rather than through an
+#: extra, so the `.[test]` extra alone is not the whole environment. Read off
+#: `.github/workflows/ci.yml`:
+#:
+#:     pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
+#:
+#: The CPU wheel index is deliberate -- the tests stub inference at the
+#: stage/backend boundary, so a 2 GB CUDA build would buy nothing. Listed here
+#: rather than added to the `test` extra because an extra that pulls torch by
+#: default would make `pip install -e ".[test]"` a multi-gigabyte operation for
+#: anyone running the suite locally.
+INSTALL_OUTSIDE_EXTRAS = {"torch", "torchvision"}
+
+
+def _declared_groups() -> tuple[set[str], set[str]]:
+    """(everything declared, what the *test* install can pull).
+
+    The two are not the same, and the difference is a defect class of its own.
+    CI installs ``.[test]``, which resolves to the base dependencies plus the
+    ``test`` extra. ``easydict`` was declared only in the ``gpu`` extra, so a
+    name being *declared* proved nothing about the environment these tests
+    actually run in: the closure check above was satisfied while the import
+    still failed, and the next CI run failed with "No module named 'easydict'".
+    """
     import tomllib
 
     with open(os.path.join(ROOT, "pyproject.toml"), "rb") as handle:
         data = tomllib.load(handle)
     project = data["project"]
-    specifiers = list(project.get("dependencies", []))
-    for extra in (project.get("optional-dependencies") or {}).values():
-        specifiers += list(extra)
-    names = {_requirement_name(spec) for spec in specifiers}
-    assert None not in names
-    resolved = {n for n in names if n}
-    assert len(resolved) >= 15, f"only {len(resolved)} requirements parsed from pyproject.toml"
-    return resolved
+    base = list(project.get("dependencies", []))
+    extras = project.get("optional-dependencies") or {}
+
+    everything = {_requirement_name(s) for s in base}
+    for extra in extras.values():
+        everything |= {_requirement_name(s) for s in extra}
+    everything.discard("")
+    assert None not in everything
+    assert len(everything) >= 15, f"only {len(everything)} requirements parsed from pyproject.toml"
+
+    test_env = {_requirement_name(s) for s in base}
+    test_env |= {_requirement_name(s) for s in (extras.get("test") or [])}
+    test_env.discard("")
+    return everything, test_env | set(INSTALL_OUTSIDE_EXTRAS)
 
 
 def _requirement_name(specifier: str) -> str:
@@ -240,6 +273,46 @@ def test_every_module_the_executed_scripts_import_is_declared_by_the_package():
     assert exercised_alias, (
         "no import root needed an alias, so IMPORT_ALIASES is a waiver nobody uses -- "
         "delete the entries this run did not exercise"
+    )
+
+
+def test_every_module_the_detection_chain_imports_is_installable_by_the_test_extra():
+    """The stronger claim for the chain that actually broke: installable, not declared.
+
+    ``test_every_module_the_executed_scripts_import_is_declared_by_the_package``
+    unions every extra, so a package in ``gpu`` alone satisfies it. CI installs
+    ``.[test]`` and never ``gpu``, so the union answers the wrong question for the
+    one vendored chain the test suite really imports in-process: the scratch
+    detector, loaded by ``global_restore._detection_module()``. ``easydict`` was
+    declared only in ``gpu``, the check was satisfied, and the next CI run failed
+    with "No module named 'easydict'".
+
+    Scoped to that chain deliberately. ``executed_vendored_files()`` also returns
+    the training entry points -- ``Global/test.py`` and
+    ``Face_Enhancement/test_face.py`` -- which import torch, dlib and tensorboardX
+    at module level. Demanding the CPU-only test environment be able to *run* a
+    training script would mean installing the whole GPU stack to run unit tests,
+    and no test here executes one. The vendored scripts the pipeline loads through
+    the subprocess adapter need no such thing, because a subprocess inherits the
+    worker image, not this one.
+    """
+    _everything, test_env = _declared_groups()
+    entry = os.path.join(ROOT, "Global", "detection.py")
+    assert os.path.isfile(entry), f"the scratch detector moved: {entry}"
+
+    roots, walked = closure_roots(entry)
+    assert len(walked) > 1, "the sibling walk stopped at one file"
+
+    missing = sorted(
+        root for root in roots
+        if not ({root.lower().replace("_", "-")}
+                | {a.lower().replace("_", "-")
+                   for a in IMPORT_ALIASES.get(root, ())}) & test_env
+    )
+    assert not missing, (
+        "the scratch detector's import chain needs packages that "
+        f"`pip install -e \".[test]\"` does not install, so it fails in CI while "
+        f"looking declared: {missing}"
     )
 
 

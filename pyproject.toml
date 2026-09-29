@@ -75,6 +75,15 @@ test = [
     # scripts/export_locks.py evaluates environment markers so a group file cannot
     # demand `audioop-lts; python_version >= "3.13"` from a 3.11 install.
     "packaging>=23",
+    # `Global/detection_util/util.py` imports easydict at module level, and
+    # `Global/detection.py` pulls it in with `from detection_util.util import *`,
+    # so loading the scratch detector needs it. It is declared in the `gpu` extra
+    # because that is where the vendored tree is actually used, but the native
+    # backend tests load that tree too -- and `pip install -e ".[test]"` does not
+    # pull `gpu`, so the import failed on CI with "No module named 'easydict'"
+    # and the refusal test then saw the wrong exception. Declared in both places
+    # rather than moved: the runtime grouping is still correct.
+    "easydict>=1.13",
 ]
 # The benchmark tier imports only the standard library and `fiximg` itself, so it
 # needs nothing extra. It used to declare `tabulate`, which no code imported —
