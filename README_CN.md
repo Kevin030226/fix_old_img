@@ -228,7 +228,13 @@ docker compose up -d --build   # api + worker（见 docker-compose.yml）
 docker compose logs -f worker
 ```
 
-镜像会自动安装依赖、下载全部权重并重建权重清单。首次构建时 dlib 为源码编译，耗时约 5-10 分钟。
+镜像会安装依赖，首次构建时 dlib 为源码编译，耗时约 5-10 分钟。镜像**不包含模型权重**：`THIRD_PARTY_NOTICES.md` 明确本仓库只分发代码，且六个权重构件中有两个（dlib 的人脸关键点与识别模型）仅限研究/非商用，因此不随镜像再分发。没有权重的容器仍可正常提供服务——就绪探针会逐个报告模型不可用——补齐一次即可：
+
+```bash
+docker compose exec worker python -m fiximg.cli.download_weights download
+```
+
+compose 文件已在每个权重目录挂了卷，所以下载结果能跨 `docker compose up -d` 保留。若需要构建自带权重的私有镜像（在有分发权限、且能访问上游主机的机器上），构建时加 `--build-arg FIXIMG_BAKE_WEIGHTS=true`。
 
 **管理员凭据（方案 §21）：** 镜像不再内置任何固定密码。首次启动时应用会优先读取 `FIXIMG_ADMIN_PASSWORD`（例如来自 Docker secret）；若未设置，则自动生成随机一次性密码，在容器日志中**仅打印一次**，并写入 `admin_data/initial_admin_password.txt`（权限 0600）。首次登录后请立即修改。设置 `FIXIMG_AUTO_BOOTSTRAP_ADMIN=false` 可完全关闭该引导机制。
 

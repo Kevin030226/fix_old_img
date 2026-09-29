@@ -303,3 +303,47 @@ def test_events_store_their_payload(tag):
                    message="probe event", data={"k": 1})
     events = repo.list_task_events(task_id)
     assert any(e["message"] == "probe event" for e in events), events
+
+
+def test_the_new_statistics_blocks_survive_the_server(tag):
+    """`users`, `by_type` and `metric_averages` are what the admin panel and `/stats` now show.
+
+    Every expected value here is isolated by a name unique to this run -- a task type and
+    metric names -- because the scratch database accumulates rows across runs and an
+    absolute count over a shared table would pass by accident. The three properties that a
+    plausible wrong implementation must violate:
+
+    * `by_type` groups, and does not merely count (a missing GROUP BY yields one row);
+    * `users` counts *distinct* accounts, checked against an independent count;
+    * a metric that has no number half contributes no average -- `+inf` PSNR after a
+      bit-identical pair is stored as text, and reading that text as a number would
+      report an infinite mean instead of no mean.
+    """
+    first, second = _user(tag), _user(tag)
+    task_type = f"stats-{tag}"
+    numeric, textual = f"psnr-{tag}", f"infinite-{tag}"
+    repo.create_task(f"s-{tag}-1", task_type, first)
+    repo.add_metric(f"s-{tag}-1", numeric, 20.0)
+    repo.create_task(f"s-{tag}-2", task_type, second)
+    repo.add_metric(f"s-{tag}-2", numeric, 30.0)
+    repo.add_metric(f"s-{tag}-2", textual, "inf")
+
+    stats = repo.task_stats(window_days=0)
+
+    assert stats["by_type"][task_type] == 2, stats["by_type"]
+    # 20.0 and 30.0 are the only rows carrying this metric name.
+    assert stats["metric_averages"][numeric] == 25.0, stats["metric_averages"]
+    assert isinstance(stats["metric_averages"][numeric], float)
+    assert repo.read_metrics(f"s-{tag}-2")[textual] == "inf"
+    assert textual not in stats["metric_averages"], stats["metric_averages"]
+
+    counted = engine.get_conn().execute(
+        "SELECT COUNT(DISTINCT user_id) AS users FROM tasks"
+    ).fetchone()["users"]
+    assert stats["tasks"]["users"] == int(counted), (stats["tasks"]["users"], counted)
+    # The window's task total must be the same population `by_type` partitioned.
+    assert sum(stats["by_type"].values()) == stats["tasks"]["total"], stats
+
+    import json
+
+    json.dumps(stats)

@@ -62,6 +62,10 @@ services:
       - models:/app/weights
       - db:/app/admin_data
       - storage:/app/storage
+      # The image ships no weights (see the FIXIMG_BAKE_WEIGHTS ARG in Dockerfile);
+      # these hold what `download_weights` fetches, so a recreated worker keeps them.
+      - global-checkpoints:/app/Global/checkpoints
+      - face-restore-checkpoints:/app/Face_Enhancement/checkpoints
     restart: unless-stopped
     # GPU access for the worker (uncomment if the API container needs it too):
     # deploy:
@@ -76,3 +80,5 @@ volumes:
   models:
   db:
   storage:
+  global-checkpoints:
+  face-restore-checkpoints:

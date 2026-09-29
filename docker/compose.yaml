@@ -73,7 +73,13 @@ services:
     volumes:
       - db:/app/admin_data
       - storage:/app/storage
+      # The images ship no weights (see docker/worker.Dockerfile), so each location the
+      # pipeline reads is a volume that `fiximg.cli.download_weights download` fills once
+      # and a recreated container keeps. Face_Detection's two .dat files are not mounted:
+      # they sit beside that tree's code, so a volume over it would hide the scripts.
       - weights:/app/weights
+      - global-checkpoints:/app/Global/checkpoints
+      - face-restore-checkpoints:/app/Face_Enhancement/checkpoints
     restart: unless-stopped
     deploy:
       resources:
@@ -121,6 +127,8 @@ volumes:
   db:
   storage:
   weights:
+  global-checkpoints:
+  face-restore-checkpoints:
   config:
   redis:
   postgres:

@@ -5,8 +5,6 @@ import skimage.io as io
 
 # from FaceSDK.face_sdk import FaceDetection
 # from face_sdk import FaceDetection
-import matplotlib.pyplot as plt
-from matplotlib.patches import Rectangle
 from skimage.transform import SimilarityTransform
 from skimage.transform import warp
 from PIL import Image
@@ -97,6 +95,11 @@ def compute_transformation_matrix(img, landmark, normalize, target_face_scale=1.
 
 
 def show_detection(image, box, landmark):
+    # Imported here: this upstream debug helper is called by nothing in this project, and a
+    # module-level matplotlib import made every script V3 runs require a plotting library.
+    import matplotlib.pyplot as plt
+    from matplotlib.patches import Rectangle
+
     plt.imshow(image)
     print(box[2] - box[0])
     plt.gca().add_patch(

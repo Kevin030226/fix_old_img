@@ -99,8 +99,11 @@ def test_every_environment_knob_the_deployment_doc_names_is_read():
 
     Two exemptions, both derived from the source rather than hand-maintained: a name built
     by prefix at run time (`FIXIMG_CONCURRENCY_<CAPABILITY>`, whose prefix the scheduler
-    declares as a literal) and `FIXIMG_TEST_*`, which belong to the test tier and are
-    documented as such.
+    declares as a literal), `FIXIMG_TEST_*` names that belong to the test tier, and the
+    build-time arguments the Dockerfiles declare -- those are consumed by `docker build`,
+    not by a process, so Python cannot reference them. A build argument is only exempt when
+    an instruction in the same Dockerfile actually tests it, which is what keeps a
+    documented-but-ignored `--build-arg` from slipping through.
     """
     root = pathlib.Path(__file__).resolve().parents[2]
     doc = (root / "docs" / "deployment.md").read_text(encoding="utf-8")
@@ -116,11 +119,13 @@ def test_every_environment_knob_the_deployment_doc_names_is_read():
     prefixes = set(re.findall(r'"(FIXIMG_[A-Z0-9_]+_)"', sources))
     assert prefixes, "the per-capability prefix rule has nothing to match against"
 
+    build_arguments = _consumed_build_arguments(root)
     unread = sorted(
         name for name in documented
         if f'"{name}"' not in sources
         and not name.startswith("FIXIMG_TEST_")
         and not any(name.startswith(prefix) for prefix in prefixes)
+        and name not in build_arguments
     )
     assert not unread, f"documented knobs no source reads: {unread}"
 
@@ -134,3 +139,26 @@ def test_every_environment_knob_the_deployment_doc_names_is_read():
     ]
     assert dynamic, "the dynamic-prefix exemption is not exercised by any documented knob"
 
+
+
+def _consumed_build_arguments(root: pathlib.Path) -> set[str]:
+    """`FIXIMG_*` build arguments a Dockerfile declares *and* branches on.
+
+    A documented `--build-arg` is read by `docker build`, so no Python source can name it;
+    exempting build arguments by name would be a hole. This only exempts one when an
+    instruction actually tests it, which is the same evidence the runtime knobs are held to.
+    """
+    dockerfiles = [root / "Dockerfile", *(root / "docker").glob("*.Dockerfile")]
+    consumed: set[str] = set()
+    for path in dockerfiles:
+        if not path.exists():
+            continue
+        text = path.read_text(encoding="utf-8")
+        declared = set(re.findall(r"(?m)^ARG\s+(FIXIMG_[A-Z0-9_]+)", text))
+        run_bodies = "\n".join(re.findall(r"(?m)^RUN\s+(.*?)(?=^(?:ARG|CMD|ENV|COPY|WORKDIR|FROM|EXPOSE|HEALTHCHECK)\b)", text, re.DOTALL))
+        consumed |= {name for name in declared if f"${name}" in run_bodies or f"${{{name}}}" in run_bodies}
+    assert consumed, (
+        "no Dockerfile branches on a FIXIMG_* build argument -- if there are none, "
+        "this exemption is a waiver and should be deleted"
+    )
+    return consumed

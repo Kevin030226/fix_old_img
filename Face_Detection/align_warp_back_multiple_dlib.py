@@ -2,8 +2,6 @@
 import torch
 import numpy as np
 import skimage.io as io
-import matplotlib.pyplot as plt
-from matplotlib.patches import Rectangle
 from skimage.transform import SimilarityTransform
 from skimage.transform import warp
 from PIL import Image, ImageFilter
@@ -163,6 +161,11 @@ def compute_inverse_transformation_matrix(img, landmark, normalize, target_face_
 
 
 def show_detection(image, box, landmark):
+    # Imported here: this upstream debug helper is called by nothing in this project, and a
+    # module-level matplotlib import made every script V3 runs require a plotting library.
+    import matplotlib.pyplot as plt
+    from matplotlib.patches import Rectangle
+
     plt.imshow(image)
     print(box[2] - box[0])
     plt.gca().add_patch(

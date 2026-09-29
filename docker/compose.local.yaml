@@ -34,7 +34,12 @@ services:
     volumes:
       - db:/app/admin_data
       - storage:/app/storage
+      # No weights in the image (docker/worker.Dockerfile): fill these once with
+      #   docker compose -f docker/compose.local.yaml exec app \
+      #     python -m fiximg.cli.download_weights download
       - weights:/app/weights
+      - global-checkpoints:/app/Global/checkpoints
+      - face-restore-checkpoints:/app/Face_Enhancement/checkpoints
     restart: unless-stopped
     deploy:
       resources:
@@ -48,3 +53,5 @@ volumes:
   db:
   storage:
   weights:
+  global-checkpoints:
+  face-restore-checkpoints:

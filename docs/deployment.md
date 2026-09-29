@@ -98,6 +98,32 @@ validates requests, persists tasks and serves results, so it stays small and
 starts fast. The worker image (`docker/worker.Dockerfile`) carries the full GPU
 stack and the vendored model code.
 
+**Neither image contains model weights, and neither reaches for them at build time.**
+`THIRD_PARTY_NOTICES.md` records this repository as code-only, and two of the six
+weight artifacts (dlib's landmark predictor and its face-recognition ResNet) are
+restricted to research/non-commercial use, so they are not republished inside an image.
+The build-time download also made every image build depend on a third-party host:
+`facevc.blob.core.windows.net` did not resolve from GitHub's runners on 2026-09-29, which
+failed both `images (worker)` jobs for `v3.0.0` before either Dockerfile had been
+exercised. A weights-free container is a supported shape — the readiness probe reports
+each model unavailable, and nothing else about the deployment changes:
+
+```bash
+# once per volume set; the compose files mount every weight location
+docker compose exec worker python -m fiximg.cli.download_weights download
+```
+
+`--build-arg FIXIMG_BAKE_WEIGHTS=true` produces a self-contained image for a machine
+that is both entitled to redistribute the weights and able to reach the upstream hosts.
+
+Both long-running images install the `postgres`, `redis` and `s3` extras, because
+`docker/compose.yaml`'s `platform` profile tells an operator to select them with
+`FIXIMG_DATABASE_URL` / `FIXIMG_QUEUE_BACKEND` / `FIXIMG_STORAGE_BACKEND`. The `api`
+image used to install `test` instead: pytest, moto and fakeredis in a published image,
+and no `psycopg` anywhere, so the documented PostgreSQL URL failed on import.
+`tests/unit/test_compose_topology.py` now compares each image's installed extras with
+the transports the compose files that build it offer.
+
 ## Release
 
 `.github/workflows/release.yml` publishes what CI proves. Pushing a tag

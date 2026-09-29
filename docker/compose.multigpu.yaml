@@ -38,7 +38,10 @@ x-worker-base: &worker-base
   volumes:
     - db:/app/admin_data
     - storage:/app/storage
+    # No weights in the image (docker/worker.Dockerfile): download once into these.
     - weights:/app/weights
+    - global-checkpoints:/app/Global/checkpoints
+    - face-restore-checkpoints:/app/Face_Enhancement/checkpoints
   restart: unless-stopped
 
 services:
@@ -111,3 +114,5 @@ volumes:
   db:
   storage:
   weights:
+  global-checkpoints:
+  face-restore-checkpoints:

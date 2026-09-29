@@ -228,7 +228,13 @@ docker compose up -d --build   # api + worker (see docker-compose.yml)
 docker compose logs -f worker
 ```
 
-The image installs dependencies, downloads all weights and rebuilds the weight manifest. dlib is compiled from source on first build (about 5–10 minutes).
+The image installs dependencies and compiles dlib from source on first build (about 5–10 minutes). It does **not** contain model weights: `THIRD_PARTY_NOTICES.md` records this distribution as code-only, and two of the six weight artifacts are licensed for research/non-commercial use, so they are not republished inside an image. A container without weights still serves — the readiness probe reports each model unavailable — and you fill it once:
+
+```bash
+docker compose exec worker python -m fiximg.cli.download_weights download
+```
+
+The compose files mount a volume at each weight location, so the download survives `docker compose up -d`. To build a self-contained private image (on a machine entitled to the weights and able to reach the upstream hosts), pass `--build-arg FIXIMG_BAKE_WEIGHTS=true`.
 
 **Admin credentials (plan §21):** the image no longer contains any fixed password. On the first start the app reads `FIXIMG_ADMIN_PASSWORD` when provided (e.g. from a Docker secret); otherwise it generates a random one-time password, prints it **once** in the container log and stores it at `admin_data/initial_admin_password.txt` (mode 0600). Change it immediately after the first login. Set `FIXIMG_AUTO_BOOTSTRAP_ADMIN=false` to disable this bootstrap entirely.
 

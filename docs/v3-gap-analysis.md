@@ -2483,6 +2483,101 @@ GREEN  a settings field detached from its only reader
 是一条会在**下一次**同类缺陷出现时就变红的门禁，而不是又一份散文——散文正是它自己
 抓不到的那 eleven 个用例里六个的藏身之处。
 
+## 四十三、第四十批：把 push 之后 CI 的三条红灯查到根因（修复方案 §4–§8、§17）
+
+入口不是读代码猜，是 `gh run view`。三轮 push 的事实：
+
+| run | commit | 结果 |
+|---|---|---|
+| 36536321223 | `59c5912` | CI 红（Storage 缺失，已由 `8391afb` 修） |
+| 36539871895 | `8391afb` | tests(3.11) 红、docker 红（dlib 无 wheel，已由 `1a2efb6` 修） |
+| 36541895037 | `1a2efb6` | audit / lint / typecheck / postgres / benchmark **全绿**；tests(3.11) 仍红、docker 仍红 |
+
+`tests (3.11)`：`1 failed, 1495 passed, 10 skipped, 30 deselected`，唯一失败是
+`test_detecting_without_the_detector_is_refused`，报的是
+`The vendored scratch detector failed to import: No module named 'matplotlib'`。
+`docker`：worker 镜像在 `download_weights` 这一步死于
+`facevc.blob.core.windows.net: Name or service not known`。
+
+### 三条根因，都不是"这行写错了"
+
+**1）`matplotlib` 在导入闭包里，但没有任何安装路径声明它。** 5 个 vendored 文件顶层
+`import matplotlib.pyplot`（4 个 `show_detection` + `Global/detection_util/util.py` 的
+`imshow`），而这 5 个函数**全仓库零调用点**（`grep -rn "show_detection\|plot_imgs"` 只命中
+定义行）。`requirements.txt` 里 pinned 着 `matplotlib==3.11.1`，`pyproject.toml` 从不声明——
+于是"能不能导入"取决于这台机器装没装。本地 GPU 环境装了，所以 38 批之前每一次 `pytest`
+都是绿的。修法是把这些 import 挪进那两个从不执行的显示函数，并从 `requirements.txt`
+删掉这一行：产品不再需要绘图库。
+
+**2）镜像构建依赖第三方主机。** `worker.Dockerfile` 与根 `Dockerfile` 无条件
+`RUN download_weights download`。除可靠性之外，`THIRD_PARTY_NOTICES.md` 本来就写着
+"本仓库只分发代码"，而六个构件里 dlib 的两个仅限研究/非商用——把权重烤进公开镜像
+从来不是这个项目有权限做的形状。改成 `ARG FIXIMG_BAKE_WEIGHTS=false` 可选，4 份 compose
+为三个权重目录各挂卷，文档给出 `docker compose exec worker ... download` 的补权重路径。
+
+**3）`api.Dockerfile` 装的是 `.[test]`。** published 镜像里带 pytest/moto/fakeredis，
+而 `docker/compose.yaml` 的 `platform` 文档让运维设
+`FIXIMG_DATABASE_URL=postgresql+psycopg://...`——**没有任何镜像装了 psycopg**，那条文档
+一用就炸。两个镜像改为声明各自拓扑真正提供的传输（`postgres,redis,s3`）。
+
+### 门禁：把"下一台机器的 env 不一样"这一类钉住
+
+新增 `tests/unit/test_vendored_import_closure.py`（4 项）：执行集**从 `src` 推导**
+（`spec_from_file_location` 的目标 + `cli` 里的 `.py` 字面量 → 7 个 vendored 入口），
+沿同树兄弟模块走到 28 个文件，取出 12 个第三方根，逐个要求 `pyproject` 声明；别名表
+（`cv2`/`PIL`/`yaml`/`skimage`）必须真被用到、且每项指向已声明的分发；再加一条
+`requirements.txt ⊆ pyproject`。它是静态的，因为"运行时 import 一次"需要
+torch/dlib/opencv 在场——恰恰是那些环境里才最需要这条检查。
+
+`tests/unit/test_compose_topology.py` +4 项：卷必须声明、跑推理的服务必须挂满三个权重目录、
+每个镜像只被**自己拓扑**提供的传输要求、权重下载必须在 `FIXIMG_BAKE_WEIGHTS` 守卫内。
+`tests/unit/test_settings.py` 的旋钮门禁新增"构建参数"豁免——按"ARG 已声明且某条 RUN
+真的分支"推导，且没有分支时**主动报错**，否则豁免会变成永久洞。
+
+变异判据（每条都读退出码）：
+
+| 破坏 | 结果 |
+|---|---|
+| 把 `import matplotlib.pyplot` 放回 `util.py` 顶层 | 红：`{'matplotlib': 'Global\detection.py'}`——证明兄弟遍历真的到了第三层 |
+| `requirements.txt` 重新 pin matplotlib | 红：`['matplotlib']` |
+| worker 与根 Dockerfile 的无条件 `RUN download_weights` | 红（守卫缺失） |
+| compose 少挂 `Global/checkpoints` | 红 |
+| `api.Dockerfile` 回到 `.[test]` | 红（测试工具进镜像） |
+| 文档新增一个没人读的 `FIXIMG_*` | 红 |
+| **所有** `$FIXIMG_BAKE_WEIGHTS` 引用删掉 | 红在自检上（豁免不许变成空转） |
+| `COUNT(DISTINCT user_id)` → `COUNT(user_id)`（真实 PG） | 红 |
+| 让文本半的指标进入平均（真实 PG） | 红 |
+| 只删 `float(...)` 归一化（真实 PG） | **绿**——`AVG(double precision)` 在 psycopg 下本来就是 float，我据此改写了那条测试的判据与文档 |
+
+### 数字
+
+| 门禁 | 结果 |
+|---|---|
+| `pytest -m "not gpu"` @3.11 | 1526 passed, 0 failed, 21 skipped，exit 0 |
+| 同上 @3.14 | 1526 passed, 0 failed, 12 skipped，exit 0 |
+| `tests/gpu -m gpu` | 30 collected / 27 ran / 7 skipped（`weights/ddcolor/` 为空，7 项要 DDColor 权重）；被我改过的 `detect_all_dlib.py` 的**逐字节裁剪等价**用例在内跑绿 |
+| 真实 PostgreSQL 层 | 10 passed, 0 skipped（scratch 18.6，端口 55441） |
+| Alembic 往返 | upgrade → status → downgrade base → upgrade → check，exit 0；相对与 `E:/` 绝对两种 URL 形状都验过 |
+| latency / throughput | p50 x1.02 基线；10 条任务全部排空，exit 0 |
+| ruff / compileall / mypy / export_locks --check | 全绿（mypy 121 files） |
+
+21 处 skip 全部归因：10 条真实 PG（这一轮该次调用未带 `FIXIMG_TEST_POSTGRES_URL`，
+单独跑时 10/0）、8 条 `moto not installed`（3.11 环境无 moto，3.14 环境跑到了）、
+2 条"本机有可用 GPU"（CI 上跑）、1 条 Windows 不强制 POSIX 文件位。
+
+### 本机证明不了的，和还没做完的
+
+* 这台机器**没有 docker**：`docker build` 与 `docker compose config` 只能由 CI 的
+  `docker` job 判。我加的三条都是静态检查，它们钉住的是"构建不再依赖第三方主机"这件事，
+  不是"镜像真的构建成功"。
+* 方案 §8.4 的 GHA cache 仍按方案要求保持关闭；`buildx@v4` + `provenance: mode-max`
+  要**重新打 tag** 才第一次被真实跑到（`v3.0.0` 那次死在权重下载之前，没证明过 buildx）。
+* 权重的分发形状需要用户决定：镜像内可选烤入、挂载、还是首启下载——上游
+  `facevc.blob.core.windows.net` 从 GitHub runner 不解析是这一批观测到的事实。
+* 第三十九批（admin 面板读一张无写入者的 `history` 表）仍未完成；它的部分产物
+  （`task_stats` 的 `users`/`by_type`/`metric_averages` 与 `/stats` 共用同一来源）
+  已经在 `1a2efb6` 里，本批补上了它的真实服务端判据。
+
 ## 四十一、结论
 
 报告 P0（5 项）、P1（6 项）全部完成；P2 中 Redis / PostgreSQL / MinIO / 多 GPU /

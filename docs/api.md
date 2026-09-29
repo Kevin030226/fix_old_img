@@ -414,7 +414,7 @@ service runs; ship new weights under a new version.
 
 | Method | Path | Purpose |
 |---|---|---|
-| `GET` | `/api/v1/stats` | Task totals, per-stage P50/P95, metrics, scheduler state |
+| `GET` | `/api/v1/stats` | Task totals (incl. distinct `users` and `by_type` counts), per-metric averages, per-stage P50/P95, metrics, scheduler state |
 | `GET` | `/api/v1/stats/metrics` | Prometheus text exposition |
 | `GET` | `/api/v1/health/live` | Liveness (public) |
 | `GET` | `/api/v1/health/ready` | Readiness: DB, models, worker, storage (public) |
