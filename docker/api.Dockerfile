@@ -35,7 +35,25 @@ COPY main.py worker.py run.py ./
 # object store for artifacts. The `test` extra used to be installed here instead, which
 # shipped pytest/moto/fakeredis in a published image while leaving the three backends the
 # document names with no driver to reach them.
-RUN pip install --upgrade pip && pip install -e ".[postgres,redis,s3]"
+#
+# setuptools, wheel and msgpack are upgraded explicitly, and this is the first Trivy
+# scan this image has ever had -- it could not run until the action tag resolved, so
+# nothing here had been looked at before. The three carry advisories at the versions
+# the base image ships:
+#
+#   setuptools 70.3.0  CVE-2025-47273 path traversal in PackageIndex   -> 78.1.1
+#   wheel      0.45.1  CVE-2026-24049 arbitrary code execution        -> 0.46.2
+#   jaraco.context 5.3.0  CVE-2026-23949  (vendored inside setuptools)
+#   msgpack    1.1.2   GHSA-6v7p-g79w-8964 out-of-bounds read         -> 1.2.1
+#
+# setuptools and wheel are the image's own install tooling, not dependencies of
+# anything this project imports; upgrading pip alone left them at the base
+# image's 2022-era copies. msgpack is not imported anywhere in `src/` and
+# nothing in the resolved `.[postgres,redis,s3]` tree declares it, so how it
+# arrives is untraced -- it is pinned up rather than removed, and the scan is
+# the authority on whether it is still there.
+RUN pip install --upgrade pip setuptools wheel "msgpack>=1.2.1" \
+    && pip install -e ".[postgres,redis,s3]"
 
 # The JSON API is bearer-token protected: set FIXIMG_API_TOKEN to pin it,
 # otherwise a token is generated on first start and persisted at

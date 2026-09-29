@@ -34,7 +34,11 @@ RUN pip install torch==2.7.1 torchvision==0.22.1 torchaudio==2.7.1 \
     --index-url https://download.pytorch.org/whl/cu128
 
 # Project dependencies (dlib builds from source on Linux, ~5-10 minutes)
-RUN pip install -r requirements.txt
+# setuptools and wheel are upgraded first: they are the image's own install
+# tooling, and the base image's 2022-era copies carry CVE-2025-47273 and
+# CVE-2026-24049. The same reasoning, and the same advisories, as in
+# docker/api.Dockerfile, where Trivy first reported them.
+RUN pip install --upgrade setuptools wheel && pip install -r requirements.txt
 
 # Make the `fiximg` package importable so the `python -m fiximg.*` entry points
 # (weight download, verification, migration) resolve inside the image.

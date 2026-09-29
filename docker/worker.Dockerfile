@@ -42,7 +42,13 @@ RUN pip install torch==2.7.1 torchvision==0.22.1 torchaudio==2.7.1 \
 
 # Project + GPU stack, plus the three transports the `platform` profile points a worker at
 # (PostgreSQL state, Redis queue, S3 artifacts). dlib builds from source on Linux, ~5-10 min.
-RUN pip install -e ".[gpu,postgres,redis,s3]"
+#
+# setuptools and wheel are upgraded for the same reason as in api.Dockerfile, and
+# the comment there lists the advisories. Only the API image is scanned by CI, so
+# this is the untested half of the same problem: fixed on the same reasoning, to
+# be confirmed by the release build rather than by a gate.
+RUN pip install --upgrade setuptools wheel \
+    && pip install -e ".[gpu,postgres,redis,s3]"
 
 # Weights are deliberately NOT baked in by default.
 #

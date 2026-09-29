@@ -401,3 +401,42 @@ def test_an_image_can_reach_every_transport_its_own_topology_offers():
             f"but the image installs {sorted(installed) or 'nothing'}; missing: {missing}"
         )
     assert checked, "no image is offered a transport, so this check would prove nothing"
+
+
+def test_every_image_upgrades_its_own_install_tooling():
+    """A published image carries the build tooling it was built with.
+
+    Trivy first scanned the API image on 2026-09-29 and immediately found four
+    advisories in the base image's own pip tooling rather than in anything this
+    project imports:
+
+        setuptools 70.3.0     CVE-2025-47273
+        wheel      0.45.1     CVE-2026-24049
+        jaraco.context 5.3.0  CVE-2026-23949  (vendored inside setuptools)
+        msgpack    1.1.2      GHSA-6v7p-g79w-8964
+
+    `pip install --upgrade pip` does not touch setuptools or wheel, so each
+    image names them explicitly. A gate because the failure is invisible until a
+    scan runs, and only the API image is scanned -- the worker's copy of this
+    problem is fixed on the same reasoning and only a release build will prove it.
+    """
+    paths = sorted(glob.glob(os.path.join(PROJECT_ROOT, "*Dockerfile"))) + sorted(
+        glob.glob(os.path.join(PROJECT_ROOT, "docker", "*Dockerfile"))
+    )
+    assert len(paths) >= 3, f"expected the root, api and worker images; found {paths}"
+    for path in paths:
+        text = open(path, encoding="utf-8", errors="replace").read()
+        installs = " ".join(
+            line for line in text.splitlines() if line.strip().startswith("RUN pip install")
+        )
+        if not installs:
+            continue
+        name = os.path.relpath(path, PROJECT_ROOT)
+        assert "setuptools" in installs, (
+            f"{name} installs without upgrading setuptools, so the base image's copy"
+            " ships in it (CVE-2025-47273 at 70.3.0)"
+        )
+        assert "wheel" in installs, (
+            f"{name} installs without upgrading wheel, so the base image's copy ships"
+            " in it (CVE-2026-24049 at 0.45.1)"
+        )
