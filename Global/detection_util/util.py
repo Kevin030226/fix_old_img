@@ -15,7 +15,6 @@ import torch.backends.cudnn as cudnn
 # from torch.utils.tensorboard import SummaryWriter
 
 import yaml
-import matplotlib.pyplot as plt
 from easydict import EasyDict as edict
 import torchvision.utils as vutils
 
@@ -196,6 +195,11 @@ def tb_image_logger_test(epoch, iter, images_info, config):
 
 
 def imshow(input_image, title=None, to_numpy=False):
+    # Imported here: this display helper is called by nothing in the restoration pipeline,
+    # and a module-level matplotlib import made `Global/detection.py` -- which V3 loads
+    # in-process for scratch detection -- require a plotting library.
+    import matplotlib.pyplot as plt
+
     inp = input_image
     if to_numpy or type(input_image) is torch.Tensor:
         inp = input_image.numpy()

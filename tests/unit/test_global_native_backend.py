@@ -66,6 +66,12 @@ def fake_native(monkeypatch):
 
     monkeypatch.setattr(registry_module, "_GLOBAL_BACKEND_CLS", _Fake)
     monkeypatch.setattr(registry_module, "_native_global", None)
+    # The scratch branch caches separately (`native_scratch_backend`). Without
+    # clearing it here, a test that selects the scratch backend twice -- or after
+    # another test already did -- gets the instance from that earlier call and the
+    # `made` list cannot see the construction it is asserting on.
+    monkeypatch.setattr(registry_module, "_SCRATCH_BACKEND_CLS", _Fake)
+    monkeypatch.setattr(registry_module, "_native_scratch", None)
     return made
 
 
