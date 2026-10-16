@@ -48,6 +48,11 @@ class GlobalRestoreStage(BaseStage):
         on; the subprocess adapter otherwise. Both expose ``run_folder`` /
         ``produced_dir``, so the stage and the tiling path do not care which one
         they got — but the metadata records it, so a fallback is visible.
+
+        ``hr`` participates in the choice: the scratch branch's HR variant selects
+        ``mapping_Patch_Attention``, which only the adapter implements, so an HR
+        scratched run goes to the subprocess even on an install where the native
+        backend could serve the non-HR branch.
         """
         from fiximg.inference.backends.registry import select_restore_backend
 
@@ -55,6 +60,7 @@ class GlobalRestoreStage(BaseStage):
             with_scratch=self.with_scratch,
             config={"stem": stem or context.task_id},
             stages=(STAGE_RESTORE,),
+            hr=self._hr(context),
         )
 
     @staticmethod

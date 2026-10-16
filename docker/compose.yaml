@@ -12,9 +12,11 @@
 # The matching backend settings must then be selected via environment:
 #   FIXIMG_QUEUE_BACKEND=redis      FIXIMG_REDIS_URL=redis://redis:6379/0
 #   FIXIMG_STORAGE_BACKEND=s3       FIXIMG_STORAGE_BUCKET=fiximg
-#   FIXIMG_S3_ENDPOINT=http://minio:9000   (the keys and region are in x-common-env
-#                                           and must match the minio service below)
+#   FIXIMG_S3_ENDPOINT=http://minio:9000   (keys/region live in x-common-env; the
+#                                           minio service interpolates the same vars)
 #   FIXIMG_DATABASE_URL=postgresql+psycopg://fiximg:fiximg@postgres:5432/fiximg
+#                                           (change POSTGRES_PASSWORD and this URL
+#                                            together)
 #
 # A single-container variant lives in docker/compose.local.yaml.
 
@@ -27,8 +29,11 @@ x-common-env: &common-env
   # any other way: boto3's ambient credential chain (instance profile, ~/.aws)
   # finds nothing inside these containers, and SigV4 needs a region to sign with.
   # Harmless while FIXIMG_STORAGE_BACKEND=local, required the moment it is not.
-  FIXIMG_STORAGE_ACCESS_KEY: fiximg
-  FIXIMG_STORAGE_SECRET_KEY: fiximg-secret
+  # Dev-only defaults; the minio service below interpolates the same variables,
+  # so the pair always matches and either side can be overridden from the host
+  # environment (.env). Do not keep the defaults on a reachable deployment.
+  FIXIMG_STORAGE_ACCESS_KEY: "${FIXIMG_STORAGE_ACCESS_KEY:-fiximg}"
+  FIXIMG_STORAGE_SECRET_KEY: "${FIXIMG_STORAGE_SECRET_KEY:-fiximg-secret}"
   FIXIMG_STORAGE_REGION: us-east-1
 
 services:
@@ -105,7 +110,7 @@ services:
     profiles: ["platform"]
     environment:
       POSTGRES_USER: fiximg
-      POSTGRES_PASSWORD: fiximg
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:-fiximg}"
       POSTGRES_DB: fiximg
     volumes:
       - postgres:/var/lib/postgresql/data
@@ -117,8 +122,10 @@ services:
     profiles: ["platform"]
     command: ["server", "/data", "--console-address", ":9001"]
     environment:
-      MINIO_ROOT_USER: fiximg
-      MINIO_ROOT_PASSWORD: fiximg-secret
+      # Same variables the app half reads (x-common-env), so the pair matches by
+      # construction; override both from the host environment (.env).
+      MINIO_ROOT_USER: "${FIXIMG_STORAGE_ACCESS_KEY:-fiximg}"
+      MINIO_ROOT_PASSWORD: "${FIXIMG_STORAGE_SECRET_KEY:-fiximg-secret}"
     volumes:
       - minio:/data
     restart: unless-stopped

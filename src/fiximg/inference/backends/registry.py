@@ -133,7 +133,7 @@ def native_scratch_backend(config: dict | None = None):
 
 
 def select_restore_backend(*, with_scratch: bool = False, config: dict | None = None,
-                           stages=None):
+                           stages=None, hr: bool = False):
     """Choose the implementation for the restoration stage (plan §3.5.4).
 
     Capability-gated rather than name-gated: the native in-process backend is used
@@ -145,15 +145,24 @@ def select_restore_backend(*, with_scratch: bool = False, config: dict | None = 
     Both branches of the vendored stage are reachable natively — quality and
     scratch — since they share the Global tree; each needs its own weights, so a
     partial install only gets what it can prove.
+
+    ``hr`` selects the scratch branch's ``mapping_Patch_Attention`` mapping net,
+    which the native backend deliberately does not implement (its loader would run
+    that network uninitialised, so ``run_folder`` refuses instead). HR therefore
+    goes straight to the adapter, which runs the vendored ``--HR`` path. On the
+    *quality* branch ``--HR`` is a no-op in the vendored code — it only takes
+    effect together with ``--Scratch_and_Quality_restore`` (see
+    ``Global/test.py:parameter_set``) — so native keeps serving quality+HR.
     """
     from fiximg.inference.backends.legacy_cli import STAGE_RESTORE, LegacyCliBackend
 
     if with_scratch:
-        from fiximg.inference.backends.global_restore import scratch_native_available
+        if not hr:
+            from fiximg.inference.backends.global_restore import scratch_native_available
 
-        available, _reason = scratch_native_available()
-        if available:
-            return native_scratch_backend(config)
+            available, _reason = scratch_native_available()
+            if available:
+                return native_scratch_backend(config)
     else:
         from fiximg.inference.backends.global_restore import native_available
 
