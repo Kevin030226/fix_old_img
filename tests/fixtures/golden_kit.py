@@ -1,7 +1,7 @@
-"""Golden-image helpers shared by the CPU and weight-requiring suites (plan 搂3.10.2).
+"""Golden-image helpers shared by the CPU and weight-requiring suites (plan §3.10.2).
 
 The plan is explicit that pixel-exact comparison is the wrong goal for an image
-project: what must stay stable is the *characteristics* of the output 鈥?shape,
+project: what must stay stable is the *characteristics* of the output — shape,
 mode, dynamic range, mean/std, PSNR/SSIM against the input. A model or
 preprocessing change that shifts any of those is a regression a reviewer needs to
 see.
@@ -12,7 +12,7 @@ which runs anywhere, and the real-model baseline in ``tests/gpu`` which needs
 weights. Different code computing "mean" in each would make the two incomparable.
 
 Inputs are generated deterministically from a seed, so a failure is reproducible.
-Refresh a baseline with ``FIXIMG_UPDATE_GOLDEN=1`` and review the diff 鈥?the file
+Refresh a baseline with ``FIXIMG_UPDATE_GOLDEN=1`` and review the diff — the file
 is committed data, not test scratch.
 """
 import json
@@ -70,7 +70,7 @@ def psnr(reference: Image.Image, image: Image.Image) -> float:
 
 
 def ssim(reference: Image.Image, image: Image.Image) -> float:
-    """Global SSIM (single window) 鈥?enough to detect a quality shift."""
+    """Global SSIM (single window) — enough to detect a quality shift."""
     a = np.asarray(reference.convert("L"), dtype=np.float64)
     b = np.asarray(image.convert("L"), dtype=np.float64)
     mu_a, mu_b = a.mean(), b.mean()

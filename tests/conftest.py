@@ -33,7 +33,7 @@ def _no_deployment_database_url():
     where the variable happened to be unset).
 
     Isolation has to be the default, so this is autouse. A test that genuinely wants
-    a configured URL 鈥?`test_the_worker_opens_the_configured_database` 鈥?sets it with
+    a configured URL — `test_the_worker_opens_the_configured_database` — sets it with
     ``monkeypatch.setenv``, which pytest restores after that one test.
     """
     os.environ.pop("FIXIMG_DATABASE_URL", None)
@@ -47,7 +47,7 @@ def _fresh_submission_limiter(monkeypatch):
 
     The limiter is one process-wide sliding window keyed by principal, and the suite
     submits dozens of tasks per minute from the same account name. Left shared, an
-    unrelated test would start failing with a real 429 depending on execution order 鈥?
+    unrelated test would start failing with a real 429 depending on execution order —
     the same class of cross-test contamination as the deployment `FIXIMG_DATABASE_URL`
     above, and the reason this is autouse rather than opt-in.
     """
@@ -84,7 +84,7 @@ def isolated_db(tmp_path, monkeypatch):
 
     try:
         engine.close_connections()
-    except Exception:  # noqa: BLE001 鈥?teardown must never fail a test
+    except Exception:  # noqa: BLE001 — teardown must never fail a test
         pass
     task_repo._DDL_DONE = False
 

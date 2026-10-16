@@ -1,4 +1,4 @@
-"""The scratch detector must land on the device the process asked for (搂3.5.4).
+"""The scratch detector must land on the device the process asked for (§3.5.4).
 
 ``Global/detection_models/networks.py:85`` wraps the UNet in ``DataParallel`` inside
 its own ``__init__`` when ``sync_bn=True``, and that wrapper moves the freshly built
@@ -6,7 +6,7 @@ weights to the GPU. So a worker started with ``FIXIMG_DEVICE=cpu`` (``gpu=-1``) 
 CUDA detector while the mask step still built its input on CPU, and the first
 inference died with "Input type (torch.FloatTensor) and weight type
 (torch.cuda.FloatTensor) should be the same". Every CPU-only run of this repository is
-blind to it 鈥?the tensors agree by accident 鈥?which is why this file is marked
+blind to it — the tensors agree by accident — which is why this file is marked
 ``gpu``: the assertion only has teeth where a GPU exists to refuse.
 """
 import pytest
@@ -60,7 +60,7 @@ def test_a_gpu_request_puts_the_detector_on_that_gpu():
 
 
 def test_auto_follows_the_manifest_device_not_the_constructor_side_effect():
-    """`auto` on a CUDA host means CUDA 鈥?the same answer the main model gives."""
+    """`auto` on a CUDA host means CUDA — the same answer the main model gives."""
     backend = _scratch_backend()
     backend.load("auto")
     detector = _detector_device(backend)

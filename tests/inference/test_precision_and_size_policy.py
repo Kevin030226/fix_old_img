@@ -1,10 +1,10 @@
-"""Inference optimisation tests (plan 搂3.5.4, 搂3.5.5).
+"""Inference optimisation tests (plan §3.5.4, §3.5.5).
 
 Two capabilities under test:
 
-* **precision policy** 鈥?the plan's ``inference_mode`` + ``autocast`` wins, gated
+* **precision policy** — the plan's ``inference_mode`` + ``autocast`` wins, gated
   by what each model declares. Nothing may be switched on globally.
-* **image size policy** 鈥?the four-tier decision table, and the guarantee that
+* **image size policy** — the four-tier decision table, and the guarantee that
   adaptive resize does not change what the user downloads.
 """
 import numpy as np
@@ -346,7 +346,7 @@ def test_restore_original_size_tolerates_none():
 
 
 def test_adaptive_resize_roundtrip_keeps_the_output_dimensions():
-    """The 搂3.5.5 guarantee: the user's image comes back at its own size."""
+    """The §3.5.5 guarantee: the user's image comes back at its own size."""
     source = Image.new("RGB", (1600, 900), "orange")
     decision = size_policy.decide_from_settings((1600, 900))
     assert decision.resizes is True
@@ -392,11 +392,11 @@ def test_runtime_normalize_input_converts_arrays_and_modes():
     assert original == (24, 32)
 
 
-# ------------------------------------------------ 搂3.5.5 output geometry
+# ------------------------------------------------ §3.5.5 output geometry
 def test_the_download_keeps_the_callers_dimensions(tmp_path, monkeypatch, isolated_db):
     """The model chain rounds geometry; the user's download must not shrink.
 
-    Measured on a live run of the app: a 298脳450 upload came back as 296脳448,
+    Measured on a live run of the app: a 298×450 upload came back as 296×448,
     because the vendored restoration resizes each side to a multiple of 4 (the
     detector rounds to 16), `size_decision.resizes` was False on the direct band,
     and nothing undid the rounding. The same 2 px made the quality report compare
@@ -443,7 +443,7 @@ def test_the_download_keeps_the_callers_dimensions(tmp_path, monkeypatch, isolat
         )
 
 
-# ------------------- the declaration must reach every native backend (搂3.5.4)
+# ------------------- the declaration must reach every native backend (§3.5.4)
 def _load_path_source(cls) -> str:
     """Source of ``_do_load`` plus the private helpers it calls, one level deep.
 
@@ -575,7 +575,7 @@ def test_is_cuda_never_claims_a_device_the_host_does_not_have():
 
     Autocast is entered on the strength of `_is_cuda`, and on a CPU-only host asking
     for card 1 used to satisfy that check: torch then prints "CUDA is not available,
-    disabling autocast" on every call and runs fp32 鈥?so the report said the declared
+    disabling autocast" on every call and runs fp32 — so the report said the declared
     half-precision path was taken while it silently was not.
     """
     import torch

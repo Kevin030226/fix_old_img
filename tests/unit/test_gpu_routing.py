@@ -1,10 +1,10 @@
-"""Multi-GPU routing tests (plan 搂4.3 Step 4).
+"""Multi-GPU routing tests (plan §4.3 Step 4).
 
 Two mechanisms are under test:
 
-* **in-process routing** 鈥?``FIXIMG_GPU_ROUTING`` assigns capabilities to
+* **in-process routing** — ``FIXIMG_GPU_ROUTING`` assigns capabilities to
   devices, so different stages of one task can run on different cards;
-* **worker pinning + capability-aware claiming** 鈥?a worker specialised for a
+* **worker pinning + capability-aware claiming** — a worker specialised for a
   subset of capabilities must not claim a task it cannot complete.
 """
 import json

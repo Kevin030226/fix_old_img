@@ -1,4 +1,4 @@
-"""Legacy chain contract tests (plan 搂3.10.1 Inference Test matrix).
+"""Legacy chain contract tests (plan §3.10.1 Inference Test matrix).
 
 The report's matrix asks for Global / Scratch / Face / DDColor coverage. DDColor
 has a GPU test; the legacy Global + Face chain is folder-based subprocess code
@@ -9,7 +9,7 @@ that no test touched, so a flag change could silently break it. These tests pin:
 * which output directory each stage reads and writes,
 * how the degrade report is parsed,
 * the progress-marker streaming that feeds the UI,
-* that each stage runs exactly one legacy path (plan 搂3.6/搂3.7).
+* that each stage runs exactly one legacy path (plan §3.6/§3.7).
 
 No weights or GPU are needed: ``stream_subprocess`` is replaced with a fake that
 materialises the directories the real scripts would have produced.
@@ -213,7 +213,7 @@ def test_parse_marker_tolerates_a_missing_label():
 
 
 def test_progress_markers_reach_the_callback(monkeypatch, tmp_path):
-    """The marker lines are consumed and turned into progress updates (搂24)."""
+    """The marker lines are consumed and turned into progress updates (§24)."""
     import io as _io
 
     from fiximg.inference.backends import legacy_cli
@@ -355,7 +355,7 @@ def test_single_image_infer_requires_a_work_dir(recorder):
         )
 
 
-# ------------------------------------------------- shared pipeline root (搂3.6)
+# ------------------------------------------------- shared pipeline root (§3.6)
 def test_legacy_pipeline_root_is_shared_by_every_stage(tmp_path):
     """All four stages must resolve the same root or the chain breaks."""
     from fiximg.inference.context import StageContext
@@ -396,7 +396,7 @@ def staged_run(recorder, tmp_path, monkeypatch):
     # Same reasoning as the line above: the fake below *does* write face crops, so
     # this test models a machine whose face chain works. The stages preflight dlib
     # before spawning stage 2 (and skip the chain when it is absent), so that one
-    # probe has to answer "present" here 鈥?otherwise the run silently degrades and
+    # probe has to answer "present" here — otherwise the run silently degrades and
     # the stages-1..4 handoff this test exists to pin never happens.
     from fiximg.inference import face_detect
 
@@ -427,7 +427,7 @@ def staged_run(recorder, tmp_path, monkeypatch):
 
     rec = recorder(on_run=_materialise)
     # The stages import `stream_subprocess` into their module namespace indirectly
-    # through LegacyCliBackend, which resolves it at call time 鈥?one patch is
+    # through LegacyCliBackend, which resolves it at call time — one patch is
     # enough, but assert it took effect.
     context = StageContext(
         task_id="task-1", run_dir=str(tmp_path), options={},
@@ -484,7 +484,7 @@ def test_face_enhancement_skips_when_no_face_was_detected(staged_run, monkeypatc
 
 
 def test_warp_back_reports_the_degrade_reason(tmp_path, recorder):
-    """When nothing was enhanced, warp-back records why (plan 搂3.7)."""
+    """When nothing was enhanced, warp-back records why (plan §3.7)."""
     import json
 
     from PIL import Image
@@ -510,7 +510,7 @@ def test_warp_back_reports_the_degrade_reason(tmp_path, recorder):
 
 
 def test_stages_never_write_to_the_database(staged_run):
-    """Stage contract (搂3.6): persistence belongs to the runtime."""
+    """Stage contract (§3.6): persistence belongs to the runtime."""
     import inspect
 
     from fiximg.inference.stages import face_enhancement, global_restore, warp_back
@@ -522,7 +522,7 @@ def test_stages_never_write_to_the_database(staged_run):
 
 
 # ==================== refusing to run on random weights ====================
-# ``base_model.load_network`` prints "鈥ot exists yet" and continues, so a branch
+# ``base_model.load_network`` prints "…not exists yet" and continues, so a branch
 # whose networks are missing produces a plausible-looking image from randomly
 # initialised weights. These pin the pre-flight that closes that hole.
 

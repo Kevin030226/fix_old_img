@@ -6,6 +6,39 @@ import pytest
 from fiximg.cli import download_weights as dw
 
 
+def test_a_directory_anchor_does_not_count_as_a_completed_artifact(tmp_path, monkeypatch):
+    """A zip artifact whose anchor is a directory must still be downloaded.
+
+    The checkout ships ``Face_Enhancement/checkpoints`` and ``Global/checkpoints`` as
+    empty directories, and ``_file_complete`` used to answer "yes, present" for any
+    directory -- so ``download_all`` skipped both zip artifacts on a fresh clone and
+    reported success while the entire restoration stack was missing.
+    """
+    monkeypatch.setattr(dw, "BASE_DIR", str(tmp_path))
+    monkeypatch.setattr(dw, "MANIFEST_PATH", str(tmp_path / "config" / "weights_manifest.json"))
+    monkeypatch.setattr(dw, "ARTIFACTS", {
+        "zip_model": {
+            "version": "1.0",
+            "files": ["checkpoints"],
+            "sources": [],
+            "kind": "zip",
+        }
+    })
+    (tmp_path / "checkpoints").mkdir()
+
+    # An empty directory is not a completed artifact.
+    assert dw._file_complete(str(tmp_path / "checkpoints")) is False
+
+    # Neither is one that only holds the version-control placeholder -- that is
+    # exactly what a fresh clone of this repository looks like.
+    (tmp_path / "checkpoints" / ".gitkeep").write_text("", encoding="utf-8")
+    assert dw._file_complete(str(tmp_path / "checkpoints")) is False
+
+    # Real content does count, so a populated deployment still skips the download.
+    (tmp_path / "checkpoints" / "latest_net_G.pth").write_bytes(b"w" * 16)
+    assert dw._file_complete(str(tmp_path / "checkpoints")) is True
+
+
 @pytest.fixture()
 def fake_artifact(tmp_path, monkeypatch):
     """Redirect the project root + manifest to tmp; register a tiny artifact."""

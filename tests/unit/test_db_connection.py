@@ -1,4 +1,4 @@
-"""Tests for the dialect-aware DB-API connection (plan 搂4.3 Step 2).
+"""Tests for the dialect-aware DB-API connection (plan §4.3 Step 2).
 
 :mod:`fiximg.infrastructure.db.dialect` is tested by compiling its SQL; this
 module tests the *transport* that runs it. Nothing here needs a PostgreSQL
@@ -8,7 +8,7 @@ actually happen. The SQLite half is proven against real ``sqlite3``.
 
 The reason this file exists at all: before it, ``connection.py`` was imported by
 one call site (``engine.get_conn``) and had never been executed with a non-SQLite
-driver 鈥?so the entire PostgreSQL path was unverified code.
+driver — so the entire PostgreSQL path was unverified code.
 """
 import sqlite3
 import sys
@@ -71,7 +71,7 @@ class FakeCursor:
 class FakeConnection:
     """A stand-in for ``psycopg.Connection``.
 
-    Deliberately has **no** ``executescript`` 鈥?that is a sqlite3 extension, and
+    Deliberately has **no** ``executescript`` — that is a sqlite3 extension, and
     the point of the wrapper is that callers never depend on it.
     """
 
@@ -165,7 +165,7 @@ def test_every_cursor_double_in_the_tests_models_the_columns_attribute():
     """A fake cursor missing `description` makes the wrapper's contract a lie.
 
     `Connection.execute` reads `description` to decide whether to fetch, so a double
-    without it is *less capable than the protocol* 鈥?the production code then looks
+    without it is *less capable than the protocol* — the production code then looks
     broken when the fake is thin. Two such doubles existed at once (this module's and
     `test_postgres_data_path`'s), which is why the rule is a scan rather than a fix in
     one place.
@@ -371,7 +371,7 @@ def test_postgres_opens_a_dict_row_connection(monkeypatch, pg):
                             connect_timeout=connect_timeout)
             return FakeConnection()
 
-    # `from psycopg.rows import dict_row` needs the submodule registered too 鈥?    # a bare sys.modules entry for "psycopg" is not a package.
+    # `from psycopg.rows import dict_row` needs the submodule registered too —     # a bare sys.modules entry for "psycopg" is not a package.
     monkeypatch.setitem(sys.modules, "psycopg", FakePsycopg)
     monkeypatch.setitem(sys.modules, "psycopg.rows", FakeRows)
     conn = open_postgres("postgresql://h/db", pg)
@@ -483,7 +483,7 @@ def test_integrity_errors_survives_a_missing_psycopg(monkeypatch):
     assert connection_module.integrity_errors() == (sqlite3.IntegrityError,)
 
 
-# ====================== one connection per thread (搂4.3 Step 2) ===============
+# ====================== one connection per thread (§4.3 Step 2) ===============
 class RecordingConnector:
     """Stands in for ``connection.connect``, handing out a distinct object each call."""
 

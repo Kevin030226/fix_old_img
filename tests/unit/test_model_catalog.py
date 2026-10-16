@@ -1,6 +1,6 @@
-"""The `model_versions` table 鈥?plan 搂6's fifth data model (plan 搂3.15's audit trail).
+"""The `model_versions` table — plan §6's fifth data model (plan §3.15's audit trail).
 
-Four of 搂6's five models were persisted; `ModelVersion` was a domain class parsed
+Four of §6's five models were persisted; `ModelVersion` was a domain class parsed
 out of the manifest, so `/models/{name}/versions` could only describe the process
 answering the call. These tests cover the three halves that make it a deployment
 fact: the upsert, the registry that writes it, and the endpoint that reads it back.
@@ -32,7 +32,7 @@ def test_one_version_is_one_row_however_often_it_reloads(isolated_db):
 def test_a_writer_that_does_not_know_the_declared_fields_does_not_erase_them(isolated_db):
     """NULL from a reload means "this process could not read the manifest".
 
-    Losing the `sha256` here would silently disable the 搂3.5.2 verification for
+    Losing the `sha256` here would silently disable the §3.5.2 verification for
     every later reader of the row, which is the expensive direction for this to go
     wrong in.
     """
@@ -108,7 +108,7 @@ def test_a_write_failure_is_reported_and_never_raises(isolated_db, monkeypatch):
 
 
 def test_the_table_holds_every_field_plan_6_lists_for_modelversion(isolated_db):
-    """搂6 spelled the model out; a column nobody declared is a gap, not a style call."""
+    """§6 spelled the model out; a column nobody declared is a gap, not a style call."""
     PLAN_FIELDS = {
         "name", "version", "framework", "weight_uri", "sha256", "status",
         "loaded_at", "metadata",
@@ -190,7 +190,7 @@ def _columns(isolated_db) -> set[str]:
 def test_loading_a_version_records_it(isolated_db):
     """One write point: the registry that builds the model.
 
-    Asserted on the row a *successful* load leaves behind 鈥?`load_ms` is measured,
+    Asserted on the row a *successful* load leaves behind — `load_ms` is measured,
     not declared, and the writer names this process.
     """
     from fiximg.inference.versions import VersionedModelRegistry
@@ -282,10 +282,10 @@ def model_client(tmp_path, monkeypatch):
 
 
 def test_versions_answers_for_the_deployment_not_only_this_process(model_client):
-    """The symptom 搂6's missing table produced: an API node reporting no versions.
+    """The symptom §6's missing table produced: an API node reporting no versions.
 
-    Nothing is loaded *here* 鈥?the row is written straight into the shared database,
-    which is what another node's worker does 鈥?yet the endpoint must still name the
+    Nothing is loaded *here* — the row is written straight into the shared database,
+    which is what another node's worker does — yet the endpoint must still name the
     version the deployment is running, with the digest and the time it came up.
     """
     model_repository.record_load(
@@ -322,7 +322,7 @@ def test_the_catalog_keys_are_all_declared_in_the_schema(model_client):
 
     Checked against the row, not the HTTP body: `response_model` fills a missing
     declared field with its default, so comparing the *body* to the schema stays true
-    even when the query stopped selecting the column 鈥?the green that a first version
+    even when the query stopped selecting the column — the green that a first version
     of this test produced under mutation. The body is still checked, for the reverse
     direction (a key the schema lacks is silently dropped before any client sees it).
     """

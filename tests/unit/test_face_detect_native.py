@@ -1,13 +1,13 @@
-"""Native face-detection backend: contract tests (plan 搂3.5.1, 搂4.2 Step 2).
+"""Native face-detection backend: contract tests (plan §3.5.1, §4.2 Step 2).
 
 dlib cannot be compiled in this environment (no C++ toolchain), so the numbers
-produced by the real detector are verified elsewhere 鈥?``tests/gpu/test_face_detect_equivalence.py`` compares crops against the vendored
+produced by the real detector are verified elsewhere — ``tests/gpu/test_face_detect_equivalence.py`` compares crops against the vendored
 script wherever dlib is installed. What these tests pin instead is everything that
 does not need a trained model:
 
 * the crop geometry is *delegated* to the vendored ``search`` /
   ``compute_transformation_matrix`` with the arguments ``detect_all_dlib.py``
-  itself passes 鈥?not re-derived here;
+  itself passes — not re-derived here;
 * the folder contract the stages rely on (read the restoration output of the
   shared root, write ``stage_2_detection_output``);
 * the vendored naming rule ``<stem>_<n>.png`` that stage 4 pairs crops back by;
@@ -103,7 +103,7 @@ def fake_dlib(monkeypatch, tmp_path):
     monkeypatch.setattr(skimage.transform, "warp", fake_warp)
     # Patched where production looks: it imports `img_as_ubyte` from
     # `skimage.util` (the declared home of the symbol), so a function-scoped
-    # import re-reads the attribute on every call 鈥?which is what makes this
+    # import re-reads the attribute on every call — which is what makes this
     # patch effective at all.
     monkeypatch.setattr(skimage.util, "img_as_ubyte", lambda a: np.clip(a, 0, 255).astype(np.uint8))
     return vendored, boxes
@@ -137,7 +137,7 @@ def test_the_vendored_geometry_is_delegated_not_reimplemented(backend):
     assert vendored.search_calls == 2, "one landmark set per detected box"
     assert len(vendored.matrix_calls) == 2
     for call in vendored.matrix_calls:
-        # detect_all_dlib.py:173 鈥?normalize=False, target_face_scale=1.3
+        # detect_all_dlib.py:173 — normalize=False, target_face_scale=1.3
         assert call["normalize"] is False
         assert call["scale"] == fdn.TARGET_FACE_SCALE == 1.3
 
@@ -179,7 +179,7 @@ def test_run_folder_fails_when_stage_1_never_ran(backend, tmp_path):
 
 
 def test_run_folder_refuses_the_hr_geometry(backend, tmp_path):
-    """HR maps onto a 512 canvas 鈥?a different transform, not a flag."""
+    """HR maps onto a 512 canvas — a different transform, not a flag."""
     instance, _vendored = backend
     root = str(tmp_path / "pipeline")
     os.makedirs(restored_image_dir(root), exist_ok=True)
@@ -223,7 +223,7 @@ def test_infer_returns_crops_and_counts(backend, tmp_path):
     assert result.metadata["face_count"] == 2
     assert result.metadata["backend"] == "native"
     assert result.metadata["model"] == "dlib-68"
-    # Detection must not alter the flowing image 鈥?stage 3 consumes the crops.
+    # Detection must not alter the flowing image — stage 3 consumes the crops.
     assert result.image.size == (64, 64)
     assert sorted(os.listdir(result.artifacts["faces_dir"])) == [
         "task-1_1.png", "task-1_2.png",
@@ -314,7 +314,7 @@ def test_detection_is_independent_of_which_legacy_tree_the_process_owns(
     """`FIXIMG_NATIVE_TREE` says what the process imports; detection imports nothing.
 
     A face-detection worker may be a ``global`` worker or a ``face`` one, and the
-    escape hatch for *detection* is `FIXIMG_FACE_DETECT_NATIVE` 鈥?not the tree
+    escape hatch for *detection* is `FIXIMG_FACE_DETECT_NATIVE` — not the tree
     setting. If `none` also disabled detection there would be two switches for one
     decision, and the subprocess-chain test (which sets `none` to keep the vendored
     stages out of process) would silently stop testing stage 2 at all.
@@ -330,7 +330,7 @@ def test_detection_is_independent_of_which_legacy_tree_the_process_owns(
 
 
 def test_detection_is_native_by_default_now_that_the_crops_were_compared(monkeypatch):
-    """The shipped default, read from a fresh Settings 鈥?not from a patched one.
+    """The shipped default, read from a fresh Settings — not from a patched one.
 
     The flag existed as "off until the pixel comparison has run somewhere". That
     comparison is `tests/gpu/test_face_detect_equivalence.py`, and it passes on an
@@ -409,7 +409,7 @@ def test_health_explains_an_unavailable_native_path(monkeypatch):
 def test_the_stage_records_which_implementation_ran(fake_dlib, monkeypatch, tmp_path):
     """Stage metadata must not claim legacy-cli when dlib ran in-process.
 
-    The stage never calls load() itself 鈥?the bridge is expected to load on
+    The stage never calls load() itself — the bridge is expected to load on
     demand, which is the whole point of a resident backend being handed a folder.
     """
     import fiximg.config as config_mod

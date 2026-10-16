@@ -1,6 +1,6 @@
-"""Configuration profile tests (plan 搂3.3).
+"""Configuration profile tests (plan §3.3).
 
-Pins the resolution order 鈥?defaults 鈫?base.yaml 鈫?<profile>.yaml 鈫?env vars 鈥?
+Pins the resolution order — defaults → base.yaml → <profile>.yaml → env vars —
 and the fail-fast validation for production.
 
 The tests inject the merged profile dict (`_PROFILE_VALUES`) instead of
@@ -114,7 +114,7 @@ def test_profile_env_var_selects_the_profile(use_profile, monkeypatch):
     settings = config_mod.Settings()
     assert settings.profile == "docker"
     # The injected values are still local's, so app_env is not re-derived from
-    # the profile *name* 鈥?that is exactly the separation this test protects.
+    # the profile *name* — that is exactly the separation this test protects.
     assert settings.app_env == "local"
 
 

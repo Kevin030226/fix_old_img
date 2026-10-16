@@ -1,4 +1,4 @@
-"""The tracing seam is wired, not just defined (plan 搂2.10).
+"""The tracing seam is wired, not just defined (plan §2.10).
 
 A tracer that nothing calls is indistinguishable from no tracing at all, so this
 runs a real plan through the orchestrator with the recording tracer installed and
@@ -122,5 +122,5 @@ def test_a_failing_stage_marks_its_span_and_still_closes_it(recorder, stub_plan,
 
     stage_spans = [s for s in recorder.recorded() if s.name == "inference.stage"]
     assert stage_spans and stage_spans[0].duration_s is not None, (
-        "the span must close even when the stage raises 鈥?an unclosed span hides the failure"
+        "the span must close even when the stage raises — an unclosed span hides the failure"
     )

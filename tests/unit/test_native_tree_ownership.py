@@ -1,8 +1,8 @@
-"""Native-tree ownership and the stage-3 selector (plan 搂2.9, 搂3.13, 搂4.2 Step 2).
+"""Native-tree ownership and the stage-3 selector (plan §2.9, §3.13, §4.2 Step 2).
 
 Two things are pinned here that are easy to get wrong silently:
 
-* ownership is *exclusive* 鈥?declaring ``face`` must make Global restoration fall
+* ownership is *exclusive* — declaring ``face`` must make Global restoration fall
   back, not attempt to load a second tree into the same interpreter;
 * the stage-3 selector must not construct the native class unless the tree is owned
   and the checkpoint is really there.
@@ -10,7 +10,7 @@ Two things are pinned here that are easy to get wrong silently:
 ``_build_opt`` is stubbed rather than called: it imports the ``Face_Enhancement``
 tree's ``options`` package, and in a test process that may already have imported
 ``Global``'s same-named package, resolution would depend on test order. That
-dependency is the whole reason ownership exists, so faking it here is honest 鈥?the real import path is exercised by ``tests/gpu/test_face_enhance_equivalence.py``
+dependency is the whole reason ownership exists, so faking it here is honest — the real import path is exercised by ``tests/gpu/test_face_enhance_equivalence.py``
 in a child process that loads only one tree.
 """
 import os
@@ -108,7 +108,7 @@ def test_ownership_report_is_what_an_operator_reads(clean_ownership, monkeypatch
 
 
 def test_the_setting_is_validated_at_startup(monkeypatch):
-    """A typo would silently mean 'nothing resident' (plan 搂3.3 fail-fast)."""
+    """A typo would silently mean 'nothing resident' (plan §3.3 fail-fast)."""
     from fiximg.config import Settings
 
     monkeypatch.setenv("FIXIMG_NATIVE_TREE", "Global")  # wrong case is wrong value

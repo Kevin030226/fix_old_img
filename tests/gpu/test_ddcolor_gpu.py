@@ -1,4 +1,4 @@
-"""GPU-marked tests (plan 搂29: `pytest -m gpu`).
+"""GPU-marked tests (plan §29: `pytest -m gpu`).
 
 These exercise the real model-loading and inference path (ModelManager +
 DDColor) and are therefore skipped unless ALL of the following hold:
@@ -102,7 +102,7 @@ def test_the_declared_optimisations_really_are_applied():
     DDColor is the one model that declares an optimisation, so it is the case that
     proves the declaration reaches a loaded model rather than only the policy
     object - and the record the backend reports is what an operator reads in
-    `GET /api/v1/models` (plan 搂3.5.4).
+    `GET /api/v1/models` (plan §3.5.4).
     """
     import torch
 
@@ -129,8 +129,8 @@ def test_the_declared_optimisations_really_are_applied():
 def test_the_builder_honours_the_configured_device(monkeypatch):
     """`FIXIMG_DEVICE=cpu` must not be answered with a CUDA-resident model.
 
-    The vendored builder defaults to "cuda if torch sees one" 鈥?device 0, whatever the
-    process was told 鈥?so a CPU-pinned worker put colour weights on the card it had
+    The vendored builder defaults to "cuda if torch sees one" — device 0, whatever the
+    process was told — so a CPU-pinned worker put colour weights on the card it had
     been told not to use, while the stage's memory figure was charged to the device the
     runtime had scheduled. Both halves of that are wrong together: the number and the
     placement disagree with the configuration.

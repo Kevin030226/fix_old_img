@@ -1,9 +1,9 @@
-"""The shared SQLite connection under concurrent use (plan 搂3.2 topology, 搂2.7 data layer).
+"""The shared SQLite connection under concurrent use (plan §3.2 topology, §2.7 data layer).
 
 `fiximg.app_factory` runs the worker in a thread of the same process that serves
 HTTP requests, and the SQLite engine hands both **one** connection. That is the
 deployment the plan describes, so a statement racing another thread's `commit()` is
-not an exotic case 鈥?it is the normal case, and until `Connection` serialised its
+not an exotic case — it is the normal case, and until `Connection` serialised its
 calls it failed on Python 3.14 with ``SystemError: error return without exception
 set`` or ``InterfaceError: bad parameter or other API misuse``. In the full suite it
 showed up as roughly one failing test per run, and never the same test twice, which
@@ -36,7 +36,7 @@ def test_writers_and_readers_sharing_one_connection_do_not_corrupt_it(isolated_d
                 task_repo.create_task(task_id, "restore", "alice")
                 task_repo.start_task(task_id)
                 task_repo.update_progress(task_id, 50, "global_restore")
-        except BaseException:  # noqa: BLE001 鈥?the thread reports, pytest asserts
+        except BaseException:  # noqa: BLE001 — the thread reports, pytest asserts
             errors.append(f"writer{tag}: {traceback.format_exc()}")
 
     def reader(tag: str) -> None:
@@ -75,7 +75,7 @@ def test_a_rolled_back_write_leaves_no_row(isolated_db):
 
     A failed statement inside a repository call is rolled back by that call's own
     error handling (SQLite aborts the statement); this checks a write that never
-    reached `commit()` is simply absent 鈥?the property a caller can actually rely on
+    reached `commit()` is simply absent — the property a caller can actually rely on
     when the connection is shared.
     """
     from fiximg.infrastructure.db import engine

@@ -58,7 +58,7 @@ def test_failed_task(db_env):
 
 
 def test_cancel_reaches_anything_that_has_not_finished(db_env):
-    """搂3.8: `running` is cancellable too, cooperatively.
+    """§3.8: `running` is cancellable too, cooperatively.
 
     The stop is the worker's decision to make at its next stage boundary, but the row
     records the user's intent immediately, so the status view, the SSE stream and a
@@ -89,7 +89,7 @@ def test_metrics_and_artifacts(db_env, tmp_path):
     repo.add_metric("t5", "psnr", 22.5)
     repo.add_metric("t5", "ssim", 0.8)
     metrics = repo.read_metrics("t5")
-    # Numbers come back as numbers (plan 搂2.7) 鈥?the column is a REAL, so SQL can
+    # Numbers come back as numbers (plan §2.7) — the column is a REAL, so SQL can
     # average these without a Python round trip through the table.
     assert metrics["psnr"] == 22.5
     assert metrics["ssim"] == 0.8
@@ -155,7 +155,7 @@ def test_list_tasks_by_user(db_env):
     assert len(repo.list_tasks(limit=10)) == 3
 
 
-# ------------------------------------------------------- typed storage (搂2.7)
+# ------------------------------------------------------- typed storage (§2.7)
 def test_claims_follow_enqueues_within_one_second(db_env):
     """FIFO is a property of the stored value, not of rowid luck.
 
@@ -177,7 +177,7 @@ def test_claims_follow_enqueues_within_one_second(db_env):
 
 
 def test_created_at_values_are_canonical_and_order_is_stable(db_env, monkeypatch):
-    """What the instant format guarantees 鈥?and what it does not (plan 搂2.7).
+    """What the instant format guarantees — and what it does not (plan §2.7).
 
     The format is microsecond *precision*, not microsecond *uniqueness*: measured on
     this machine, CPython 3.11 gives one stamp shared by four inserts in a tight loop
@@ -187,7 +187,7 @@ def test_created_at_values_are_canonical_and_order_is_stable(db_env, monkeypatch
 
     The two claims that hold everywhere are the canonical shape (fixed width, `Z`,
     no local-zone dependency) and a deterministic listing order. The second needs the
-    `id` tiebreaker in `list_tasks` *because* equal stamps happen 鈥?so the collision is
+    `id` tiebreaker in `list_tasks` *because* equal stamps happen — so the collision is
     produced here by freezing the clock instead of being left to whichever clock the
     test machine happens to have.
     """
@@ -289,7 +289,7 @@ def test_stage_percentiles_are_nearest_rank(db_env, count):
     """The percentile moved into SQL, so its *definition* needs pinning.
 
     `rank = ceil(p * n)` clamped to the rows that exist, over the ascending
-    durations 鈥?which is what the replaced Python code did for n=3 and does not
+    durations — which is what the replaced Python code did for n=3 and does not
     for even n, where it took the upper of the two middle values.
     """
     import math
@@ -313,7 +313,7 @@ def test_stage_percentiles_are_nearest_rank(db_env, count):
 def test_repository_and_benchmark_report_the_same_percentile(db_env):
     """The SQL percentile and the benchmark helper must pick the same row.
 
-    Two tools in this repo compute p50/p95 鈥?the repository in SQL for the stats
+    Two tools in this repo compute p50/p95 — the repository in SQL for the stats
     endpoint, `benchmark.common` for latency tables. They are compared here
     because a "p95" that means one thing in the dashboard and another in the
     benchmark is worse than no p95 at all.
@@ -328,7 +328,7 @@ def test_repository_and_benchmark_report_the_same_percentile(db_env):
         repo.finish_stage(task_id, 0, "completed", duration)
 
     # `Samples` is unit-agnostic, so both sides get milliseconds and the numbers
-    # must be equal 鈥?not merely close.
+    # must be equal — not merely close.
     stats = repo.task_stats()["stages"]["global_restore"]
     samples = Samples(name="x", values=[float(d) for d in durations]).summary()
     assert stats["runs"] == samples["count"] == 17

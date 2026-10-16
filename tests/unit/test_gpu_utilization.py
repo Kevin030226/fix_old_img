@@ -1,4 +1,4 @@
-"""GPU utilisation measurement (plan 搂7.1) 鈥?parsing, windowing, giving up honestly.
+"""GPU utilisation measurement (plan §7.1) — parsing, windowing, giving up honestly.
 
 Nothing here needs a GPU: the driver tool is behind an injectable ``runner``, so
 the parsing is tested against captured output and the window maths against a
@@ -88,11 +88,11 @@ def test_window_aggregates_only_this_device_inside_the_interval():
     ticks = _Ticks(start=10.0)
     probe = _probe("0, 20, 496, 8151\n1, 90, 496, 8151\n", ticks=ticks)
     started = 12.0
-    probe.poll_once()                     # stamp 10 鈥?before the window
+    probe.poll_once()                     # stamp 10 — before the window
     inside = probe.now()                  # stamp 11
-    probe.poll_once()                     # stamp 12 鈥?inside
+    probe.poll_once()                     # stamp 12 — inside
     ended = probe.now()                   # stamp 13
-    probe.poll_once()                     # stamp 14 鈥?after
+    probe.poll_once()                     # stamp 14 — after
     assert started == 12.0 and inside == 11.0 and ended == 13.0
 
     window = probe.window(12.0, 13.0, 0)
@@ -357,7 +357,7 @@ READING = {
 
 
 def test_a_gpu_stage_opens_a_window_and_publishes_its_utilisation(monkeypatch):
-    """搂7.1: the stage's own utilisation reaches the report, the rows and `/metrics`.
+    """§7.1: the stage's own utilisation reaches the report, the rows and `/metrics`.
 
     Asserted through the real runtime: the probe is asked for the *routed* device
     over an interval the runtime stamped on the probe's own clock, the window is
@@ -389,7 +389,7 @@ def test_a_gpu_stage_opens_a_window_and_publishes_its_utilisation(monkeypatch):
 
 
 def test_a_cpu_stage_asks_no_utilisation_at_all(monkeypatch):
-    """No driver, no reading 鈥?and no sampler thread started to fail at one.
+    """No driver, no reading — and no sampler thread started to fail at one.
 
     This is what keeps a CPU-only deployment honest: the alternative is a stage
     metric that says 0 % for work that never touched a GPU.
@@ -430,7 +430,7 @@ def test_a_failed_stage_still_releases_the_window(monkeypatch):
 
 
 def test_task_level_utilisation_is_the_sample_weighted_mean_of_its_stages():
-    """Two stages of different length must not count equally (plan 搂7.1, 搂5.3).
+    """Two stages of different length must not count equally (plan §7.1, §5.3).
 
     The merge this replaced took the last stage's figure: a 4-sample restore at
     100 % followed by a 1-sample finishing stage at 20 % reported 20 % for a task

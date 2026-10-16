@@ -1,4 +1,4 @@
-"""Diagnostics endpoints are declared models, not free-form dicts (plan 搂2.5, 搂3.8).
+"""Diagnostics endpoints are declared models, not free-form dicts (plan §2.5, §3.8).
 
 `/api/v1/stats` and the health probes were the last two endpoints that returned a
 hand-built dict, which shows up in the OpenAPI document as an untyped object: the
@@ -7,10 +7,10 @@ one endpoint an operator polls is the one a client generator cannot type.
 Two directions are pinned, because a response model is only half a contract:
 
 * a key the producer emits but the model does not declare would be **silently
-  dropped** by FastAPI's validation 鈥?so the live payload's keys must all be
+  dropped** by FastAPI's validation — so the live payload's keys must all be
   declared (or the model must say `extra="allow"`, which is asserted separately);
 * a key the model declares that nothing produces is a field every client sees as
-  always-null 鈥?so the declared fields must all be present.
+  always-null — so the declared fields must all be present.
 """
 import pytest
 from fastapi.testclient import TestClient
@@ -83,7 +83,7 @@ def test_stats_top_level_is_exactly_what_the_model_declares(api_client):
     declared = set(StatsResponse.model_fields)
 
     assert _keys(body) == declared, (
-        f"payload {sorted(body)} vs schema {sorted(declared)} 鈥?a key missing from "
+        f"payload {sorted(body)} vs schema {sorted(declared)} — a key missing from "
         "the model would be dropped from the response before any client sees it"
     )
 
@@ -94,7 +94,7 @@ def test_stats_nested_blocks_match_their_models(api_client):
     assert _keys(body["tasks"]) == set(TaskTotals.model_fields), body["tasks"]
     assert _keys(body["metrics"]) == set(MetricsSnapshot.model_fields)
     assert _keys(body["scheduler"]) == set(SchedulerStats.model_fields)
-    # Declared 鈯?or 鈯?is the wrong assertion here: `models` gains
+    # Declared ⊂ or ⊃ is the wrong assertion here: `models` gains
     # `gpu_memory_peak_mb` only on a CUDA node. What must hold in both shapes is
     # that nothing is emitted which the schema does not describe (that is the key a
     # response model can silently drop) and that the always-present one is there.
@@ -132,7 +132,7 @@ def test_the_openapi_document_types_every_json_response(api_client):
     """The gate that keeps this hole from reopening.
 
     A route whose 2xx JSON response carries no schema reference renders as a
-    free-form object in `/docs` and as `dict[str, Any]` in a generated client 鈥?
+    free-form object in `/docs` and as `dict[str, Any]` in a generated client —
     which is how `/api/v1/stats` looked while every other endpoint was typed.
     """
     spec = api_client.get("/openapi.json").json()
@@ -173,7 +173,7 @@ def test_stats_reports_a_peak_recorded_by_another_process(api_client):
 
 
 def test_readiness_reports_gpu_utilisation_from_the_shared_probe(api_client, monkeypatch):
-    """搂7.1's other KPI is served, and served from one sampler rather than per request.
+    """§7.1's other KPI is served, and served from one sampler rather than per request.
 
     The endpoint must not fork the driver tool itself: an HTTP scrape asking
     `nvidia-smi` directly would put a subprocess in the request path and give a
@@ -225,7 +225,7 @@ def _backdate(task_id: str, column: str, seconds_ago: float) -> None:
     from fiximg.infrastructure.db import timestamps
 
     conn = sqlite3.connect(config_mod.settings.db_path)
-    conn.execute(f"UPDATE tasks SET {column}=? WHERE id=?",  # noqa: S608 鈥?fixed column names
+    conn.execute(f"UPDATE tasks SET {column}=? WHERE id=?",  # noqa: S608 — fixed column names
                  (timestamps.deadline(-seconds_ago), task_id))
     conn.commit()
     conn.close()
@@ -253,7 +253,7 @@ def test_a_worker_holding_a_task_is_reported_alive(api_client, monkeypatch):
 def test_a_worker_that_stopped_beating_is_reported_silent(api_client, monkeypatch):
     """Heartbeats stop when the loop wedges; the row keeps saying 'running'.
 
-    Reading only `status='running'` would call that alive forever 鈥?which is the
+    Reading only `status='running'` would call that alive forever — which is the
     state a GPU worker that died inside a CUDA call actually leaves behind.
     """
     from fiximg.infrastructure.db.repositories import task_repository as task_repo

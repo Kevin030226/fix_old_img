@@ -1,10 +1,10 @@
-"""Benchmark sample statistics (plan 搂3.10.3 / acceptance "p50/p95 鍩虹嚎").
+"""Benchmark sample statistics (plan §3.10.3 / acceptance "p50/p95 基线").
 
 The percentile helper had no test, which is how it came to report a p95 *below*
 the p50 on exactly the small samples CI uses (`--runs 2`): the old
 `int(n * pct) - 1` index collapses to `ordered[0]` at n=2. These tests pin the
 definition rather than the numbers, and pin it against the same nearest-rank rule
-`task_stats` uses in SQL 鈥?a p95 from the benchmark and a p95 from the database
+`task_stats` uses in SQL — a p95 from the benchmark and a p95 from the database
 have to mean one thing.
 """
 import math
@@ -97,7 +97,7 @@ def test_no_measurements_cannot_fail_the_build():
 
 # ------------------------------------------------------------ committed baseline
 def test_the_committed_baseline_agrees_with_the_code_constants():
-    """搂3.10.3: the baseline is data in the repository, not prose in a document.
+    """§3.10.3: the baseline is data in the repository, not prose in a document.
 
     Two copies of the same ceiling is how a gate silently changes meaning, so the
     file and the constant are checked against each other; the sizes must also be the

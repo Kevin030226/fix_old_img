@@ -1,4 +1,4 @@
-"""Golden-image quality regression tests (plan 搂3.10.2).
+"""Golden-image quality regression tests (plan §3.10.2).
 
 The measurement code lives in :mod:`tests.fixtures.golden_kit` so that these
 synthetic baselines and the real-model baselines in ``tests/gpu`` compare the same
@@ -35,7 +35,7 @@ class _SyntheticGoldenStage(BaseStage):
 
     It reproduces the *shape* of a real restoration: mild denoise, contrast
     lift, slight warm shift. That is enough for the golden assertions to have
-    teeth 鈥?a change in the runtime's image plumbing (channel order, dtype,
+    teeth — a change in the runtime's image plumbing (channel order, dtype,
     resize) shows up immediately.
     """
 
@@ -114,7 +114,7 @@ def test_golden_input_has_the_expected_character():
 
 
 def test_synthetic_stage_output_matches_its_golden_fingerprint(golden):
-    """The end-to-end characteristic set is stable (plan 搂3.10.2)."""
+    """The end-to-end characteristic set is stable (plan §3.10.2)."""
     from fiximg.inference.context import StageContext
 
     source = make_input()
@@ -145,7 +145,7 @@ def test_golden_fingerprint_covers_every_planned_field(golden):
 
 
 def test_stage_result_reports_metrics_for_the_artifact_schema(golden):
-    """plan 搂3.10.2 asks for an artifact-schema assertion too."""
+    """plan §3.10.2 asks for an artifact-schema assertion too."""
     from fiximg.inference.context import StageContext
 
     result = _SyntheticGoldenStage().run(

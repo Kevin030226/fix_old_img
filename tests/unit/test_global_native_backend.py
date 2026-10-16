@@ -1,4 +1,4 @@
-"""Native Global backend selection and guards (plan 搂3.5.1, 搂3.5.4).
+"""Native Global backend selection and guards (plan §3.5.1, §3.5.4).
 
 These run without weights and without loading a model: what is under test is the
 *decision* (native when possible, subprocess adapter otherwise) and the guards
@@ -46,7 +46,7 @@ def fake_native(monkeypatch):
     Only the model class (needs torch + weights) and the filesystem/interpreter
     probes are replaced; ``native_available()``, the ownership rule and the
     selection logic run as written, so these tests would notice a change to any of
-    them 鈥?a stubbed availability check made the "switch off" case vacuous once
+    them — a stubbed availability check made the "switch off" case vacuous once
     already.
     """
     made: list = []
@@ -98,7 +98,7 @@ def test_a_conflicting_legacy_tree_is_detected(monkeypatch):
     """Global/ and Face_Enhancement/ both own ``options``/``models``/``util``/``data``.
 
     The first tree imported owns those names for the process, so importing the
-    second would silently mix two code bases 鈥?the detector has to see the
+    second would silently mix two code bases — the detector has to see the
     intruder even when it is already in sys.modules.
     """
     from fiximg.inference.backends import legacy_tree
@@ -150,6 +150,48 @@ def test_scratch_uses_the_adapter_without_its_own_weights(fake_native, monkeypat
     assert fake_native == [], "the scratch path must not build the quality backend"
 
 
+def test_hr_scratch_routes_to_the_adapter(fake_native, monkeypatch):
+    """HR scratches need mapping_Patch_Attention, which native deliberately refuses.
+
+    The scratch branch's HR variant selects that mapping net, and the native
+    backend's loader would run it uninitialised -- so ``run_folder`` refuses the
+    branch outright (see ``test_hr_scratch_refuses_before_loading_anything``).
+    Choosing native here therefore cannot work at run time; the selection has to
+    happen up front, while the fallback is still visible in the metadata.
+
+    Quality+HR is a different case and stays native: ``--HR`` is a no-op in the
+    vendored code unless it is combined with the scratch switch.
+    """
+    monkeypatch.setattr(gr, "scratch_native_available", lambda: (True, ""))
+
+    backend = registry_module.select_restore_backend(with_scratch=True, hr=True)
+    assert isinstance(backend, LegacyCliBackend), (
+        "native was chosen for an HR scratch run, which it refuses at run time"
+    )
+    assert backend.implementation == "legacy-cli"
+    assert backend.with_scratch is True
+    assert fake_native == [], "an unusable native backend must not be constructed"
+
+    # The non-HR scratch branch is unaffected: it still prefers native.
+    native = registry_module.select_restore_backend(with_scratch=True, hr=False)
+    assert native.implementation == "native"
+    assert len(fake_native) == 1
+
+
+def test_quality_hr_still_uses_the_native_backend(fake_native, monkeypatch):
+    """``--HR`` alone is a no-op in the vendored code, so quality keeps native.
+
+    ``Global/test.py:parameter_set`` only honours HR together with the scratch
+    switch, which is why the quality branch must not be pushed to the adapter just
+    because a caller asked for HR.
+    """
+    monkeypatch.setattr(gr, "native_available", lambda: (True, ""))
+
+    backend = registry_module.select_restore_backend(with_scratch=False, hr=True)
+    assert backend.implementation == "native"
+    assert len(fake_native) == 1
+
+
 def test_a_disabled_switch_falls_back(fake_native, monkeypatch):
     """No native_available stub here: the ownership rule is what is under test."""
     import fiximg.config as config_mod
@@ -160,7 +202,7 @@ def test_a_disabled_switch_falls_back(fake_native, monkeypatch):
 
 
 def test_owning_the_other_tree_disables_global_native(fake_native, monkeypatch):
-    """One process, one native tree 鈥?an exclusivity rule, not a preference.
+    """One process, one native tree — an exclusivity rule, not a preference.
 
     Face enhancement needs Face_Enhancement/, which declares the same top-level
     packages as Global/, so a face worker necessarily runs restoration through
@@ -230,7 +272,7 @@ def test_opt_uses_absolute_weight_paths():
 
     assert os.path.isabs(opt.checkpoints_dir)
     assert os.path.isabs(opt.load_pretrainA) and os.path.isabs(opt.load_pretrainB)
-    assert opt.gpu_ids == [], "CPU means an empty id list 鈥?.cuda() is gated on it"
+    assert opt.gpu_ids == [], "CPU means an empty id list — .cuda() is gated on it"
     assert opt.test_mode == "Full" and opt.Quality_restore is True
 
 
@@ -393,7 +435,7 @@ def test_the_models_api_reports_the_serving_implementation():
     """`framework: legacy-cli` in the manifest cannot say where weights live.
 
     The declared framework and the actual implementation differ as soon as the
-    native backend serves the chain, so the API must expose both 鈥?otherwise an
+    native backend serves the chain, so the API must expose both — otherwise an
     operator checking GPU residency reads the wrong thing.
     """
     from fiximg.application.model_service import ModelService
@@ -415,7 +457,7 @@ def test_the_models_api_reports_which_optimisations_landed():
 
     A manifest key that no backend applied used to be invisible here, so a
     deployment could declare `channels_last: true` for a chain that ignored it and
-    read the models API as confirmation (plan 搂3.5.4).
+    read the models API as confirmation (plan §3.5.4).
     """
     from fiximg.application.model_service import ModelService
     from fiximg.inference.manifest import ModelManifest

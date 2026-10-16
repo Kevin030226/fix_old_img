@@ -1,8 +1,8 @@
-"""End-to-end test: upload 鈫?queue 鈫?worker 鈫?result (plan 搂3.10.1 E2E).
+"""End-to-end test: upload → queue → worker → result (plan §3.10.1 E2E).
 
 The model chain is stubbed at the *stage registry*, so the test exercises the
-whole platform 鈥?HTTP contract, task persistence, queue claim/lease, worker
-loop, runtime, artifact storage, result download 鈥?without needing weights or a
+whole platform — HTTP contract, task persistence, queue claim/lease, worker
+loop, runtime, artifact storage, result download — without needing weights or a
 GPU. That is the layer where regressions actually hurt.
 """
 import io
@@ -89,7 +89,7 @@ class _StubSkippedStage(_StubFaceStage):
 
 def _stubbed_registry(registry_module, restore_stage=_StubRestoreStage,
                       skipped: tuple[str, ...] = ()):
-    """A registry with the whole four-stage chain stubbed (plan 搂3.6/搂3.7).
+    """A registry with the whole four-stage chain stubbed (plan §3.6/§3.7).
 
     Every test that swaps stages must stub *all* of them: a partially stubbed
     registry would let the real legacy CLI run for the face chain.
@@ -252,7 +252,7 @@ def test_full_roundtrip_produces_a_downloadable_result(app_client):
 
 
 def test_a_stage_that_declines_work_is_recorded_as_skipped(app_client_with_skipped_stage):
-    """Plan 搂3.9 asks for clearer status; "completed" for "did nothing" is not it.
+    """Plan §3.9 asks for clearer status; "completed" for "did nothing" is not it.
 
     The face chain degrades this way on every install without dlib, so the
     distinction is not hypothetical: the task succeeds, the stage is what
@@ -317,7 +317,7 @@ def test_events_stream_records_the_whole_lifecycle(app_client):
         # stage.started.
         "task.started",
         "stage.started",
-        # 搂2.5 point 4: intra-stage progress. The stub stage reports 50 %, and
+        # §2.5 point 4: intra-stage progress. The stub stage reports 50 %, and
         # without this event an SSE client watching a single-stage plan saw
         # nothing at all until the stage finished.
         "task.progress",
@@ -334,10 +334,10 @@ def test_events_stream_records_the_whole_lifecycle(app_client):
 
 
 def test_task_is_attributed_to_the_api_principal(app_client, monkeypatch):
-    """搂2.5 point 3: the task belongs to whoever the token resolves to.
+    """§2.5 point 3: the task belongs to whoever the token resolves to.
 
-    This test used to assert `settings.api_token_user == "api"` 鈥?a config
-    default 鈥?which stays green when the route stops forwarding the principal,
+    This test used to assert `settings.api_token_user == "api"` — a config
+    default — which stays green when the route stops forwarding the principal,
     i.e. exactly the defect it claims to prevent. The principal's name is changed
     here instead, so the attribution has to follow it or the test fails.
     """
@@ -375,7 +375,7 @@ def test_scratch_task_uses_the_scratch_stage(app_client):
 
 
 def test_restoration_runs_the_face_chain_exactly_once(app_client):
-    """搂3.6/搂3.7: four stages, one job each, no stage repeated."""
+    """§3.6/§3.7: four stages, one job each, no stage repeated."""
     created = app_client.post(
         "/api/v1/tasks",
         data={"type": "restore"},
@@ -402,7 +402,7 @@ def test_face_enhance_can_be_opted_out(app_client):
 
 
 def test_stage_metrics_reach_the_report(app_client):
-    """Stage-reported metrics (plan 搂5.3) are persisted and exposed."""
+    """Stage-reported metrics (plan §5.3) are persisted and exposed."""
     created = app_client.post(
         "/api/v1/tasks",
         data={"type": "restore"},
@@ -425,8 +425,8 @@ def test_worker_survives_a_failing_stage_and_marks_the_task_failed(app_client, m
     from fiximg.inference import registry as registry_module
 
     # max_attempts=1 makes the failure terminal. Otherwise the worker requeues
-    # the task with a backoff after the first attempt (plan 搂2.6), so the
-    # ``failed`` status is only visible for a few microseconds 鈥?the assertion
+    # the task with a backoff after the first attempt (plan §2.6), so the
+    # ``failed`` status is only visible for a few microseconds — the assertion
     # would be a race, not a test.
     monkeypatch.setattr(config_mod.settings, "task_max_attempts", 1)
 

@@ -1,9 +1,9 @@
-"""Weight integrity for the model manifest (plan 搂3.5.2, 搂3.15).
+"""Weight integrity for the model manifest (plan §3.5.2, §3.15).
 
 Before these tests the runtime verification was inert in two ways at once:
 ``models/manifest.yaml`` declared no ``sha256``, so ``verify_hashes()`` returned
 ``True`` for every model **without checking anything**, while a second system
-(``config/weights_manifest.json``, 26 files) held the real checksums and was only
+(``config/weights_manifest.json``, 29 files) held the real checksums and was only
 consulted by the startup CLI. The manifest now verifies against that same
 baseline, so one committed file is the source of truth for both.
 
@@ -11,7 +11,7 @@ What is pinned here:
   * a file weight and a checkpoint *directory* are both covered;
   * an explicit YAML hash wins over the baseline for the file it names;
   * a mismatch, an unreadable file and "no baseline entry" are three different
-    answers 鈥?the last one is reported as unverified, never as verified;
+    answers — the last one is reported as unverified, never as verified;
   * a gigabyte of legacy weights is read once, not once per health poll.
 """
 import hashlib

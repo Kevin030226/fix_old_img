@@ -1,6 +1,6 @@
-"""Memory-aware scheduling and per-stage VRAM metrics (plan 搂7.1, 搂4.3 Step 4).
+"""Memory-aware scheduling and per-stage VRAM metrics (plan §7.1, §4.3 Step 4).
 
-The report lists two related gaps: "GPU peak memory 鈥?鍔犲叆姣?task/stage 缁村害" and
+The report lists two related gaps: "GPU peak memory — 加入每 task/stage 维度" and
 the multi-GPU item's note that capability routing alone is not enough without
 memory awareness.
 
@@ -199,7 +199,7 @@ def test_device_for_with_memory_awareness_picks_the_roomiest(monkeypatch):
 
 
 def test_memory_aware_selection_ignores_a_single_candidate(monkeypatch):
-    """Nothing to choose between 鈥?the probe must not even be consulted."""
+    """Nothing to choose between — the probe must not even be consulted."""
     calls = []
 
     def _spy(device):
@@ -257,7 +257,7 @@ def test_sampler_is_usable_as_a_context_manager_on_a_device_index():
 
     if torch.cuda.is_available():
         # On a CUDA host the sampler really can read device 0, and the honest
-        # contract is "a number, and no exception" 鈥?not "None". Asserting None
+        # contract is "a number, and no exception" — not "None". Asserting None
         # here was a CPU-only-machine assumption that read as a failure the first
         # time the suite ran on the GPU it was written for.
         assert isinstance(sampler.peak_mb, float), sampler.peak_mb
@@ -302,12 +302,12 @@ def _plan(*names):
 
 
 def test_stage_metrics_carry_the_peak_vram(monkeypatch):
-    """搂7.1: the peak is attributed to the stage that caused it.
+    """§7.1: the peak is attributed to the stage that caused it.
 
     The sampler cannot measure anything on a CPU-only host, so the *reading* is
     replaced with one that did record a peak. What is under test is the
     device-independent half: the runtime merging it into the stage's metrics and
-    handing that to the repository 鈥?which is what puts `gpu_peak_mb` into
+    handing that to the repository — which is what puts `gpu_peak_mb` into
     `task_stages.metrics_json` and then the API. The previous version of this test
     asserted only `"metrics" in stage_meta[0]`, which held whether or not the
     merge existed.
@@ -346,7 +346,7 @@ def test_stage_metrics_carry_the_peak_vram(monkeypatch):
 
 
 def test_oom_moves_the_stage_to_another_device(monkeypatch):
-    """搂7.1: an out-of-memory failure retries on a capable device."""
+    """§7.1: an out-of-memory failure retries on a capable device."""
     from fiximg.inference.context import StageContext
 
     topology = GpuTopology(
@@ -451,7 +451,7 @@ def _meta(stage: str, peak: float | None, **extra):
 def test_task_peak_is_the_highest_stage_not_the_last_one():
     """The per-stage peak is a high-water mark, so 'last writer wins' is wrong.
 
-    Two stages that each reached 4 GB made a task that peaked at 4 GB 鈥?under the
+    Two stages that each reached 4 GB made a task that peaked at 4 GB — under the
     plain merge the task-level number was whichever stage reported last, which
     reads as if the run had been small.
     """
@@ -480,7 +480,7 @@ def test_ordinary_metrics_still_take_the_last_reporters_value():
     assert merged["face_count"] == 2
 
 
-# --------------------------------------- process peak vs the per-stage reset (搂7.1)
+# --------------------------------------- process peak vs the per-stage reset (§7.1)
 class _FakeCuda:
     """PyTorch's counter semantics: a peak that `reset_peak_memory_stats()` rewinds.
 
@@ -606,8 +606,8 @@ def test_a_window_folds_its_peak_before_the_device_can_become_unreadable(fake_cu
     """The fold belongs to the window, not to whoever reads the report later.
 
     After an out-of-memory the device stops answering `max_memory_allocated`, so a
-    lazily-folded peak is simply gone: the stage that OOMed 鈥?the one whose number
-    matters most 鈥?would be the one missing from the aggregate.
+    lazily-folded peak is simply gone: the stage that OOMed — the one whose number
+    matters most — would be the one missing from the aggregate.
     """
     from fiximg.inference import gpu_memory as gm
 
@@ -645,7 +645,7 @@ class _UninitialisedCuda(_FakeCuda):
     """The state a fresh process is really in: peak stats refuse to reset.
 
     `torch.cuda.reset_peak_memory_stats()` raises "Invalid device argument" until the
-    CUDA context exists, which is exactly the first sampler window of a worker 鈥?the one
+    CUDA context exists, which is exactly the first sampler window of a worker — the one
     that loads the model. This fake reproduces that so the ordering (and the noise when
     it still fails) can be tested on a host with no GPU.
     """

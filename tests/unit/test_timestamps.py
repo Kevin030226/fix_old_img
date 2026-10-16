@@ -1,4 +1,4 @@
-"""The instant codec (plan 搂2.7).
+"""The instant codec (plan §2.7).
 
 These tests are the reason the storage format is what it is. Each one pins a
 property that the old naive-second-precision strings did not have:
@@ -20,7 +20,7 @@ from fiximg.infrastructure.db import timestamps
 def test_canonical_is_fixed_width_and_lexicographically_ordered():
     earlier = timestamps.from_epoch(1_800_000_000)
     later = timestamps.from_epoch(1_800_000_001)
-    # "YYYY-MM-DDTHH:MM:SS.ffffffZ" 鈥?the width is what makes `<` chronological.
+    # "YYYY-MM-DDTHH:MM:SS.ffffffZ" — the width is what makes `<` chronological.
     assert len(earlier) == 27 == len(later)
     assert earlier < later
     assert later.endswith("Z")
@@ -51,7 +51,7 @@ def test_cutoff_and_deadline_bracket_now():
 
 
 def test_legacy_naive_value_is_read_as_local_time():
-    """V2 wrote `datetime.now()` 鈥?a naive *local* string.
+    """V2 wrote `datetime.now()` — a naive *local* string.
 
     The migration rewrites them, but a database that has not been migrated yet
     must still be readable rather than raising, and reading it as UTC would move

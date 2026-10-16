@@ -1,11 +1,11 @@
-"""The 搂12 option switches reach the *dynamic* plan, not just the static ones.
+"""The §12 option switches reach the *dynamic* plan, not just the static ones.
 
 ``plan_auto_restore(analysis, options)`` is where the two meet: the Auto tab's whole
 premise is that the image decides the pipeline, so an option the planner ignores there
 is a switch the API accepts and the UI can tick with no effect anywhere. These cases
 run a real submission through :class:`PipelineOrchestrator` with stubbed stages and read
-the stages back off the task row 鈥?the same list ``GET /tasks/{id}`` and the UI checklist
-show 鈥?because a planner that honours the option while the runtime drops it would pass a
+the stages back off the task row — the same list ``GET /tasks/{id}`` and the UI checklist
+show — because a planner that honours the option while the runtime drops it would pass a
 planner-only test.
 """
 import json
@@ -24,7 +24,7 @@ _STUBBED_STAGES = (
 )
 
 #: What the analyzer is pinned to report: scratched, grayscale, two faces. Every
-#: optional stage in 搂10's decision table therefore wants to run, so a switch that
+#: optional stage in §10's decision table therefore wants to run, so a switch that
 #: declines one has somewhere visibly to land.
 _ANALYSIS = {
     "width": 800, "height": 600,
@@ -138,7 +138,7 @@ def test_the_scratch_branch_is_not_a_switch(auto_env):
     """Declining the optional stages must not silently change the required one.
 
     ``scratch_score`` is above the threshold in the pinned analysis, so the plan is the
-    ``with_scratch`` variant whatever the options say 鈥?that branch is the Auto tab's
+    ``with_scratch`` variant whatever the options say — that branch is the Auto tab's
     reason to exist, and it has no checkbox.
     """
     for options in (None, {"face_enhance": False}, {"face_enhance": True}):
@@ -169,7 +169,7 @@ def test_the_preview_promises_exactly_the_pipeline_the_run_records(auto_env):
 
     What it deliberately cannot check is the *naming* rule, and the reason is worth
     keeping in the file: the stages here are stubs registered under the plan's own keys,
-    and ``auto_preview`` resolves labels through the same registry 鈥?so both sides say
+    and ``auto_preview`` resolves labels through the same registry — so both sides say
     ``global_restore`` even on the scratch branch, where the real stage reports itself as
     ``scratch_repair``. Asserting the rename against a stub would be measuring the
     stub's imitation of production. The rename is proven in
@@ -197,7 +197,7 @@ def test_the_preview_promises_exactly_the_pipeline_the_run_records(auto_env):
 def test_hr_is_not_read_as_a_pipeline_switch(auto_env):
     """``hr`` changes what the face stages do, not whether they are scheduled.
 
-    Treating it as a plan switch would let ``{"hr": false}`` decline the face chain 鈥?    a stage list the user did not ask for 鈥?while the checked box on the Auto tab
+    Treating it as a plan switch would let ``{"hr": false}`` decline the face chain —     a stage list the user did not ask for — while the checked box on the Auto tab
     would then send something the planner has an opinion about.
     """
     _task_id, names, decisions = _run({"hr": False})

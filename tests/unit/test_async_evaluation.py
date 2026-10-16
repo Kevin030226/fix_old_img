@@ -1,11 +1,11 @@
-"""Deferred evaluation tests (plan 搂3.16).
+"""Deferred evaluation tests (plan §3.16).
 
 The plan is explicit: *evaluation must not block the result* unless the
 evaluation itself is part of the product requirement. These tests pin both
 modes:
 
-* ``inline`` (default) 鈥?V2 behaviour, metrics exist when the task completes;
-* ``async`` 鈥?the task completes and the result is downloadable first, and the
+* ``inline`` (default) — V2 behaviour, metrics exist when the task completes;
+* ``async`` — the task completes and the result is downloadable first, and the
   metrics land afterwards as a ``task.evaluated`` event.
 """
 import io
@@ -52,7 +52,7 @@ class _StubPassThroughStage(BaseStage):
 
 
 def _stub_chain(registry_module):
-    """Register the full four-stage restoration chain (plan 搂3.6/搂3.7)."""
+    """Register the full four-stage restoration chain (plan §3.6/§3.7)."""
     stubbed = registry_module.build_default_registry()
     stubbed.register("global_restore", _StubRestoreStage, replace=True)
     stubbed.register(
@@ -181,7 +181,7 @@ def test_inline_mode_has_no_evaluated_event(app_client, monkeypatch):
 
 # -------------------------------------------------------------------- async
 def test_async_mode_returns_the_result_before_the_metrics(app_client, monkeypatch):
-    """The key 搂3.16 property: the result is downloadable while metrics run."""
+    """The key §3.16 property: the result is downloadable while metrics run."""
     import fiximg.config as config_mod
 
     monkeypatch.setattr(config_mod.settings, "eval_mode", "async")

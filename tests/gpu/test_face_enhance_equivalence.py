@@ -1,6 +1,6 @@
 """The native stage-3 backend must emit the bytes the vendored script emits.
 
-Plan 搂4.2 Step 2's last chain: face enhancement loaded a 92M-parameter SPADE
+Plan §4.2 Step 2's last chain: face enhancement loaded a 92M-parameter SPADE
 generator per subprocess run; the native backend keeps it resident. The claim is
 only worth making if the pictures are the same, so this runs both paths over the
 same aligned crops and compares file names and bytes.
@@ -92,7 +92,7 @@ def test_native_enhancement_matches_the_vendored_script(tmp_path):
         b = np.asarray(Image.open(os.path.join(native_dir, name)).convert("RGB")).astype(int)
         assert a.shape == b.shape, f"{name}: {a.shape} vs {b.shape}"
         # Same weights, same preprocessing, the same save_image call: on CPU the
-        # two are bit-identical, so the tolerance is only what CUDA introduces 鈥?        # cuDNN picks kernels per run and cudnn.benchmark is on in this tree.
+        # two are bit-identical, so the tolerance is only what CUDA introduces —         # cuDNN picks kernels per run and cudnn.benchmark is on in this tree.
         import torch
 
         tolerance = 0 if not torch.cuda.is_available() else 1

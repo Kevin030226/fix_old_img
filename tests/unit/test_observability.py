@@ -1,4 +1,4 @@
-"""Observability tests (plan 搂2.10, 搂3.4.2).
+"""Observability tests (plan §2.10, §3.4.2).
 
 Metrics registry, the JSON log correlation fields and the tracing seam.
 """
@@ -59,7 +59,7 @@ def test_histogram_reports_percentiles():
 
 
 def test_two_samples_do_not_report_the_minimum_as_the_p95():
-    """The case the old `int(n * pct) - 1` index got wrong 鈥?and n=2 is what CI runs.
+    """The case the old `int(n * pct) - 1` index got wrong — and n=2 is what CI runs.
 
     A p95 below the p50 is not a conservative estimate, it is a different
     quantity, and `/metrics` would have published it as the same name.
@@ -183,15 +183,15 @@ def test_module_singleton_exposes_the_documented_metric_names():
 
 
 def test_every_declared_metric_name_has_a_production_call_site():
-    """A declared series nobody records is decoration, not observability (plan 搂2.10).
+    """A declared series nobody records is decoration, not observability (plan §2.10).
 
     The test above asserts these names *by string equality*, which still passes
-    after every producer is deleted 鈥?and five of the ten names (`queue_depth`,
+    after every producer is deleted — and five of the ten names (`queue_depth`,
     `model_load_seconds`, `model_inference_seconds`, `gpu_memory_bytes`,
     `artifact_io_seconds`) were in exactly that state: declared, documented, never
     recorded, and therefore absent from `/api/v1/stats` and the Prometheus text.
 
-    Scanning `src/` is deliberately coarse 鈥?a docstring naming the constant would
+    Scanning `src/` is deliberately coarse — a docstring naming the constant would
     pass. What this gate is for is the failure it actually caught: a name that
     exists in one file and nowhere else.
     """
@@ -341,7 +341,7 @@ def test_install_tracer_swaps_the_active_tracer():
         install_tracer(original)
 
 
-# ------------------------------------------------------- tracer selection (搂2.10)
+# ------------------------------------------------------- tracer selection (§2.10)
 @pytest.fixture()
 def clean_tracer():
     """get_tracer() builds lazily, so a test must restore what it changed."""
@@ -369,7 +369,7 @@ def test_internal_mode_keeps_spans_in_memory(clean_tracer, monkeypatch):
 
 
 def test_unknown_modes_are_rejected_at_config_time(monkeypatch):
-    """A typo must not silently mean "untraced" (plan 搂3.3 fail-fast)."""
+    """A typo must not silently mean "untraced" (plan §3.3 fail-fast)."""
     from fiximg.config import Settings
 
     monkeypatch.setenv("FIXIMG_TRACING", "yes-please")
@@ -447,7 +447,7 @@ def test_otel_tracer_forwards_the_span_and_its_attributes(clean_tracer, monkeypa
     started = [entry for entry in log if entry[0] == "start"]
     assert started == [("start", "inference.stage",
                         {"task_id": "t-1", "stage": "global_restore", "payload": "{'nested': 1}"})], (
-        "None attributes are dropped and non-scalars stringified 鈥?OTel rejects them"
+        "None attributes are dropped and non-scalars stringified — OTel rejects them"
     )
 
 

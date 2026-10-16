@@ -1,4 +1,4 @@
-"""SQL dialect tests (plan 搂4.3 Step 2).
+"""SQL dialect tests (plan §4.3 Step 2).
 
 Two things are proven here:
 
@@ -270,7 +270,7 @@ def test_the_claim_statement_is_built_from_the_dialect(sqlite, postgres):
 
     This used to read the *source text* of `_select_claimable` and look for
     ``claim_row_lock``/``adapt`` in it, which asserts how the function is written rather
-    than what the worker executes 鈥?and breaks the moment the statement is assembled by a
+    than what the worker executes — and breaks the moment the statement is assembled by a
     helper. The statement itself is the contract, so the statement is what gets compared.
     """
     from fiximg.infrastructure.db.repositories import task_repository as repo

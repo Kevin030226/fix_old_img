@@ -1,5 +1,5 @@
 """Unit tests for V2 round-3 additions: options passthrough, sha256 artifacts,
-system_events and the 搂30 stats aggregation."""
+system_events and the §30 stats aggregation."""
 import pytest
 
 from fiximg.infrastructure.db import timestamps
@@ -60,7 +60,7 @@ def test_add_and_list_events(db_env):
     assert len(errs) == 1 and errs[0]["message"] == "boom"
 
 
-# ----------------------------------------------------------------- stats 搂30
+# ----------------------------------------------------------------- stats §30
 def test_task_stats_aggregation(db_env):
     # Two completed + one failed restore tasks, two stages each.
     for i, (status, dur) in enumerate([("completed", 100), ("completed", 300), ("failed", 200)]):
@@ -98,7 +98,7 @@ def test_task_stats_window_filters(db_env):
     repo.finish_task("w1", "/tmp/w1.png", None, 500)
 
     # Backdate created_at beyond the window, in the form the code stores (plan
-    # 搂2.7) 鈥?writing the old naive-local layout would only exercise the
+    # §2.7) — writing the old naive-local layout would only exercise the
     # date-prefix of a comparison that production no longer relies on.
     conn = sqlite3.connect(db_env)
     conn.execute(

@@ -1,4 +1,4 @@
-"""The CI configuration itself is under test (plan 搂3.11).
+"""The CI configuration itself is under test (plan §3.11).
 
 A workflow step that cannot fail is not a gate, and the only durable way to keep
 one from coming back is to check the workflows the way the code is checked. Two of
@@ -56,7 +56,7 @@ def test_no_step_ends_with_a_swallowed_failure():
 
     `cmd || true` mid-script is a legitimate probe (the release job reads the
     previous tag that way and does not care when there is none). As the final
-    line, it decides the step's exit status 鈥?and then nothing downstream can
+    line, it decides the step's exit status — and then nothing downstream can
     read the result.
     """
     offenders = []
@@ -102,7 +102,7 @@ def test_the_target_interpreters_grammar_is_checked_by_a_gate():
 
     A nested-quote f-string (PEP 701, Python 3.12) is a *syntax* difference, so it
     sails through ruff configured for py311 and through mypy on a 3.13/3.14 box, and
-    only shows up as `SyntaxError` while pytest imports the file 鈥?which here
+    only shows up as `SyntaxError` while pytest imports the file — which here
     happened in the deployment environment, after the dev environment had reported
     the whole suite green. `compileall` run by the target interpreter is the check
     that closes the class, over the same path list as `make lint` so nothing can be
@@ -149,14 +149,14 @@ def _jobs():
 
 
 def test_the_postgres_tier_runs_against_a_real_server():
-    """A tier that can only run on one laptop is not a gate (plan 搂4.3 Step 2).
+    """A tier that can only run on one laptop is not a gate (plan §4.3 Step 2).
 
     The PostgreSQL path was developed against a fake driver that answered exactly
     what the code asked; pointing it at a real server produced four defects the fake
     could not see (SQLite-only DDL, a reserved column name, positional row access, a
     cross-type COALESCE). So the job must have a real server as a service, must test
-    the rollback as well as the upgrade 鈥?a one-way "upgrade works" check says
-    nothing about `downgrade` 鈥?and must not swallow a failure.
+    the rollback as well as the upgrade — a one-way "upgrade works" check says
+    nothing about `downgrade` — and must not swallow a failure.
     """
     candidates = [
         (job_id, job)
@@ -217,7 +217,7 @@ def test_no_action_step_is_parametrised_to_pass_anyway():
     """`continue-on-error` is not the only way to defang a check.
 
     The image scan used to run with `exit-code: "0"`, which trivy documents as
-    "always exit successfully" 鈥?a vulnerability report that can never be read as
+    "always exit successfully" — a vulnerability report that can never be read as
     a failure. The regex above only inspects `run:` scripts, so that form was
     invisible to the workflow's own self-check; this reads action parameters.
     """

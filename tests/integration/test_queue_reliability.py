@@ -1,4 +1,4 @@
-"""Queue reliability tests (plan 搂2.6).
+"""Queue reliability tests (plan §2.6).
 
 Pins the V3 additions: atomic claim with attempt counting, lease expiry
 recovery, retry with backoff, idempotency keys, priority ordering and the
@@ -77,7 +77,7 @@ def test_a_submission_can_actually_set_the_priority_the_queue_orders_by(
     """The column the queue orders by has to be reachable from a submission.
 
     `tasks.priority` existed with its index and its `ORDER BY`, and every test that
-    exercised it wrote rows through `repo.create_task(priority=鈥?` 鈥?a producer no client
+    exercised it wrote rows through `repo.create_task(priority=— ` — a producer no client
     can reach. The production path (`TaskService.enqueue`) had no parameter for it, so
     every task the API or the UI ever submitted said 0 and the ordering sorted a column
     nothing varied, while `docs/architecture.md` advertised priority ordering as something
@@ -305,10 +305,10 @@ def test_queue_depth_counts_queued_rows(isolated_db, queue):
 
 
 def test_cancelling_reaches_every_task_that_has_not_finished(isolated_db, queue):
-    """The transport follows the row: queued *and* running are cancellable (搂3.8).
+    """The transport follows the row: queued *and* running are cancellable (§3.8).
 
-    A running task is cancelled cooperatively 鈥?the worker stops at the next stage
-    boundary 鈥?but the user's intent is recorded immediately, so `queue.cancel` must
+    A running task is cancelled cooperatively — the worker stops at the next stage
+    boundary — but the user's intent is recorded immediately, so `queue.cancel` must
     not answer "no" just because a worker already holds the row. Only a finished task
     refuses.
     """
@@ -345,10 +345,10 @@ def test_task_events_are_ordered_and_filterable(isolated_db):
 
 # ------------------------------------------------- terminal writes are fenced
 def test_a_stalled_worker_cannot_complete_a_task_another_took_over(isolated_db):
-    """The lease is only worth what its write fence enforces (搂2.6).
+    """The lease is only worth what its write fence enforces (§2.6).
 
     Sequence this reproduces: w-1 claims, stalls past `lease_until`, the sweep
-    requeues, w-2 claims and is mid-run 鈥?then w-1 wakes up and finishes. Without
+    requeues, w-2 claims and is mid-run — then w-1 wakes up and finishes. Without
     the `status='running' AND worker_id=?` fence, w-1's write would mark *w-2's*
     attempt completed with w-1's (stale) result path.
     """
@@ -380,7 +380,7 @@ def test_a_cancelled_task_cannot_be_completed_by_its_worker(isolated_db):
     assert repo.get_task("fence-2")["status"] == "cancelled"
 
 
-# ------------------------------------------------------------- saturation (搂2.6)
+# ------------------------------------------------------------- saturation (§2.6)
 def _submit(task_id, tmp_path, monkeypatch):
     """Enqueue through the real service with an inline worker switched off."""
     from PIL import Image
@@ -434,9 +434,9 @@ def test_a_saturated_queue_refuses_without_leaving_a_half_written_task(
     assert repo.queued_count() == 1, "the refused submission still took a queue slot"
 
 
-# ------------------------------------------------- cancelling a running task (搂3.8)
+# ------------------------------------------------- cancelling a running task (§3.8)
 def test_a_running_task_can_be_cancelled_and_keeps_what_it_reached(isolated_db):
-    """搂3.8's cancel was reachable only while the row still said `queued`.
+    """§3.8's cancel was reachable only while the row still said `queued`.
 
     The writes that keep a task alive after a cancel are the interesting ones: the
     progress bar must freeze where the user stopped it, the heartbeat must stop
@@ -473,7 +473,7 @@ def test_a_finished_task_still_refuses_cancellation(isolated_db):
 def test_the_plan_stops_at_the_stage_boundary_after_a_cancel(isolated_db, tmp_path):
     """The worker cannot be killed mid-stage, so it must *notice* between stages.
 
-    Stage 1 cancels the task the way an HTTP request would 鈥?in another thread, against
+    Stage 1 cancels the task the way an HTTP request would — in another thread, against
     the same database. What is under test is that stage 2 is never started, never
     recorded, and that the stop surfaces as a cancellation rather than a failure.
     """
@@ -608,7 +608,7 @@ def test_the_queued_entry_point_does_not_report_a_cancellation_as_a_failure(
 
     Its generic handler writes `failed` and puts `task.failed` on the stream, so without
     a branch for the cancellation a user who pressed cancel would see the task turn into
-    a failure 鈥?and the retry path would hand it back to a worker.
+    a failure — and the retry path would hand it back to a worker.
     """
     import fiximg.inference.runtime as orch
     from fiximg.domain.errors import TaskCancelledError
@@ -641,7 +641,7 @@ def test_a_worker_that_loses_its_lease_stops_running_the_task(isolated_db, tmp_p
     The handover happens *while stage one is in flight*, the way it happens in
     production: the lease expires, the sweep requeues the row, another worker claims it.
     If the original process kept going, the task would be executed twice on two devices
-    鈥?the failure 搂2.6 names and asks to control.
+    — the failure §2.6 names and asks to control.
     """
     from types import SimpleNamespace
 
@@ -663,7 +663,7 @@ def test_a_worker_that_loses_its_lease_stops_running_the_task(isolated_db, tmp_p
         def run(self, image, context):
             if self._hand_over:
                 # Expire this worker's lease, let the sweep requeue it, and hand it to
-                # another worker 鈥?all while this stage is still executing.
+                # another worker — all while this stage is still executing.
                 task_repo = repo
                 task_repo._get_conn().execute(
                     "UPDATE tasks SET lease_until=? WHERE id=?",
@@ -706,7 +706,7 @@ def test_a_task_that_will_colorize_is_not_claimable_without_the_colour_model(
 
     A specialised worker (no DDColor) used to take a `restore` submitted with
     `{"auto_colorize": true}` because the hint was computed from the task type alone and
-    so never mentioned `colorize` 鈥?the task then ran the colour model on a card that
+    so never mentioned `colorize` — the task then ran the colour model on a card that
     was not supposed to serve it. The opt-out direction matters just as much: a task
     that declared the face chain it would not run could be left waiting for a worker
     that does not exist.
@@ -766,7 +766,7 @@ def test_an_opted_out_face_chain_does_not_reserve_face_workers(
     declared = set(json.loads(repo.get_task(task_id)["required_capabilities"] or "[]"))
     assert "face_detection" not in declared, declared
 
-    # A worker serving exactly that 鈥?and nothing for faces 鈥?can take it. Before the
+    # A worker serving exactly that — and nothing for faces — can take it. Before the
     # fix the hint still declared the face chain, so this same worker was locked out
     # and the task waited for a specialist that was never needed.
     # Stated as a literal, not derived from the value under test: this is the whole

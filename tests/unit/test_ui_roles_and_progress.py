@@ -47,7 +47,7 @@ class _StubRequest:
 def _users(monkeypatch):
     """Stub the user lookup.
 
-    The lookup moved into :mod:`fiximg.ui.state` (plan 搂3.2: one module owns
+    The lookup moved into :mod:`fiximg.ui.state` (plan §3.2: one module owns
     "who is this caller"), so that is where the stub goes now.
     """
     from fiximg.ui import state as ui_state
@@ -136,7 +136,7 @@ def test_role_stylesheet_targets_tab_button_ids():
     Gradio does not rebuild the Tabs button list when a TabItem's `visible`
     changes at runtime, so the server-side update alone leaves the buttons on
     screen. The earlier CSS attempt used `#tab_restore` (the *panel* id) and
-    therefore matched nothing 鈥?a real browser check confirmed the buttons only
+    therefore matched nothing — a real browser check confirmed the buttons only
     disappear when `#tab_restore-button` is targeted.
     """
     from fiximg.ui import middleware
@@ -332,7 +332,7 @@ def test_every_submit_handler_declares_matching_outputs():
 
     The count must match exactly: declaring a different number makes Gradio
     postprocess the whole yielded tuple as an image and raise
-    ComponentProcessingError 鈥?exactly what broke the Scratch Detection and
+    ComponentProcessingError — exactly what broke the Scratch Detection and
     Colorization tabs when they declared 1 output.
     """
     from tests.fixtures import demo_config, submit_deps
@@ -361,7 +361,7 @@ def test_history_row_selection_writes_every_component_it_returns():
     outputs = deps[0]["outputs"]
     assert len(outputs) == 8, outputs
     # The download control is wired to the selection, and it is the element the
-    # panel renders 鈥?not an orphan id Gradio would silently ignore.
+    # panel renders — not an orphan id Gradio would silently ignore.
     rendered_elem_ids = {
         (components.get(oid) or {}).get("props", {}).get("elem_id") for oid in outputs
     }
@@ -453,10 +453,10 @@ class _MoveRecorder:
 
 
 def test_reside_on_moves_the_pipeline_and_reports_where_it_landed():
-    """搂4.3 Step 4: the routed device has to reach the weights.
+    """§4.3 Step 4: the routed device has to reach the weights.
 
     `context.gpu` was scheduled and charged by the memory sampler, but the colorize
-    pipeline ran wherever load had put it 鈥?so the report paired a device number with
+    pipeline ran wherever load had put it — so the report paired a device number with
     work that never happened on that device.
     """
     from fiximg.inference.backends.ddcolor import reside_on
@@ -504,15 +504,15 @@ def test_the_colorize_stage_reports_the_device_the_model_ran_on(monkeypatch):
     assert result.metadata["device"] == "cpu", result.metadata
     assert result.metadata["device_requested"] == "1", result.metadata
     # Only the backend produces a precision record, so this also pins the fact that
-    # the colorize path runs *through* the 搂5.4 contract rather than around it.
+    # the colorize path runs *through* the §5.4 contract rather than around it.
     assert "precision" in result.metadata, result.metadata
 
 
 def test_the_precision_policy_wraps_the_production_colorize_call(monkeypatch):
-    """搂3.5.4: a declared policy must apply on the path that actually runs.
+    """§3.5.4: a declared policy must apply on the path that actually runs.
 
     `inference_mode`/autocast were entered inside `DDColorBackend._do_infer` only, and
-    the stage called the pipeline directly 鈥?so the manifest's declaration was true for
+    the stage called the pipeline directly — so the manifest's declaration was true for
     the models API and false for every picture a user ever colorized.
     """
     import numpy as np
@@ -576,7 +576,7 @@ def test_colorization_stage_reports_phase_progress():
 def test_the_retry_button_is_wired_to_the_retry_handler():
     """A handler nobody can reach is how "retry" silently means "duplicate task".
 
-    The panel has had Re-run for ages; the 搂3.8 same-id retry is a different
+    The panel has had Re-run for ages; the §3.8 same-id retry is a different
     operation, and the only proof it is reachable from the page is this wiring.
     """
     cfg = gradio_app.build_demo().get_config_file()
@@ -586,7 +586,7 @@ def test_the_retry_button_is_wired_to_the_retry_handler():
 
 
 def test_every_result_tab_offers_a_download():
-    """Plan 搂3.9.1 asks for a result the user can take away, on every tab.
+    """Plan §3.9.1 asks for a result the user can take away, on every tab.
 
     `gr.Image` in Gradio 6 renders a preview with no save affordance of its own, so
     the control has to be a component the column builds. Asserting it per tab (not

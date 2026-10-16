@@ -1,8 +1,8 @@
-"""The PostgreSQL data path against a real server (plan 搂4.3 Step 2, 搂3.10.1).
+"""The PostgreSQL data path against a real server (plan §4.3 Step 2, §3.10.1).
 
 The other PostgreSQL tests cannot answer the question this one asks.
 ``test_sql_dialect.py`` compiles SQL text; ``test_postgres_data_path.py`` drives a
-fake driver that answers exactly the statements the code sends 鈥?which by
+fake driver that answers exactly the statements the code sends — which by
 construction cannot reject a statement the server dislikes, a type the server
 enforces, or a keyword the server reserves. Running against PostgreSQL 18.6 found
 four defects none of them could see:
@@ -17,7 +17,7 @@ four defects none of them could see:
   ``metric_value`` is DOUBLE PRECISION, and the stage subquery called the aggregate
   ``json_object_agg`` with SQLite's variadic ``json_object`` arity.
 
-Point it at a **scratch** database 鈥?it writes rows and does not clean them up:
+Point it at a **scratch** database — it writes rows and does not clean them up:
 
     docker compose -f docker/compose.yaml --profile postgres up -d
     FIXIMG_TEST_POSTGRES_URL=postgresql://fiximg:fiximg@localhost:5432/fiximg_test \
@@ -164,12 +164,12 @@ def test_stage_checklist_aggregates_into_objects(tag):
 
 
 def test_the_capability_filter_holds_on_the_shape_this_engine_returns(tag):
-    """搂4.3 Step 4 measured where only a server can measure it.
+    """§4.3 Step 4 measured where only a server can measure it.
 
     `required_capabilities` is JSON text on SQLite and an already-decoded list here, and
     the repository read it with ``json.loads`` inside a ``try``. On this engine that call
     raised ``TypeError``, the handler returned an empty set, and an empty set is a subset
-    of everything 鈥?so a colour-only worker claimed restoration tasks it could not
+    of everything — so a colour-only worker claimed restoration tasks it could not
     finish. No SQLite test could see it.
     """
     username = _user(tag)

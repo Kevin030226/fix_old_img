@@ -1,4 +1,4 @@
-"""Unit tests for the first-boot admin bootstrap (plan 搂21)."""
+"""Unit tests for the first-boot admin bootstrap (plan §21)."""
 import os
 
 import pytest
@@ -49,6 +49,34 @@ def test_creates_random_password_when_env_unset(db_env, capsys):
         assert not (os.stat(pw_file).st_mode & 0o077)
 
 
+def test_production_keeps_the_random_password_out_of_the_log(db_env, monkeypatch, capsys):
+    """The 0600 file is the delivery mechanism in production, not stdout.
+
+    Outside production the banner is what makes a local first boot usable, and
+    ``test_creates_random_password_when_env_unset`` pins that. In production the
+    same banner would copy a live admin credential into whatever collects
+    container stdout, which is the leak the file mode exists to prevent -- so the
+    secret must not appear there while the file must still hold it.
+    """
+    import fiximg.config as config_mod
+
+    monkeypatch.setattr(config_mod.settings, "app_env", "production", raising=False)
+    result = bootstrap.ensure_admin_user()
+    assert result["action"] == "created_random"
+
+    out = capsys.readouterr().out
+    stored = (db_env / "initial_admin_password.txt").read_text(encoding="utf-8").strip()
+    assert stored, "the credential must still be persisted"
+    assert stored not in out, "the generated password reached stdout in production"
+    # The banner keeps its shape, so an operator still learns where to look.
+    assert "password:" in out
+    assert str(db_env / "initial_admin_password.txt") in out
+
+    from fiximg.infrastructure.security.passwords import verify_password
+
+    assert verify_password(stored, user_repo.get_user("admin")["password"])
+
+
 def test_uses_env_password_when_provided(db_env, monkeypatch, capsys):
     monkeypatch.setenv("FIXIMG_ADMIN_PASSWORD", "S3cure-Passw0rd!")
     result = bootstrap.ensure_admin_user()
@@ -80,7 +108,7 @@ def test_never_overwrites_existing_users(db_env, capsys):
         user_repo.get_user("admin")["password"],
     )
     assert len(user_repo.list_users()) == 1
-    # The banner is printed exactly once 鈥?never on subsequent boots.
+    # The banner is printed exactly once — never on subsequent boots.
     assert "generated initial admin" not in capsys.readouterr().out
 
 

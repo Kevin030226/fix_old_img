@@ -3,7 +3,7 @@
 The backend originally had no tests at all; the first version of this file used a
 hand-written fake, which caught three genuine defects (XAUTOCLAIM's reply shape,
 a no-op ``ack``, no degradation on an outage). But a hand-written fake only
-encodes *my* understanding of Redis 鈥?it cannot catch a wrong understanding.
+encodes *my* understanding of Redis — it cannot catch a wrong understanding.
 
 This file drives the backend with **fakeredis**, which implements the real
 commands (``XADD``/``XREADGROUP``/``XAUTOCLAIM``/``XACK``, consumer groups,
@@ -280,7 +280,7 @@ def test_depth_is_unaffected_by_a_dead_transport(client, isolated_db):
 
 
 def test_work_is_still_found_when_the_notification_is_gone(backend, client):
-    """A lost stream entry must not strand a queued task (搂2.6).
+    """A lost stream entry must not strand a queued task (§2.6).
 
     Entries go missing in ordinary ways: the stream is trimmed at STREAM_MAXLEN,
     `_pending` dies with the process, an enqueue during an outage is logged and
@@ -333,12 +333,12 @@ def test_retry_republishes_the_task(isolated_db, client):
 
 
 def test_a_manual_retry_republishes_to_the_stream(isolated_db, client, backend, monkeypatch):
-    """搂2.6: on this topology the stream is the only thing a worker reads.
+    """§2.6: on this topology the stream is the only thing a worker reads.
 
     The submission path learned this already; the operator-retry path still wrote
     the row and stopped, so a retried task was runnable in the database and
     unknown to the transport. It would eventually be picked up when
-    ``XAUTOCLAIM`` reclaimed the original entry after the lease window 鈥?which
+    ``XAUTOCLAIM`` reclaimed the original entry after the lease window — which
     reads as "the retry did nothing for an hour", not as a bug.
     """
     import fiximg.application.task_service as task_service_module
@@ -363,7 +363,7 @@ def test_finishing_a_task_releases_its_stream_entry(isolated_db, client, backend
 
     `QueueBackend.ack()` used to have no caller at all, so every finished task
     stayed pending until its lease expired and was then re-delivered to a worker
-    that had nothing left to do 鈥?and the backend's own task->record map kept
+    that had nothing left to do — and the backend's own task->record map kept
     growing one entry per finished task for the life of the process.
     """
     _create("t-ack")
@@ -389,7 +389,7 @@ def test_heartbeat_refreshes_a_running_task(isolated_db, client):
 
 
 def test_cancel_reaches_a_running_task_on_this_transport_too(isolated_db, client):
-    """The transport follows the row, and the row now accepts a running cancel (搂3.8).
+    """The transport follows the row, and the row now accepts a running cancel (§3.8).
 
     Answering False here was the bug the endpoint died of: a task could only be stopped
     in the few hundred milliseconds before a worker claimed it.
@@ -542,7 +542,7 @@ def _submit(task_id: str, tmp_path, monkeypatch, backend):
 def test_submitting_publishes_to_the_stream(client, backend, monkeypatch, isolated_db, tmp_path):
     """A task the transport never heard of is a task no worker will ever run.
 
-    ``claim()`` reads the stream and nothing else 鈥?the database only decides
+    ``claim()`` reads the stream and nothing else — the database only decides
     *what* a claim means (lease, attempts, capabilities). The submission path
     therefore has to notify the transport. This was missing, and invisible on the
     SQLite topology because its ``enqueue`` is a documented no-op.
@@ -561,7 +561,7 @@ def test_submit_survives_a_dead_transport_without_losing_the_row(
 ):
     """A Redis hiccup must not turn into a failed submission.
 
-    The row is the authority, so the task is not lost 鈥?only its wake-up is. That
+    The row is the authority, so the task is not lost — only its wake-up is. That
     is the trade the best-effort notify makes deliberately, and it is why the
     stale-lease sweep and the next retry still reach it.
     """

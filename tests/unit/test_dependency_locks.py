@@ -1,17 +1,17 @@
-"""The dependency lock audit (plan 搂3.12) 鈥?what it proves and where it stops.
+"""The dependency lock audit (plan §3.12) — what it proves and where it stops.
 
 ``make lock-check`` is a CI gate, so it has to be trustworthy. Reworking it here
 removed three ways it could report green without meaning anything:
 
 * a test invoked the generator with no arguments, so *running the suite* rewrote
-  ``requirements/*.txt`` in the working tree 鈥?the gate was grading files its own
+  ``requirements/*.txt`` in the working tree — the gate was grading files its own
   test had just produced, and whichever interpreter ran last defined the answer;
 * the byte-for-byte closure comparison depended on the interpreter, because a CPU
   torch and a ``+cu128`` torch have different transitive dependencies, so the same
   checkout was current on one machine and stale on another;
-* ``requirements/gpu.txt`` 鈥?the documented way to install the GPU stack 鈥?pinned
-  ``torch``, ``torchvision`` and ``dlib`` to ``file:///D:/Soft/...`` and
-  ``file:///C:/bld/...``, paths that exist only on the box that froze them.
+* ``requirements/gpu.txt`` — the documented way to install the GPU stack — pinned
+  ``torch``, ``torchvision`` and ``dlib`` to ``file:///<local>/...``, paths that
+  exist only on the box that froze them.
 
 The rule the audit now enforces: pins in a group file must equal the lock, every
 line must be installable on another machine, and the *closure* is only re-derived
@@ -126,12 +126,12 @@ def test_a_group_line_must_be_a_plain_pin(locks, capsys):
 def test_a_lock_pinned_to_a_local_path_is_refused(locks, capsys):
     """The defect that made the documented GPU install unusable elsewhere.
 
-    ``pip freeze`` writes ``torch @ file:///D:/Soft/fixoldimg_wheels/torch.whl`` for
-    anything installed from a wheel on disk, and the splitter copied that straight
-    into ``requirements/gpu.txt``.
+    ``pip freeze`` writes ``torch @ file:///srv/wheels/torch.whl`` for anything
+    installed from a wheel on disk, and the splitter copied that straight into
+    ``requirements/gpu.txt``.
     """
     write_lock(locks, "python 0.0 / nowhere",
-               extra=["torch @ file:///D:/Soft/fixoldimg_wheels/torch-2.7.1.whl"])
+               extra=["torch @ file:///srv/wheels/torch-2.7.1.whl"])
     assert locks.module.check() == 1
     printed = capsys.readouterr().out
     assert "another machine" in printed and "--freeze" in printed, printed
@@ -231,10 +231,10 @@ def test_freeze_records_its_environment_and_keeps_local_wheels_installable(
         lambda: [
             _FakeDist("zeta", "1.2.0"),
             _FakeDist("torch", "2.7.1+cu128",
-                      url="file:///D:/Soft/fixoldimg_wheels/torch-2.7.1.whl"),
+                      url="file:///D:/wheels/torch-2.7.1.whl"),
             _FakeDist("dlib", "20.0.1", url="file:///C:/bld/dlib-split_1774/work"),
             _FakeDist("fiximg", "3.0.0",
-                      url="file:///E:/1/fix_old_img-main/src", editable=True),
+                      url="file:///work/checkout/src", editable=True),
         ],
     )
     assert locks.module.freeze() == 0
@@ -243,12 +243,41 @@ def test_freeze_records_its_environment_and_keeps_local_wheels_installable(
     assert f"# Frozen-environment: {locks.module.env_tag()}" in text
     assert " @ file:" not in text, "a machine-local path survived the freeze"
     assert "fiximg" not in text, "the editable project itself must not be pinned"
-    # The original source is still recorded, as a comment pip ignores, and the pins
-    # come out in one deterministic order.
-    assert "#   dlib==20.0.1 came from file:///C:/bld/dlib-split_1774/work" in text
-    assert "#   torch==2.7.1+cu128 came from file:///D:/Soft/fixoldimg_wheels" in text
+    # The source is still recorded -- as a comment pip ignores, with the machine's
+    # own directories replaced by `<local>` -- and the pins come out in one
+    # deterministic order.
+    assert "#   dlib==20.0.1 came from file:///<local>/dlib-split_1774/work" in text
+    assert "#   torch==2.7.1+cu128 came from file:///<local>/torch-2.7.1.whl" in text
+    assert "D:/" not in text and "C:/" not in text, "a machine root survived the freeze"
     pins = [ln for ln in text.splitlines() if ln and not ln.startswith("#")]
     assert pins == ["dlib==20.0.1", "torch==2.7.1+cu128", "zeta==1.2.0"], pins
+
+
+def test_a_local_source_is_recorded_without_the_machine_that_built_it(locks):
+    """The provenance comment was the one place a freeze published a disk layout.
+
+    A release shipped an absolute ``file:///`` path from the machine that froze it,
+    and a conda build record under ``/home/<account>/croot/``: the drive letter and
+    the build account of the box that ran ``pip freeze``, in every tag. The pin
+    above installs anywhere, so only the artifact's own name is worth keeping.
+    """
+    portable = locks.module._portable_source
+
+    # A wheel: the file name identifies the artifact, the folder above it does not.
+    assert portable(
+        "file:///D:/wheels/torch-2.7.1+cu128-cp311-cp311-win_amd64.whl"
+    ) == "file:///<local>/torch-2.7.1+cu128-cp311-cp311-win_amd64.whl"
+    # A conda build record ends in a generic `work`, so its parent is kept too.
+    assert portable(
+        "file:///home/build/croot/pip_1782293756958/work"
+    ) == "file:///<local>/pip_1782293756958/work"
+    assert portable("file:///C:/bld/dlib-split_1774/work") == (
+        "file:///<local>/dlib-split_1774/work"
+    )
+    # A bare POSIX path -- `pip freeze` writes those as well.
+    assert portable("/srv/wheels/torch.whl") == "file:///<local>/torch.whl"
+    # Nothing left to keep.
+    assert portable("file:///") == "file:///<local>"
 
 
 # --------------------------------------------------- the committed artifacts

@@ -1,32 +1,32 @@
-"""Model manifest loader (plan 鎼?.5.2).
+"""Model manifest loader (plan §3.5.2).
 
 Reads ``models/manifest.yaml`` into :class:`~fiximg.domain.models.ModelVersion`
 objects and offers the release flow the plan describes::
 
-    download 閳?sha256 verify 閳?load 閳?warmup 閳?health probe 閳?READY
+    download → sha256 verify → load → warmup → health probe → READY
 
 The manifest is the *declaration*; the backends are the *implementation*. The
 loader only reconciles the two: it reports which declared models have their
 weights on disk, and verifies hashes when the manifest carries one.
 
-Missing manifest 閳?empty declaration (the built-in backends still work), so a
+Missing manifest → empty declaration (the built-in backends still work), so a
 source checkout without ``models/manifest.yaml`` is not broken.
 
-Versioned weight layout (plan 鎼?, 鎼?.15)
+Versioned weight layout (plan §6, §3.15)
 ----------------------------------------
 The plan's target layout keeps each version of a model in its own directory::
 
     models/
-    閳规壕鏀㈤埞鈧?manifest.yaml
-    閳规壕鏀㈤埞鈧?ddcolor/
-    閳?  閳规壕鏀㈤埞鈧?v1/pytorch_model.pt
-    閳?  閳规柡鏀㈤埞鈧?v2/pytorch_model.pt
-    閳规柡鏀㈤埞鈧?global_restore/v1/...
+    ├── manifest.yaml
+    ├── ddcolor/
+    │   ├── v1/pytorch_model.pt
+    │   ├── v2/pytorch_model.pt
+    └── global_restore/v1/...
 
 :meth:`ModelManifest.resolve_weight_path` prefers that layout when it exists and
 otherwise falls back to the declared ``weight``/``checkpoint`` path, so an
 existing deployment keeps working while a new one can adopt versions. This is
-what makes "two versions resident" (plan 鎼?.15) practical: a hot swap needs two
+what makes "two versions resident" (plan §3.15) practical: a hot swap needs two
 real weight paths on disk, not one path that gets overwritten.
 """
 from __future__ import annotations
@@ -48,7 +48,7 @@ def models_root() -> str:
     relocate the tree with ``monkeypatch.setattr(manifest, "PROJECT_ROOT", tmp)``.
     A ``MODELS_DIR`` captured at import time kept pointing at the real checkout,
     so ``resolve_weight_path`` answered with ``weights/ddcolor/...`` while the
-    test's ``models/ddcolor/v2`` sat unused 鈥?and both sides of the assertion
+    test's ``models/ddcolor/v2`` sat unused — and both sides of the assertion
     were computed from the same stale root, so the suite stayed green. Reading
     the module attribute per call is what makes the relocation observable.
     """
@@ -59,7 +59,7 @@ class ModelManifest:
     """In-memory view of the model manifest."""
 
     #: The committed checksum baseline written by ``fiximg.cli.download_weights
-    #: generate`` 鈥?the same file the startup fail-fast check reads, so weights
+    #: generate`` — the same file the startup fail-fast check reads, so weights
     #: are verified once and the two systems cannot drift apart.
     INTEGRITY_BASELINE_PATH = os.path.join(CONFIG_DIR, "weights_manifest.json")
 
@@ -84,7 +84,7 @@ class ModelManifest:
         return sorted(self.models)
 
     def by_capability(self, capability: str) -> list[str]:
-        """Declared models providing ``capability`` (plan 鎼?.14.2)."""
+        """Declared models providing ``capability`` (plan §3.14.2)."""
         return sorted(n for n, m in self.models.items() if m.supports(capability))
 
     #: Weight file names looked for inside a versioned directory, in order.
@@ -93,7 +93,7 @@ class ModelManifest:
     )
 
     def versioned_dir(self, name: str, version: str | None = None) -> str:
-        """``models/<name>/<version>/`` (plan 鎼? versioned weight layout)."""
+        """``models/<name>/<version>/`` (plan §6 versioned weight layout)."""
         model = self.models.get(name)
         resolved = version or (model.version if model is not None else None) or "v1"
         if not str(resolved).startswith("v") and str(resolved).isdigit():
@@ -161,7 +161,7 @@ class ModelManifest:
         return path
 
     def available_versions(self, name: str) -> list[str]:
-        """Versions present on disk under ``models/<name>/`` (plan 鎼?.15).
+        """Versions present on disk under ``models/<name>/`` (plan §3.15).
 
         This is what an operator checks before a hot swap: a switch needs the
         target version's weights to exist as a *separate* directory.
@@ -214,7 +214,7 @@ class ModelManifest:
                     digest = entry.get("sha256")
                     if path and digest:
                         baseline[path] = str(digest)
-            except Exception as exc:  # noqa: BLE001 閳?a missing baseline is not fatal
+            except Exception as exc:  # noqa: BLE001 — a missing baseline is not fatal
                 log_event(logger, "WARNING", "integrity baseline unavailable",
                           path=self.INTEGRITY_BASELINE_PATH, error=str(exc))
             self._baseline = baseline
@@ -231,7 +231,7 @@ class ModelManifest:
         Declared URIs keep forward slashes (``Global/checkpoints/restoration``)
         while ``os.path.join`` on Windows yields backslashes; without this they
         would be two different cache keys and the same 145 MB file would be
-        hashed twice 閳?or, worse, a baseline entry would not be recognised as
+        hashed twice — or, worse, a baseline entry would not be recognised as
         the file an explicit ``sha256`` was meant to override.
         """
         return os.path.normpath(path)
@@ -240,7 +240,7 @@ class ModelManifest:
         """Baseline digests covering one weight path (file or checkpoint directory).
 
         A model whose weight is a *directory* is covered by every baseline file
-        beneath it 閳?that is how the legacy chains, which load several networks
+        beneath it — that is how the legacy chains, which load several networks
         per stage, are verified as one unit.
         """
         baseline = self.integrity_baseline()
@@ -258,7 +258,7 @@ class ModelManifest:
 
         ``override`` is the ``sha256`` declared in ``models/manifest.yaml`` for
         that exact file: a deployment can pin one model without regenerating the
-        whole baseline (plan 鎼?.5.2).
+        whole baseline (plan §3.5.2).
         """
         expected = self.expected_for_path(path)
         if override and path:
@@ -270,7 +270,7 @@ class ModelManifest:
 
         A file the boot integrity check already proved is taken as verified
         rather than read again: the legacy chains are about 1.3 GB, and hashing
-        that per health poll would hang the request. The trust is explicit 閳?        ``weights_check`` records what it proved in this process.
+        that per health poll would hang the request. The trust is explicit —         ``weights_check`` records what it proved in this process.
         """
         path = self._norm(path)
         if path in self._hash_cache:
@@ -281,7 +281,7 @@ class ModelManifest:
             from fiximg.infrastructure.models.weights_check import verified_weights
 
             proven = verified_weights().get(relative)
-        except Exception:  # noqa: BLE001 閳?an unavailable registry means "compute it"
+        except Exception:  # noqa: BLE001 — an unavailable registry means "compute it"
             proven = None
         if proven is not None:
             self._hash_cache[path] = proven
@@ -298,7 +298,7 @@ class ModelManifest:
     def verify_files(self, expected: dict[str, str]) -> list[dict[str, str]]:
         """Return ``[{path, expected, actual}]`` for every file that does not match.
 
-        An empty list means verified 閳?but only when ``expected`` was non-empty;
+        An empty list means verified — but only when ``expected`` was non-empty;
         callers must not read "no mismatches" as "covered".
         """
         problems: list[dict[str, str]] = []
@@ -313,14 +313,14 @@ class ModelManifest:
         return problems
 
     def verify_hashes(self) -> dict[str, bool]:
-        """Verify each model's weights against the baseline (plan 鎼?.5.2).
+        """Verify each model's weights against the baseline (plan §3.5.2).
 
         An explicit ``sha256`` in ``models/manifest.yaml`` wins over the baseline
         for the file it names, so a deployment can pin one model without
         regenerating the whole baseline.
 
-        A model the baseline does not cover reports ``True`` 閳?"no evidence of
-        tampering" 閳?and is listed by :meth:`unverified_models` so the gap is
+        A model the baseline does not cover reports ``True`` — "no evidence of
+        tampering" — and is listed by :meth:`unverified_models` so the gap is
         visible instead of silently counting as verified.
         """
         report: dict[str, bool] = {}
@@ -331,7 +331,7 @@ class ModelManifest:
         return report
 
     def unverified_models(self) -> list[str]:
-        """Models with no baseline coverage 閳?the honest half of verify_hashes."""
+        """Models with no baseline coverage — the honest half of verify_hashes."""
         return sorted(name for name in self.models if not self.expected_weights(name))
 
     def to_dict(self) -> dict:
@@ -356,7 +356,7 @@ def load_manifest(path: str | None = None) -> ModelManifest:
 
         with open(target, encoding="utf-8") as handle:
             raw: dict[str, Any] = yaml.safe_load(handle) or {}
-    except Exception as exc:  # noqa: BLE001 閳?a broken manifest must not block startup
+    except Exception as exc:  # noqa: BLE001 — a broken manifest must not block startup
         log_event(logger, "ERROR", "model manifest unreadable", path=target, error=str(exc))
         return ModelManifest(source=target)
 

@@ -1,14 +1,14 @@
-"""Plugin discovery and database dialect handling (plan 搂3.14.1, 搂4.3 Step 2).
+"""Plugin discovery and database dialect handling (plan §3.14.1, §4.3 Step 2).
 
-Two items from the report that share a theme 鈥?turning a silent no-op into an
+Two items from the report that share a theme — turning a silent no-op into an
 explicit, testable behaviour:
 
-* 搂3.14.1 鈥?third-party models/stages arrive through entry points, so adding a
+* §3.14.1 — third-party models/stages arrive through entry points, so adding a
   model does not require forking this repository.
-* 搂4.3 Step 2 鈥?``FIXIMG_DATABASE_URL`` is honoured for SQLite and PostgreSQL,
+* §4.3 Step 2 — ``FIXIMG_DATABASE_URL`` is honoured for SQLite and PostgreSQL,
   and a scheme with no driver fails loudly rather than quietly writing to SQLite.
 
-The dependency lock groups (搂3.12) live in ``test_dependency_locks.py``.
+The dependency lock groups (§3.12) live in ``test_dependency_locks.py``.
 """
 import os
 import subprocess
@@ -317,7 +317,7 @@ def test_memory_database_is_supported():
 def test_resolve_database_path_refuses_a_url_with_no_file(url):
     """A PostgreSQL URL has no filesystem path; an unknown scheme has no driver.
 
-    Either way the answer is an error, never a quiet fallback to SQLite 鈥?that
+    Either way the answer is an error, never a quiet fallback to SQLite — that
     would look like a successful switch while writing to the wrong database.
     """
     with pytest.raises(UnsupportedDatabaseError) as excinfo:
@@ -331,7 +331,7 @@ def test_resolve_database_path_refuses_a_url_with_no_file(url):
     "postgresql+psycopg://user@host/db",
 ])
 def test_postgres_urls_resolve_to_a_connection_url(url):
-    """PostgreSQL is served now: the URL itself is the target (搂4.3 Step 2)."""
+    """PostgreSQL is served now: the URL itself is the target (§4.3 Step 2)."""
     kind, target = resolve_database(url)
     assert kind == "postgresql"
     assert target == url
@@ -431,7 +431,7 @@ def test_smoke_services_runs_and_reports_every_probe():
     """`make smoke-services` must be executable and honest about skips.
 
     On a machine with no external services configured every probe is either PASS
-    (SQLite, the queue) or SKIP 鈥?never a spurious FAIL.
+    (SQLite, the queue) or SKIP — never a spurious FAIL.
     """
     env = dict(os.environ)
     for name in ("FIXIMG_REDIS_URL", "FIXIMG_STORAGE_BACKEND"):
@@ -458,7 +458,7 @@ def test_smoke_services_fails_on_an_unreachable_postgres():
 
     The elapsed bound is the other half of the assertion: on the machine this
     project deploys to, psycopg without ``connect_timeout`` never returned at all
-    against a refused port, so "it eventually fails" is not the property 鈥?    "it answers within the probe's own budget" is.
+    against a refused port, so "it eventually fails" is not the property —     "it answers within the probe's own budget" is.
     """
     env = dict(os.environ)
     env["FIXIMG_DATABASE_URL"] = "postgresql://user:pw@localhost:5432/fiximg"

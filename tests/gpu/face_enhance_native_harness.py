@@ -3,7 +3,7 @@
 Used only by ``test_face_enhance_equivalence.py``. It exists because a pytest
 process that has already imported the ``Global`` tree cannot also import
 ``Face_Enhancement``'s same-named ``options``/``models``/``util``/``data``
-packages 鈥?see :mod:`fiximg.inference.backends.legacy_tree`. A fresh interpreter
+packages — see :mod:`fiximg.inference.backends.legacy_tree`. A fresh interpreter
 owns the face tree, so the numbers it produces are the numbers a face worker
 would produce.
 

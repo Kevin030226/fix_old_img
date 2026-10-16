@@ -10,7 +10,7 @@ def planner():
     return PipelinePlanner()
 
 
-#: The full restoration chain (plan 搂3.6/搂3.7): each stage does exactly one job,
+#: The full restoration chain (plan §3.6/§3.7): each stage does exactly one job,
 #: so the face work happens once instead of being buried inside global restore.
 FACE_CHAIN = ["face_detection", "face_enhancement", "warp_back"]
 
@@ -92,12 +92,12 @@ SWITCH_COMBINATIONS = [
 @pytest.mark.parametrize("task_type", ["restore", "restore_scratch", "colorize", "detect_scratch"])
 @pytest.mark.parametrize("options", SWITCH_COMBINATIONS)
 def test_the_routing_hint_describes_the_plan_that_will_run(planner, task_type, options):
-    """搂4.3 Step 4: `required_capabilities` must be the plan's capability set.
+    """§4.3 Step 4: `required_capabilities` must be the plan's capability set.
 
     It used to take the task type only, so `plan()` added stages the hint never
     mentioned: a `restore` submitted with `{"auto_colorize": true}` declared no
     `colorize`, and a worker serving only restoration claimed it and colorized on its
-    own card 鈥?the routing promise inverted. The same blindness in the other direction
+    own card — the routing promise inverted. The same blindness in the other direction
     (`{"face_enhance": false}`) over-declared, which strands a task on a queue where
     every worker looks healthy.
     """

@@ -7,18 +7,18 @@ unchanged, so this runs both implementations over a real scratched sample and
 compares the mask file, the restored file, and the directory layout the later
 stages read.
 
-Measured on this machine (CPU, ~380脳300 sample): wall time 6.6 s per request for
+Measured on this machine (CPU, ~380×300 sample): wall time 6.6 s per request for
 the subprocess version versus 2.2 s one-off load plus 1.7 s per image.
 
 **What the reference's own reproducibility looks like.** Five runs of the vendored
-pipeline over the same sample, compared pairwise (320脳320 thumbnail, 10 pairs):
+pipeline over the same sample, compared pairwise (320×320 thumbnail, 10 pairs):
 
     image:  6 pairs bit-identical, 4 pairs differ by 1 LSB in exactly 3 pixels
     mask:   10 pairs bit-identical, 0 differing pixels
 
 so the reference is *bimodal*: each run lands on one of two outputs, one LSB apart
 at three pixels. The mask never moves, which rules out the explanation this file
-used to give (the detector's sigmoid flipping the 0.4 threshold) 鈥?the branch is in
+used to give (the detector's sigmoid flipping the 0.4 threshold) — the branch is in
 the triplet restoration's conv path, where torch's CPU reductions are not
 order-stable. Native, by contrast, reproduced itself bit-for-bit in every run
 (measured), which is the property the last test below pins.
@@ -26,10 +26,10 @@ order-stable. Native, by contrast, reproduced itself bit-for-bit in every run
 That measurement is also why there is no "if the reference agreed with itself,
 native must be exact" escalation any more. It sounded strict; in practice the two
 sampled reference runs land on the same branch most of the time, so the fixture
-declared the reference bit-stable, and native 鈥?which always returns *one* of the
-two branch values 鈥?failed whenever the fixture had drawn the other one. Red that
+declared the reference bit-stable, and native — which always returns *one* of the
+two branch values — failed whenever the fixture had drawn the other one. Red that
 means "which runs you happened to sample" is not a gate either way. What this file
-now asserts is the calibrated band (1 LSB, 鈮? pixels), bit-exactness for the mask,
+now asserts is the calibrated band (1 LSB, ≤8 pixels), bit-exactness for the mask,
 and exact self-reproducibility for native.
 
 Needs the scratch weights, hence the ``gpu`` marker.
@@ -92,7 +92,7 @@ def _mask_root(root):
 
 #: The reference branch band, from the five-run measurement in the module
 #: docstring: 1 LSB at 3 pixels. Eight pixels is headroom, not a different claim.
-#: Both numbers are used twice 鈥?as a ceiling on what the reference may do between
+#: Both numbers are used twice — as a ceiling on what the reference may do between
 #: its own runs, and as a *floor* on what native may drift. The floor is the part
 #: that makes this gate repeatable: without it the tolerated drift would be
 #: whatever the fixture happened to sample, and a 1-LSB branch difference would
@@ -153,7 +153,7 @@ def _assert_matches_the_reference(native_root, reference_roots):
 
     Three separate claims, deliberately not merged into one tolerance:
 
-    * the *reference* must still be inside the band that was measured by hand 鈥?
+    * the *reference* must still be inside the band that was measured by hand —
       if it moved, this machine changed and the band is stale, which is not a
       native regression and must not be reported as one;
     * the mask must be bit-identical, because the reference's mask is;
@@ -169,7 +169,7 @@ def _assert_matches_the_reference(native_root, reference_roots):
     floor_lsb, floor_pixels, floor_mask_lsb, floor_mask_pixels = _reference_floor(reference_roots)
     assert floor_lsb <= REFERENCE_LSB, (
         f"the reference moved {floor_lsb} LSB between its own runs; the documented "
-        f"band is {REFERENCE_LSB} 鈥?re-measure before trusting this comparison"
+        f"band is {REFERENCE_LSB} — re-measure before trusting this comparison"
     )
     assert floor_pixels <= REFERENCE_PIXEL_BUDGET, (
         f"the reference moved {floor_pixels} pixels between its own runs "
@@ -177,7 +177,7 @@ def _assert_matches_the_reference(native_root, reference_roots):
     )
     assert (floor_mask_lsb, floor_mask_pixels) == (0, 0), (
         f"the reference's own mask is no longer bit-stable ({floor_mask_lsb} LSB, "
-        f"{floor_mask_pixels} pixels) 鈥?the mask exactness below needs re-checking"
+        f"{floor_mask_pixels} pixels) — the mask exactness below needs re-checking"
     )
 
     image_a, mask_a = _paths(reference_roots[0])
@@ -193,7 +193,7 @@ def _assert_matches_the_reference(native_root, reference_roots):
         f"budget is {REFERENCE_PIXEL_BUDGET}"
     )
     # The mask is an artifact the UI shows and the compositing stage keys off, and
-    # every reference run produces the identical one 鈥?so native has no band here.
+    # every reference run produces the identical one — so native has no band here.
     assert (drift_mask, drift_mask_pixels) == (0, 0), (
         f"the mask drifted {drift_mask} LSB at {drift_mask_pixels} pixels while the "
         f"reference's mask is bit-identical across runs"

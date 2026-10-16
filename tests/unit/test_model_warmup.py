@@ -1,7 +1,7 @@
-"""Warmup strategy resolution and boot preloading (plan 搂3.5.3).
+"""Warmup strategy resolution and boot preloading (plan §3.5.3).
 
 The manifest documents `warmup:` as a per-model override of `FIXIMG_WARMUP` and
-sets it on every model, and `FIXIMG_WARMUP` names three strategies 鈥?but before
+sets it on every model, and `FIXIMG_WARMUP` names three strategies — but before
 this file existed nothing read the per-model key, the API process preloaded
 everything whenever the global said `startup`, and the standalone GPU worker
 preloaded nothing. Each of those three is a separate claim below.

@@ -1,5 +1,5 @@
-"""Submission rate limiting 鈥?the `RATE_LIMITED` code, which the API documented
-but no JSON route could emit (plan 搂2.5's unified error format).
+"""Submission rate limiting — the `RATE_LIMITED` code, which the API documented
+but no JSON route could emit (plan §2.5's unified error format).
 
 The queue has two distinct protections and they are asserted separately: capacity
 (`QUEUE_FULL`, at enqueue time) and one caller flooding the endpoint (this file).
@@ -82,7 +82,7 @@ def test_exceeding_the_submission_limit_returns_the_documented_envelope(
 ):
     """`RATE_LIMITED` is in `docs/api.md`'s common codes; this makes it reachable.
 
-    Asserted on the whole contract: the status, the code, actionable details, and 鈥?    the part that matters operationally 鈥?that the rejected submission never reached
+    Asserted on the whole contract: the status, the code, actionable details, and —     the part that matters operationally — that the rejected submission never reached
     the queue.
     """
     _limit_to(monkeypatch, 2)
@@ -104,7 +104,7 @@ def test_exceeding_the_submission_limit_returns_the_documented_envelope(
     assert details["scope"] == "principal"
     assert details["remaining"] == 0
     # The prose and the numbers must agree, and both must describe the limiter that
-    # actually refused the call 鈥?not whatever the module constant said at import.
+    # actually refused the call — not whatever the module constant said at import.
     expected = (f"Too many task submissions (2 per {rate_limit.SUBMIT_WINDOW}s); "
                 "try again later")
     assert error["message"] == expected, error["message"]
@@ -115,8 +115,8 @@ def test_exceeding_the_submission_limit_returns_the_documented_envelope(
 def test_the_guard_runs_before_the_image_is_decoded(rl_client, monkeypatch):
     """A flood of unreadable uploads must be answered with 429, not 400.
 
-    The whole point of limiting at the edge is that the expensive work 鈥?decoding a
-    multipart body 鈥?does not happen for a request that will be refused anyway.
+    The whole point of limiting at the edge is that the expensive work — decoding a
+    multipart body — does not happen for a request that will be refused anyway.
     """
     _limit_to(monkeypatch, 1)
     assert _submit(rl_client).status_code == 202
@@ -133,7 +133,7 @@ def test_the_allowance_is_per_key_not_per_endpoint():
 
     Tested on the limiter and the key builder rather than through two HTTP sessions:
     the route resolves exactly one principal per token, so a route-level version would
-    have to fake the identity anyway 鈥?and faking it here would prove less.
+    have to fake the identity anyway — and faking it here would prove less.
     """
     from fiximg.api.dependencies import Principal
 
@@ -170,7 +170,7 @@ def test_registering_too_often_still_gets_429(tmp_path, monkeypatch):
     """The HTML registration limiters survived the shared-window refactor.
 
     They were the only producer of 429 in the whole API before the submission guard
-    existed, and nothing asserted them 鈥?so a change to the limiter factory that
+    existed, and nothing asserted them — so a change to the limiter factory that
     silently disabled them would have gone unnoticed.
     """
     import fiximg.config as config_mod

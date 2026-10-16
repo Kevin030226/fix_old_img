@@ -2,7 +2,7 @@
 
 This is the class that `strength` belonged to: declared in the API whitelist, in the
 schema, in the domain vocabulary and in `docs/api.md`, stored in
-``tasks.options_json`` 鈥?and read by nothing. A client that sent
+``tasks.options_json`` — and read by nothing. A client that sent
 ``{"strength": 0.5}`` got a 202, a row describing the switch, and the identical image it
 would have got without it, so the switch was decoration the whole way down and no test
 could say so (deleting the field only failed a test that asserted the *field's own*
@@ -30,8 +30,8 @@ RUNTIME_LAYERS = SRC / "inference"
 def _readers_of(key: str) -> list[str]:
     """Files under `src/fiximg/inference` that consult this option key.
 
-    Matches only the shape of a runtime *asking* for it 鈥?``options.get("hr")`` or
-    ``(context.options or {}).get("hr")`` 鈥?because a capability list or a comment that
+    Matches only the shape of a runtime *asking* for it — ``options.get("hr")`` or
+    ``(context.options or {}).get("hr")`` — because a capability list or a comment that
     happens to contain the same word is not a reader.
     """
     pattern = re.compile(
@@ -95,13 +95,13 @@ def test_every_declared_option_is_read_by_something_that_runs():
 def test_nothing_in_the_inference_layer_reads_a_task_option_the_api_refuses():
     """The other direction: a key the pipeline consults must be sendable.
 
-    An undocumented-but-read key is the same defect seen from the other side 鈥?the client
+    An undocumented-but-read key is the same defect seen from the other side — the client
     has no way to reach behaviour that exists, and `TaskOptionsSchema.parse` would reject
     the attempt as an unknown option.
 
     Only `context.options` is scanned, because that bag is the client's task options by
-    construction. `request.options` at the backend layer is a *merged* bag 鈥?stages put
-    the device and their own kwargs in it (`gpu=鈥, `hr=鈥) 鈥?so requiring every key there
+    construction. `request.options` at the backend layer is a *merged* bag — stages put
+    the device and their own kwargs in it (`gpu=…`, `hr=…`) — so requiring every key there
     to be client-declared would be a false rule. Those keys are still checked in the
     other direction: `hr` has to be declared, and it is read in both bags.
 
@@ -134,7 +134,7 @@ def test_the_ui_only_offers_switches_the_pipeline_reads():
 def test_a_declared_plan_switch_changes_the_plan_it_claims_to_control():
     """`PLAN_SWITCHES` is a claim about the plan, so the plan has to prove it.
 
-    A key can be *read* by the runtime and still not steer the pipeline 鈥?`hr` is exactly
+    A key can be *read* by the runtime and still not steer the pipeline — `hr` is exactly
     that case (the face stages read it to pick weights). Reading the declaration alone
     cannot tell the two apart, so each declared switch is toggled through both plan builders
     and the resulting stage lists must differ. A switch added to the declaration without
@@ -162,7 +162,7 @@ def test_the_two_plan_builders_apply_the_same_switches():
 
     The UI's decline-only mapping is written against the plan switches, so a key the
     static plan honours but the dynamic one ignores would be a checkbox that works on one
-    tab and not the other 鈥?the asymmetry this batch's predecessor started out to remove.
+    tab and not the other — the asymmetry this batch's predecessor started out to remove.
     The analysis is deliberately "busy" (faces *and* grayscale) so every optional stage
     wants to run, and each refusal therefore has somewhere visibly to land.
     """
@@ -196,7 +196,7 @@ def test_the_reader_scan_is_not_vacuous():
     """A gate that scans nothing looks identical to a gate that passes.
 
     `hr` must be found in at least two runtime layers (a stage and a backend), and the
-    scan must see the plan switches too 鈥?if the regex ever stops matching, these
+    scan must see the plan switches too — if the regex ever stops matching, these
     assertions fail instead of the gates above silently approving anything.
     """
     readers = {key: _readers_of(key) for key in sorted(_declared())}

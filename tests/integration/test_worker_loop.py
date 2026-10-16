@@ -134,7 +134,7 @@ def _drain(worker, predicate, attempts=200):
 
 
 def test_a_finished_task_releases_its_transport_claim(db_env):
-    """搂2.6 at-least-once has a cost that has to be paid back: the ack.
+    """§2.6 at-least-once has a cost that has to be paid back: the ack.
 
     Without it the queue entry stays pending until the lease expires, another
     worker is handed a task that is already complete, and the backend's
@@ -192,9 +192,9 @@ def test_attempts_exhausted_is_terminal_and_gets_acknowledged(db_env):
 def test_an_exception_outside_the_task_path_does_not_kill_the_worker(db_env, monkeypatch):
     """One bad task used to be enough to stop the whole worker.
 
-    `_execute` protects the *pipeline*; anything raising before that guard 鈥?the
+    `_execute` protects the *pipeline*; anything raising before that guard — the
     claim's event write, the queue-wait accounting, a mistyped name in the
-    correlation setup 鈥?escaped to the thread's target. The process stayed up, the
+    correlation setup — escaped to the thread's target. The process stayed up, the
     worker stopped polling, and the task stayed `running` until its lease expired.
     What an operator sees is a queue that never drains, not a crash, so this is
     pinned as a behaviour rather than left to the exception log.
@@ -270,7 +270,7 @@ def test_housekeeping_runs_while_the_worker_is_busy(db_env, monkeypatch):
 
     `_scan_stale()` (expired leases back to the queue, expired artifacts reclaimed)
     used to live in the branch that only runs when a claim comes back empty, so a
-    worker under continuous load never swept 鈥?the retention TTL was unread on
+    worker under continuous load never swept — the retention TTL was unread on
     exactly the deployment whose disk fills first.
     """
     from fiximg.inference import worker as worker_module
@@ -332,7 +332,7 @@ def test_a_running_task_refreshes_its_lease_through_the_worker(db_env, monkeypat
 
     `_Heartbeat` is the only thing standing between a slow restoration and a second
     worker claiming the same task, and it used to be covered solely by tests that
-    called `queue.heartbeat()` themselves 鈥?deleting the thread from `_execute`
+    called `queue.heartbeat()` themselves — deleting the thread from `_execute`
     left the suite green. This drives the real loop, so the wiring is what fails.
     """
     import fiximg.config as config_mod
@@ -361,7 +361,7 @@ def test_a_cancelled_task_is_never_retried(db_env):
 
     The worker's failure path requeues while `attempt_count < max_attempts`. Treating
     `TaskCancelledError` like any other exception would put the task the user just
-    stopped back into the queue, and its own retry would run the pipeline again 鈥?with
+    stopped back into the queue, and its own retry would run the pipeline again — with
     the row flipping between `cancelled` and `running` on the stream the user is
     watching.
     """
@@ -401,13 +401,13 @@ def test_the_startup_report_names_the_claim_restriction_that_is_in_force(db_env)
     """`FIXIMG_WORKER_CAPABILITIES` must be visible as *enforced*, not as nothing.
 
     The line used to print only what the GPU topology said the pinned card serves, so a
-    correctly restricted worker started with `served_capabilities: null` 鈥?and an
+    correctly restricted worker started with `served_capabilities: null` — and an
     operator (me, reading this line on a real boot) concluded the setting was ignored
     and went looking for a bug that was not there. The two knobs now get two fields.
 
     A handler is attached to the worker's own logger rather than using `caplog`,
     because the app configures that logger with a handler of its own and full-suite
-    order decides whether records still propagate to the root 鈥?an earlier version of
+    order decides whether records still propagate to the root — an earlier version of
     this test passed alone and failed in the suite for exactly that reason.
     """
     import logging

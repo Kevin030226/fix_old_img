@@ -1,4 +1,4 @@
-"""搂3.9.1's 鑷姩鍒嗘瀽 row: what the Auto tab shows before the user presses submit.
+"""§3.9.1's 自动分析 row: what the Auto tab shows before the user presses submit.
 
 The plan puts "Auto Analysis" in the input column, above the three switches. The analyzer
 already existed and already ran → but only inside ``_execute_core``, so the user met its

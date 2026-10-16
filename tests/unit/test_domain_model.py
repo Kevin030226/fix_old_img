@@ -1,7 +1,7 @@
-"""Domain model tests (plan 搂3.1 Step 1, 搂6).
+"""Domain model tests (plan §3.1 Step 1, §6).
 
 The V3 contract is that services exchange typed objects instead of anonymous
-dicts. These tests pin that contract: row鈫抦odel conversion, option parsing, and
+dicts. These tests pin that contract: row→model conversion, option parsing, and
 the status helpers the worker/runtime rely on.
 """
 import json
@@ -185,7 +185,7 @@ def test_only_the_closing_events_end_the_stream():
     """`task.completed` does NOT close the stream; `task.evaluated` does.
 
     With ``FIXIMG_EVAL_MODE=async`` the metrics arrive after completion (plan
-    搂3.16), so a transport that stopped at "completed" would silently drop them -
+    §3.16), so a transport that stopped at "completed" would silently drop them -
     which is what the previous `is_terminal` definition did.
     """
     assert not TaskEvent(event_type=EventType.TASK_COMPLETED).closes_stream
@@ -267,7 +267,7 @@ def _reachable_error_codes() -> tuple[set[str], list[str]]:
     `ARTIFACT_NOT_FOUND` from `ArtifactError`, which a regex over the class body
     reported as an unreachable code.
 
-    Lenient about *how* a class is used 鈥?a construction inside a helper counts, and
+    Lenient about *how* a class is used — a construction inside a helper counts, and
     so would a docstring mention. The target is vocabulary wired to nothing, not
     reference style; a rule nobody satisfies converts into a permanent waiver.
     """
@@ -310,7 +310,7 @@ def test_every_declared_error_is_something_a_request_can_produce():
     """An error class nobody constructs is an error code no client can ever receive.
 
     This is the hole `RATE_LIMITED` lived in: the class existed, `docs/api.md`
-    advertised the code, and no JSON route could produce it 鈥?while the HTML register
+    advertised the code, and no JSON route could produce it — while the HTML register
     page answered 429 with its own body, outside the envelope entirely. A green suite
     said nothing, because nothing compared the vocabulary with the code.
     """
@@ -326,7 +326,7 @@ def test_every_declared_error_is_something_a_request_can_produce():
 
 
 def test_every_error_code_the_api_documents_is_reachable():
-    """`docs/api.md` lists the codes a client should handle 鈥?each must be producible.
+    """`docs/api.md` lists the codes a client should handle — each must be producible.
 
     The expectation is read out of the document instead of copied into this test, so
     the gate is "the contract matches the code", not two lists that drift together.
@@ -441,8 +441,8 @@ def _emit_sites():
 
     Parsed from the AST rather than grepped, so a name built by a conditional
     expression (``EventType.STAGE_SKIPPED.value if ... else ...``) still counts, and
-    so a *span* name 鈥?``tracer.span("task.execute", ...)``, which is not an event
-    at all 鈥?cannot leak in.
+    so a *span* name — ``tracer.span("task.execute", ...)``, which is not an event
+    at all — cannot leak in.
     """
     import ast
 
@@ -495,7 +495,7 @@ def test_every_event_the_code_emits_is_declared():
     declared-but-produced-nowhere. Together they close the class: `stage.retried`
     and `task.rejected` were written to `system_events` from production code while
     `EventType` had no such member and `docs/api.md` did not list them, so the two
-    halves of the vocabulary 鈥?the enum and the wire 鈥?had no way to disagree loudly.
+    halves of the vocabulary — the enum and the wire — had no way to disagree loudly.
     """
     undeclared = sorted(set(_emit_sites()) - set(EventType))
     assert not undeclared, "emitted but not in EventType: " + ", ".join(undeclared)
@@ -538,7 +538,7 @@ def _emitted_artifact_kinds() -> set[str]:
     """Every artifact role src/ can persist, read from the AST.
 
     Two shapes produce a row: a literal second argument to `add_artifact(...)`, and
-    a key of any `artifacts={...}` dict literal 鈥?a stage returns one in its
+    a key of any `artifacts={...}` dict literal — a stage returns one in its
     `StageResult`, and a backend returns one in its own result object, which the
     stage then forwards. The runtime registers those keys verbatim, so a typo there
     is a persisted value nothing can name.
@@ -568,7 +568,7 @@ def test_the_artifact_vocabulary_is_exactly_what_the_code_writes():
 
     The real task run put five kinds in the table; `faces_dir`, `final`, `result`
     and `each_img_dir` were not among the declared seven, while `colorized` and
-    `report` had no producer at all 鈥?the lenient member gate above had counted them
+    `report` had no producer at all — the lenient member gate above had counted them
     live on an unrelated metadata key and a progress label. Checked in both
     directions, so neither half can drift again.
     """

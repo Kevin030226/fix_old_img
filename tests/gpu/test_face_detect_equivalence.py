@@ -2,8 +2,8 @@
 
 The contract tests in ``tests/unit/test_face_detect_native.py`` stub dlib, so they
 can prove the wiring but not the pixels. This file closes that gap wherever dlib is
-actually installed: it runs stage 2 twice over the same restored images 鈥?once
-through ``Face_Detection/detect_all_dlib.py`` in a subprocess, once in-process 鈥?and requires the same crop names and the same bytes.
+actually installed: it runs stage 2 twice over the same restored images — once
+through ``Face_Detection/detect_all_dlib.py`` in a subprocess, once in-process — and requires the same crop names and the same bytes.
 
 Skipped when dlib or the landmark model is absent. That is the honest state of this
 machine (dlib needs a C++ toolchain to build), and it is why

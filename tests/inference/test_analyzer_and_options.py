@@ -1,4 +1,4 @@
-"""Unit tests for the ImageAnalyzer (plan 搂11) and auto planning (plan 搂10)."""
+"""Unit tests for the ImageAnalyzer (plan §11) and auto planning (plan §10)."""
 import json
 
 import numpy as np
@@ -19,7 +19,7 @@ def _textured_color_image(seed=3, size=(160, 120)) -> Image.Image:
     return Image.fromarray(rng.integers(0, 256, size=(size[1], size[0], 3), dtype=np.uint8))
 
 
-# ------------------------------------------------------------------ 搂11 analysis
+# ------------------------------------------------------------------ §11 analysis
 def test_analysis_keys_present():
     result = analyzer.analyze_image(_textured_color_image())
     assert {"width", "height", "is_grayscale", "blur_score", "scratch_score", "face_count"} <= set(result)
@@ -68,14 +68,14 @@ def test_format_summary():
     assert "grayscale=yes" in text and "faces=2" in text
 
 
-# ------------------------------------------------------------- 搂10 auto planning
+# ------------------------------------------------------------- §10 auto planning
 @pytest.fixture()
 def planner():
     return PipelinePlanner()
 
 
 def test_auto_plan_full_chain(planner):
-    """grayscale + scratched + faces -> repair + faces + colorization (搂10 example)."""
+    """grayscale + scratched + faces -> repair + faces + colorization (§10 example)."""
     plan = planner.plan_auto_restore(
         {"width": 800, "height": 600, "is_grayscale": True, "face_count": 2,
          "blur_score": 0.6, "scratch_score": 0.8}
@@ -88,7 +88,7 @@ def test_auto_plan_full_chain(planner):
 
 
 def test_auto_plan_clean_color_image(planner):
-    """color + no scratches + no faces -> plain global restoration only (搂10 example)."""
+    """color + no scratches + no faces -> plain global restoration only (§10 example)."""
     plan = planner.plan_auto_restore(
         {"width": 800, "height": 600, "is_grayscale": False, "face_count": 0,
          "blur_score": 0.2, "scratch_score": 0.1}
@@ -121,7 +121,7 @@ def test_available_tasks_includes_auto(planner):
     assert "auto_restore" in planner.available_tasks()
 
 
-# ------------------------------------- 搂12 switches applied to the dynamic plan
+# ------------------------------------- §12 switches applied to the dynamic plan
 def _analysis(**overrides) -> dict:
     """A clean colour photo: no optional stage wants to run unless told to."""
     base = {"width": 800, "height": 600, "is_grayscale": False, "face_count": 0,
@@ -191,7 +191,7 @@ def test_colorization_stays_last_whatever_forced_it(planner):
     """Warp-back composites the enhanced crops, so colouring must come after it.
 
     Colorizing before the face chain would leave every restored face taken from the
-    uncoloured original 鈥?the stage list would look right and the picture would not.
+    uncoloured original — the stage list would look right and the picture would not.
     """
     plan = planner.plan_auto_restore(
         _analysis(face_count=2, is_grayscale=True), {"auto_colorize": True}
@@ -230,7 +230,7 @@ def test_both_planners_report_the_applied_switches_under_the_same_keys(planner):
     """``decisions["options"]`` is one block with one shape, whichever plan ran.
 
     The report shows it as "Pipeline decisions", so a reader comparing an Auto run with
-    a Restore run has to be able to read the same keys out of both 鈥?and the UI sends
+    a Restore run has to be able to read the same keys out of both — and the UI sends
     exactly those keys when it decides what a checked box means.
     """
     from fiximg.application.pipeline_modes import PLAN_SWITCHES
@@ -244,7 +244,7 @@ def test_both_planners_report_the_applied_switches_under_the_same_keys(planner):
     assert dynamic.decisions["options"]["face_enhance"] is False
 
 
-# ------------------------------------------------------------- 搂12 options wiring
+# ------------------------------------------------------------- §12 options wiring
 def test_face_enhance_option_appends_the_whole_chain(planner):
     plan = planner.plan("restore", options={"face_enhance": True})
     names = [n for n, _ in plan.stages]
@@ -312,7 +312,7 @@ def test_a_refusal_survives_the_serializer_that_strips_defaults(key):
 
     The route forwards only the keys that differ from the schema default, so a field
     defaulting to ``False`` would make an explicit refusal indistinguishable from
-    silence 鈥?and on ``auto_restore`` silence means "the analysis decides", so a
+    silence — and on ``auto_restore`` silence means "the analysis decides", so a
     grayscale photo would be colorized after being told not to. Both switches therefore
     default to ``None``.
     """

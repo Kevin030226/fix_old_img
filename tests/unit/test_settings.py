@@ -47,7 +47,7 @@ def test_the_documented_storage_roots_are_actually_honoured(monkeypatch, tmp_pat
     """`FIXIMG_TASKS_ROOT` is named in `docs/deployment.md` as the retention knob.
 
     It was read by nothing: `tasks_root` was derived from the project root, so an
-    operator who moved task storage to a bigger volume kept filling the system one 鈥?
+    operator who moved task storage to a bigger volume kept filling the system one —
     and the TTL sweeper, which resolves against the same attribute, kept looking in the
     place the documents said was no longer used.
     """
@@ -73,7 +73,7 @@ def test_a_relative_root_is_resolved_against_the_project_not_the_cwd(monkeypatch
 
 
 def test_the_priority_ceiling_is_an_operator_knob(monkeypatch):
-    """`FIXIMG_PRIORITY_MAX` bounds how far a submission may jump the queue (plan 搂2.6).
+    """`FIXIMG_PRIORITY_MAX` bounds how far a submission may jump the queue (plan §2.6).
 
     The create endpoint refuses anything above it and quotes the value it refused against,
     so the ceiling has to come from the settings object the request is handled with. A
@@ -92,7 +92,7 @@ def test_every_environment_knob_the_deployment_doc_names_is_read():
     """`docs/deployment.md` is the operator's list of what may be tuned at all.
 
     Two knobs it named (`FIXIMG_STORAGE_ROOT`, `FIXIMG_TASKS_ROOT`) turned out to be read
-    by nothing 鈥?which is worse than an undocumented setting, because the operator sets it,
+    by nothing — which is worse than an undocumented setting, because the operator sets it,
     sees no effect, and keeps trusting the document. The list is scraped from the document
     and the reference is searched in the source, so a new documented knob nothing reads
     fails here instead of in production.

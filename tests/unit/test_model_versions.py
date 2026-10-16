@@ -1,8 +1,8 @@
-"""Model hot-swap tests (plan 搂3.15).
+"""Model hot-swap tests (plan §3.15).
 
 Pins the release flow the plan specifies:
 
-    load v2 鈫?validate 鈫?warmup 鈫?health 鈫?atomic switch 鈫?drain v1 鈫?unload v1
+    load v2 → validate → warmup → health → atomic switch → drain v1 → unload v1
 
 and its failure path: a bad candidate must leave the running version serving.
 """

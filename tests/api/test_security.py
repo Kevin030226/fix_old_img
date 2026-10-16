@@ -7,7 +7,7 @@ from fiximg.config import settings
 from fiximg.infrastructure.security.passwords import hash_password, verify_password, needs_rehash
 
 
-# ------------------------------------------------------- the API token (搂3.3)
+# ------------------------------------------------------- the API token (§3.3)
 def _prepare_token_lookup(monkeypatch, tmp_path, env_token, production):
     """Pin the three inputs `get_api_token` reads: env, file, profile."""
     monkeypatch.setattr(settings, "app_env", "production" if production else "local",
@@ -23,10 +23,10 @@ def _prepare_token_lookup(monkeypatch, tmp_path, env_token, production):
 
 
 def test_production_refuses_to_mint_its_own_api_token(monkeypatch, tmp_path):
-    """Plan 搂3.3: "API secret 缂哄け 鈫?涓嶅惎鍔? is a production rule.
+    """Plan §3.3: "API secret 缺失 → 不启动" is a production rule.
 
     Before this, a production boot with no token generated one, wrote it into
-    `admin_data/api_token.txt` and printed it 鈥?so the service came up healthy on
+    `admin_data/api_token.txt` and printed it — so the service came up healthy on
     a secret nobody configured, and a second replica generated a *different* one.
     """
     _prepare_token_lookup(monkeypatch, tmp_path, env_token=None, production=True)

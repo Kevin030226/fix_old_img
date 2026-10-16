@@ -1,8 +1,8 @@
 """Integration tests: full API surface over a real (temp) SQLite database.
 
-Everything heavy is stubbed at the stage boundary (pipeline 搂5): the plan still
+Everything heavy is stubbed at the stage boundary (pipeline §5): the plan still
 runs through the real orchestrator, artifact storage, metrics, events and queue
-primitives 鈥?only model inference is replaced, so no weights are needed.
+primitives — only model inference is replaced, so no weights are needed.
 
 Run:  python -m pytest tests/integration -q
 """
@@ -181,7 +181,7 @@ def test_full_queue_roundtrip(client):
     img = Image.open(io.BytesIO(rr.content))
     assert img.size == (48, 36)
 
-    # Report carries difference + no-reference metrics (plan 搂16 wiring).
+    # Report carries difference + no-reference metrics (plan §16 wiring).
     report = client.get(f"/api/v1/tasks/{task_id}/report").json()
     assert report["status"] == "completed"
     assert {"psnr", "ssim", "mae", "sharpness", "contrast"} <= set(report["metrics"])
@@ -207,12 +207,12 @@ def test_options_passthrough_end_to_end(client):
 def test_an_option_the_client_never_mentioned_is_not_stored_as_a_refusal(
     client, switch
 ):
-    """Only the keys the caller named reach the queue (plan 搂12 on the Auto path).
+    """Only the keys the caller named reach the queue (plan §12 on the Auto path).
 
     The route serialises with ``exclude_defaults=True``, so a field whose default is
     ``False`` would make an explicit refusal identical to silence. On ``restore`` that is
     invisible (colorization was off anyway); on ``auto_restore``, where the analysis
-    decides, silence means "colorize it if it is black and white" 鈥?so a caller that
+    decides, silence means "colorize it if it is black and white" — so a caller that
     typed ``false`` would get the stage anyway. This reads the stored row back rather
     than the parser, because the defect lives in what the route sends on.
     """
@@ -261,7 +261,7 @@ def test_an_option_nothing_reads_is_rejected_rather_than_stored(client):
 
     Rejecting it is the honest half of removing a switch. Keeping it in the whitelist
     would let a client send `{"strength": 0.3}`, get a 202 and a row describing the
-    request, and receive the identical image it would have got without it 鈥?the failure
+    request, and receive the identical image it would have got without it — the failure
     mode the vocabulary gate in `tests/unit/test_option_vocabulary.py` now closes for
     every declared key.
     """
@@ -353,7 +353,7 @@ def test_a_priority_above_the_deployment_limit_is_refused_with_the_deciding_numb
 
     Silently clamping `20` to `10` would hand the caller a queue position it never asked
     for, and a `details.max` copied from a module constant could disagree with a
-    deployment that set `FIXIMG_PRIORITY_MAX` 鈥?the same lesson the rate limiter was
+    deployment that set `FIXIMG_PRIORITY_MAX` — the same lesson the rate limiter was
     fixed on.
     """
     import fiximg.config as config_mod
@@ -386,7 +386,7 @@ def test_an_idempotent_replay_reports_the_priority_the_first_submission_set(clie
     """A replay returns the original task, so it must report the original queue position.
 
     Echoing the *requested* value here would be a lie about a task this call did not
-    create 鈥?and the whole point of the field is that a client can check where its work
+    create — and the whole point of the field is that a client can check where its work
     stands in the queue.
     """
     key = "priority-replay"
@@ -447,7 +447,7 @@ def test_cancel_queued_task(client, tmp_path):
         # The cancellation must reach the event stream: `task.cancelled` is one of
         # the events the SSE stream treats as closing, so a client that was
         # watching this task would otherwise poll until the 900-second deadline
-        # with no way to tell "cancelled" from "hung" (plan 搂2.5 point 4).
+        # with no way to tell "cancelled" from "hung" (plan §2.5 point 4).
         events = client.get(f"/api/v1/tasks/{task_id}/events?follow=false")
         assert events.status_code == 200
         assert "event: task.cancelled" in events.text, events.text
@@ -466,7 +466,7 @@ def test_404s(client):
 
 # --------------------------------------------------------------------- stats
 def test_auto_restore_end_to_end(client):
-    """搂10 Phase 7: the analyzer derives the plan; the task completes and the
+    """§10 Phase 7: the analyzer derives the plan; the task completes and the
     report carries the planner decisions."""
     r = client.post(
         "/api/v1/tasks",
@@ -499,10 +499,10 @@ def test_stats_endpoint_reflects_runs(client):
 
 
 def test_a_running_task_can_be_cancelled_over_http(client):
-    """搂3.8: this used to answer 409 for every task a worker already held.
+    """§3.8: this used to answer 409 for every task a worker already held.
 
     Measured on a real split-topology boot: the only cancellable window was between
-    enqueue and claim, which for a 4-60 second GPU task is a few hundred milliseconds 鈥?
+    enqueue and claim, which for a 4-60 second GPU task is a few hundred milliseconds —
     so the endpoint existed and could not be used. Cancelling a running task is now
     accepted, and the event says what will really happen: stop at the next stage.
     """

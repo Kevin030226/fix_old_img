@@ -8,8 +8,8 @@ deployment, and a reader that trusts one shape fails in the direction of showing
 rather than failing loudly:
 
 * the progress panel treated a string stage list as "no stages", so on the default
-  engine its 搂24 checklist never appeared while every panel test 鈥?which built its own
-  rows as lists 鈥?stayed green;
+  engine its §24 checklist never appeared while every panel test — which built its own
+  rows as lists — stayed green;
 * ``_decode_capabilities`` wrapped ``json.loads`` in ``except TypeError``, so on
   PostgreSQL the already-decoded list raised, became the empty set, and each worker
   claimed tasks it could not serve.
@@ -99,7 +99,7 @@ def test_every_reader_of_a_json_column_goes_through_the_shared_decoder():
     """The class gate: no module may decode (or mis-decode) these columns by hand.
 
     Scans the production tree, so a new reader is caught here instead of by the next
-    live boot 鈥?which is how the two defects in this module's docstring were found.
+    live boot — which is how the two defects in this module's docstring were found.
     """
     offenders: list[str] = []
     readers: list[str] = []

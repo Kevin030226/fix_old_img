@@ -1,4 +1,4 @@
-"""Layering rules the plan states as acceptance criteria (闄勫綍 B 鏋舵瀯 1-3).
+"""Layering rules the plan states as acceptance criteria (附录 B 架构 1-3).
 
 The report asks for three properties and leaves them as prose:
 
@@ -7,7 +7,7 @@ The report asks for three properties and leaves them as prose:
 * a Stage does not depend on HTTP / Gradio / the database.
 
 Prose rots. The third one already had a violation, the second had one too, and
-nothing said so 鈥?a module can acquire an import in a later edit and the boundary
+nothing said so — a module can acquire an import in a later edit and the boundary
 quietly moves. So the rules are checked here by reading the import statements of
 every file in the layer, with no fixtures and no app to start: cheap enough to
 run on every commit.
@@ -29,22 +29,22 @@ SRC = os.path.join(PROJECT_ROOT, "src")
 #:
 #: The lists encode the three acceptance rules and nothing more:
 #:
-#: * "UI 涓嶇洿鎺ヨ皟鐢?pipeline internals" 鈥?the whole of `fiximg.inference` is
+#: * "UI 不直接调用 pipeline internals" — the whole of `fiximg.inference` is
 #:   pipeline internals as far as a Gradio view is concerned; it talks to
 #:   `fiximg.application`.
-#: * "API 涓嶇洿鎺ヨ皟鐢ㄥ叿浣撴ā鍨嬪疄鐜? 鈥?*concrete implementations* means the backend
+#: * "API 不直接调用具体模型实现" — *concrete implementations* means the backend
 #:   and stage modules. `health`/`stats` reading `model_manager`, `scheduler` and
-#:   `gpu_memory` is a read-only diagnostic and the plan asks for it (搂3.9), so
+#:   `gpu_memory` is a read-only diagnostic and the plan asks for it (§3.9), so
 #:   the rule is scoped to `inference.backends` / `inference.stages` rather than
 #:   to the package.
-#: * "Stage 涓嶄緷璧?HTTP / Gradio / DB" 鈥?including the queue: a stage that
+#: * "Stage 不依赖 HTTP / Gradio / DB" — including the queue: a stage that
 #:   acknowledges its own task would race the worker that owns the lease.
 #:
 #: `fiximg.infrastructure.db` is deliberately **not** forbidden for the UI. The
 #: auth pages, the middleware and `ui/state.py` read `user_repository` directly
 #: to answer "who is this caller". Encoding a rule the code does not follow turns
 #: the gate into a permanent waiver, so it is recorded here as a known shape
-#: instead 鈥?the acceptance list does not ask for it.
+#: instead — the acceptance list does not ask for it.
 FORBIDDEN: dict[str, tuple[str, ...]] = {
     "fiximg.ui": ("fiximg.inference",),
     "fiximg.api": ("fiximg.inference.backends", "fiximg.inference.stages"),

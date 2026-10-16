@@ -1,10 +1,10 @@
-"""Error-code persistence and versioned weight layout (plan 搂6, 搂3.15).
+"""Error-code persistence and versioned weight layout (plan §6, §3.15).
 
 Two schema-level promises from the report's data-model section:
 
-* ``Task.error_code`` 鈥?a machine-readable failure kind, so clients branch on
+* ``Task.error_code`` — a machine-readable failure kind, so clients branch on
   code instead of parsing prose and history can be aggregated by cause.
-* ``models/<name>/vN/`` 鈥?the on-disk layout that makes "two versions resident"
+* ``models/<name>/vN/`` — the on-disk layout that makes "two versions resident"
   practical; without it a hot swap has nowhere to load a second version from.
 """
 import json
@@ -101,7 +101,7 @@ def test_error_code_survives_the_task_aggregate(tasks):
 
 
 def test_stage_metrics_survive_the_task_aggregate(tasks):
-    """搂5.3 stage metrics are stored and aggregated like the task metrics."""
+    """§5.3 stage metrics are stored and aggregated like the task metrics."""
     _create("t-1")
     repo.record_stage("t-1", 0, "global_restore", "running")
     repo.finish_stage("t-1", 0, "completed", 42, None, metrics={"tiles": 6})

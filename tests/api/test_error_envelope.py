@@ -1,4 +1,4 @@
-"""API contract tests: the unified error envelope (plan 搂3.4.1, 搂3.8).
+"""API contract tests: the unified error envelope (plan §3.4.1, §3.8).
 
 Every failing endpoint must return the same body shape so clients branch on
 ``error.code`` instead of parsing prose.
@@ -14,7 +14,7 @@ from PIL import Image
 def client(tmp_path_factory):
     """A TestClient over a throwaway database and artifact root.
 
-    Module-scoped because booting the app is the expensive part 鈥?which is exactly
+    Module-scoped because booting the app is the expensive part — which is exactly
     why the teardown matters: this fixture rewrites *process-global* configuration
     (`settings.db_path`, the engine's path, an env token, the schema latch), and
     without restoring it every later test in the same run inherits this module's

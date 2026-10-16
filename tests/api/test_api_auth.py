@@ -1,8 +1,8 @@
 """Regression tests for the JSON API bearer-token gate (app/api/security.py).
 
 Context: the Gradio UI talks to the service layer in process, but `/api/v1/*`
-is plain HTTP. Before this gate every JSON route 鈥?including the account list
-and finished result files 鈥?was reachable without credentials whenever the
+is plain HTTP. Before this gate every JSON route — including the account list
+and finished result files — was reachable without credentials whenever the
 service was bound to a routable address.
 """
 import asyncio

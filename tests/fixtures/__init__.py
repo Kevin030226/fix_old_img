@@ -36,7 +36,7 @@ def save_photo(path: str, **kwargs) -> str:
 # `api_name` is not a selector: Gradio numbers those from one counter across every
 # callback, so the day a tab gains a second kind of handler (the Auto analysis row, in
 # batch 38) a prefix match starts describing a different set than it meant to. These
-# selectors pick by *shape* 鈥?what a callback consumes and returns 鈥?so one definition
+# selectors pick by *shape* — what a callback consumes and returns — so one definition
 # serves every gate instead of three guesses that can disagree.
 def demo_config():
     """The built Gradio app's config: components, dependencies, as they render."""
@@ -66,7 +66,7 @@ def submit_deps(cfg):
 
     Deliberately not "whose ``api_name`` starts with ``handler``": the analysis row's
     callbacks are named from the same counter, and the history panel's row handlers also
-    take a state and return an image. Position is the contract 鈥?the handler's first
+    take a state and return an image. Position is the contract — the handler's first
     argument is the upload and its second is the account, and the first output is the
     result image.
     """

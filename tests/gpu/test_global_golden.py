@@ -1,8 +1,8 @@
-"""Real-model golden baseline for Global quality restoration (plan 搂3.10.2).
+"""Real-model golden baseline for Global quality restoration (plan §3.10.2).
 
 The synthetic stage in ``tests/inference/test_golden_image.py`` protects the
 plumbing. This protects the **model output**: it runs the resident native backend
-on a fixed input and pins the resulting characteristics 鈥?mode, size, shape,
+on a fixed input and pins the resulting characteristics — mode, size, shape,
 dynamic range, mean/std, PSNR/SSIM against the input.
 
 Why characteristics and not pixels: the plan says so, and because
@@ -10,7 +10,7 @@ Why characteristics and not pixels: the plan says so, and because
 CPU the run is deterministic (the equivalence suite proves native == legacy
 byte-for-byte), so this baseline is tight; on GPU the tolerances in
 ``assert_matches_golden`` absorb kernel differences while still catching a real
-quality shift 鈥?a swapped checkpoint, a changed normalisation, a dropped
+quality shift — a swapped checkpoint, a changed normalisation, a dropped
 contrast stretch.
 
 Needs the Global quality weights, hence the ``gpu`` marker. Refresh deliberately
@@ -47,7 +47,7 @@ BASELINE = "global_quality"
 
 @pytest.fixture(scope="module")
 def restored():
-    """One fixed input, restored once per module 鈥?the model run is the cost."""
+    """One fixed input, restored once per module — the model run is the cost."""
     source = make_input(seed=7, size=(96, 64))
     backend = GlobalRestoreBackend()
     backend.load("cpu")
@@ -77,7 +77,7 @@ def test_the_baseline_records_every_planned_field(restored):
 
 
 def test_the_output_geometry_is_the_pipelines_rounding(restored):
-    """96脳64 is already a multiple of 4, so nothing should move.
+    """96×64 is already a multiple of 4, so nothing should move.
 
     Pinned because geometry is the one characteristic a size policy or a resize
     change would silently alter, and the mean/std tolerances would not catch it.

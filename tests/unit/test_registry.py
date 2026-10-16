@@ -1,4 +1,4 @@
-"""Stage / model backend registry tests (plan 搂2.2, 搂3.14).
+"""Stage / model backend registry tests (plan §2.2, §3.14).
 
 The point of the registry is that adding a model does not require editing the
 planner. These tests pin that property: capability lookup, plugin registration
@@ -178,7 +178,7 @@ def test_backend_registry_health_never_raises():
 
 def test_default_backend_registry_covers_the_documented_models():
     registry = build_default_backend_registry()
-    # One entry per stage of the legacy chain plus DDColor (plan 搂3.6/搂3.7).
+    # One entry per stage of the legacy chain plus DDColor (plan §3.6/§3.7).
     assert registry.names() == [
         "ddcolor",
         "face_detection",
@@ -190,7 +190,7 @@ def test_default_backend_registry_covers_the_documented_models():
 
 
 def test_every_documented_model_reports_which_implementation_serves_it():
-    """Plan 搂3.5.4's "visible fallback" is only visible if every row carries it.
+    """Plan §3.5.4's "visible fallback" is only visible if every row carries it.
 
     Measured live before this was fixed: the two face stages reported `null` and
     DDColor reported `"unknown"`, so the API could not tell a caller whether the
@@ -245,7 +245,7 @@ def test_default_registry_registers_the_split_face_chain():
 
 # --------------------------------------------------- folder-bridge conformance
 def _folder_driving_stage_names() -> set[str]:
-    """Which stages hand their backend a folder 鈥?read from the source, not a list.
+    """Which stages hand their backend a folder — read from the source, not a list.
 
     A hand-maintained list would go stale the moment a stage started or stopped
     using the bridge, which is the same "declaration drifts from what runs" failure
@@ -275,12 +275,12 @@ def test_the_folder_driving_stages_are_discovered_not_assumed():
 
 @pytest.mark.parametrize("stage_name", sorted(_folder_driving_stage_names()))
 def test_a_folder_driving_stage_gets_a_folder_bridge_backend(stage_name):
-    """Plan 搂3.5.1's "one interface" has two halves, and stages use both.
+    """Plan §3.5.1's "one interface" has two halves, and stages use both.
 
     `ModelBackend` covers the single-image call; the split legacy chain (plan
-    搂3.6/搂3.7) hands a backend an input directory and reads the shared root back.
+    §3.6/§3.7) hands a backend an input directory and reads the shared root back.
     A backend registered for such a stage without that half used to fail inside the
-    stage at request time with an AttributeError 鈥?nothing bound the registration to
+    stage at request time with an AttributeError — nothing bound the registration to
     the contract the caller assumes.
     """
     from fiximg.inference.backends.base import FolderBridgeBackend, ModelBackend
@@ -292,7 +292,7 @@ def test_a_folder_driving_stage_gets_a_folder_bridge_backend(stage_name):
         f"{stage_name} is folder-driven but its backend has no run_folder/produced_dir"
     )
     assert callable(backend.run_folder) and callable(backend.produced_dir)
-    # 搂3.5.4: whichever implementation is selected must say which it is.
+    # §3.5.4: whichever implementation is selected must say which it is.
     assert backend.implementation in ("native", "legacy-cli"), stage_name
 
 

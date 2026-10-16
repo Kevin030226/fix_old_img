@@ -1,7 +1,7 @@
-"""搂3.9.1's progress panel: the ETA, the queue readout, and the option checkboxes.
+"""§3.9.1's progress panel: the ETA, the queue readout, and the option checkboxes.
 
 The panel used to show a bar, a percent and a stage name. The plan asks for four
-things in that strip 鈥?current stage, total progress, ETA, queue 鈥?and for three
+things in that strip — current stage, total progress, ETA, queue — and for three
 switches in the input area; neither half existed.
 """
 from __future__ import annotations
@@ -23,7 +23,7 @@ from tests.fixtures import (
 )
 
 #: Two analyses for the Auto tab's switches to be measured against: one where the
-#: analyzer wants no optional stage, one where it wants both. 搂10's thresholds put
+#: analyzer wants no optional stage, one where it wants both. §10's thresholds put
 #: `scratch_score` above the cut in each, so the restoration stage is not what is
 #: under test here.
 _ANALYSIS_CLEAN = {"width": 800, "height": 600, "is_grayscale": False,
@@ -54,7 +54,7 @@ def test_an_empty_queue_is_reported_as_zero_not_as_unknown():
 
 
 def test_the_progress_head_carries_every_field_the_plan_asks_for():
-    """搂3.9.1: bar + percent, stage, ETA and queue in one line."""
+    """§3.9.1: bar + percent, stage, ETA and queue in one line."""
     line = tp.progress_head("Restore (no scratches)", "face_enhancement", 50, 40.0, 3)
 
     assert line.startswith("[")
@@ -167,7 +167,7 @@ def test_the_switches_a_tab_offers_are_option_keys_the_api_accepts():
 
     assert offered, "no tab offers any switch"
     assert offered <= accepted, f"UI offers unknown options: {sorted(offered - accepted)}"
-    # 搂3.9.1 names these three; a switch nobody can toggle is a layout regression.
+    # §3.9.1 names these three; a switch nobody can toggle is a layout regression.
     assert offered == {"face_enhance", "auto_colorize", "hr"}, sorted(offered)
 
 
@@ -229,7 +229,7 @@ def test_every_submit_tab_wires_exactly_the_switches_its_mode_declares():
 
     The submit callbacks are selected by shape (state in, result image out) rather than by
     their auto-generated `api_name`, because the analysis row's callbacks take names from
-    the same counter 鈥?a prefix match would quietly start counting those too.
+    the same counter — a prefix match would quietly start counting those too.
     """
     cfg = demo_config()
     submit_deps = _tab_submit_deps(cfg)
@@ -245,9 +245,9 @@ def test_every_submit_tab_wires_exactly_the_switches_its_mode_declares():
 
 
 def test_the_analysis_row_recomputes_on_the_upload_and_on_every_switch_it_reads():
-    """搂3.9.1's row is a live answer, not a one-shot caption.
+    """§3.9.1's row is a live answer, not a one-shot caption.
 
-    One dependency per trigger source 鈥?the upload plus each switch 鈥?each reading
+    One dependency per trigger source — the upload plus each switch — each reading
     `[image, *switches]` in the submit handler's order and writing only to the row. A
     wiring that missed the switches would keep showing the plan for the previous tick,
     which is a confident wrong answer rather than a missing one.
@@ -293,7 +293,7 @@ def test_the_switches_as_drawn_submit_the_same_plan_as_no_options_at_all():
     """Opening a tab must not silently change what runs.
 
     The defaults are the UI's claim about the backend's defaults, so the check is
-    against the planner with an empty options dict 鈥?an independent source. A default
+    against the planner with an empty options dict — an independent source. A default
     flipped without anyone touching a box would submit a different pipeline than
     "no preferences".
 
@@ -327,7 +327,7 @@ def test_unchecking_a_box_is_the_only_way_to_refuse_a_stage(monkeypatch):
     """Unchecked must send ``false``, on the analysis-derived tab too.
 
     An option mapping that dropped a refusal (sending nothing instead) would leave the
-    analyzer in charge of a stage the user just turned off 鈥?and on Auto, where the
+    analyzer in charge of a stage the user just turned off — and on Auto, where the
     checked state also sends nothing, both states of the box would then mean the same
     thing, which is a control that does nothing.
     """
@@ -351,7 +351,7 @@ def test_a_checked_auto_box_sends_nothing_because_the_analysis_is_still_the_auth
     """The Auto tab's two states are "as the image decided" and "never", not "always".
 
     Sending ``true`` for a checked box would tell the planner to run the face chain on
-    a face-less photo 鈥?the opposite of what a tab whose whole premise is automatic
+    a face-less photo — the opposite of what a tab whose whole premise is automatic
     analysis has promised.
     """
     names = list(SWITCHES["auto"])
@@ -399,7 +399,7 @@ def test_the_restoration_tabs_send_every_switch_as_typed():
 
 
 def test_the_auto_tab_offers_the_switches_the_dynamic_plan_now_honours():
-    """搂3.9.1's parameter row on the one-click tab, with its own captions.
+    """§3.9.1's parameter row on the one-click tab, with its own captions.
 
     The captions have to differ from the restoration tab's: the same key means
     "when the image says so" here and "run it" there, and reusing the wording would
@@ -455,8 +455,8 @@ def test_the_progress_panel_renders_the_stages_the_repository_actually_returns(
     ``get_task`` returns ``stages`` as JSON **text** on SQLite (psycopg decodes
     ``json_agg`` for us, ``json_group_array`` is a string), and the panel treated any
     string as "no stages yet". Every panel test built its rows as lists, so on the
-    default engine the 搂24 checklist never appeared in a single frame while the suite
-    stayed green 鈥?found only by reading the frames a live run produced.
+    default engine the §24 checklist never appeared in a single frame while the suite
+    stayed green — found only by reading the frames a live run produced.
     """
     from fiximg.infrastructure.db.repositories import task_repository as task_repo
 

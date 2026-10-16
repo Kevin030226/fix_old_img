@@ -1,11 +1,11 @@
-"""Alembic migration tests (plan 搂4.3 Step 2).
+"""Alembic migration tests (plan §4.3 Step 2).
 
 What is pinned:
 
 * ``upgrade head`` on an empty database produces the full schema,
 * ``downgrade base`` removes it and ``upgrade head`` works again (the round trip
   that makes a migration set trustworthy),
-* the URL comes from ``FIXIMG_DATABASE_URL``, not from ``alembic.ini`` 鈥?so a
+* the URL comes from ``FIXIMG_DATABASE_URL``, not from ``alembic.ini`` — so a
   migration can never run against a different database than the service,
 * an unsupported scheme fails here exactly as it fails at startup,
 * ``stamp`` adopts a database whose schema was created by ``ensure_schema``.
@@ -38,7 +38,7 @@ requires_alembic = pytest.mark.skipif(
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-#: Tables the migrations must create 鈥?derived from the DDL the runtime ships.
+#: Tables the migrations must create — derived from the DDL the runtime ships.
 #:
 #: Listing them by hand could only ever record what someone remembered, which is
 #: the failure this is meant to catch: a table added to a `_SCHEMA` constant
@@ -81,7 +81,7 @@ def migrated_db(tmp_path, monkeypatch):
     # from an earlier test keeps pointing at that test's database, and the
     # migration then runs against a file this test is not looking at.
     engine.close_connections()
-    # Same reasoning for the repository's schema latch 鈥?it is keyed per
+    # Same reasoning for the repository's schema latch — it is keyed per
     # database, but a test that never built the schema here must not inherit
     # another test's "already done".
     monkeypatch.setattr(task_repository, "_DDL_DONE", None)
@@ -274,7 +274,7 @@ def _chain_from_files() -> list[str]:
     """The revision ids read out of `migrations/versions/`, oldest first.
 
     A separate source on purpose. Six assertions in this file used to name the tip
-    literally, so adding 0005 broke all of them at once 鈥?which is the same drift
+    literally, so adding 0005 broke all of them at once — which is the same drift
     the migrations themselves are for: the expectations had to be remembered
     instead of derived.
     """
@@ -362,10 +362,10 @@ def test_an_unservable_url_fails_at_migration_time(monkeypatch):
 
 @requires_alembic
 def test_a_postgres_url_reaches_alembic_with_the_driver_spelling(monkeypatch):
-    """Migrations run against the same database the service uses (plan 搂4.3).
+    """Migrations run against the same database the service uses (plan §4.3).
 
     PostgreSQL is a served target now, so the assertion is not "it refuses" but
-    "it names the same database in the spelling SQLAlchemy's engine wants" 鈥?
+    "it names the same database in the spelling SQLAlchemy's engine wants" —
     otherwise ``alembic upgrade`` would migrate one database while the app opens
     another.
     """
@@ -483,7 +483,7 @@ def test_revisions_are_numbered_and_ordered():
 
 # ------------------------------------------------------------ revision 0003
 #: The pre-0003 shape: instants as naive local strings, metrics as text. Only the
-#: columns 0003 touches are here 鈥?the point is the *values*, not a second copy
+#: columns 0003 touches are here — the point is the *values*, not a second copy
 #: of the schema.
 _LEGACY_DDL = """
 CREATE TABLE tasks (
@@ -550,7 +550,7 @@ def test_0003_rewrites_legacy_instants_to_utc(migrated_db):
     """Same instant, now expressible: zone-carrying, microsecond, sortable.
 
     The expected value is built with the stdlib and a literal format string, not
-    with the codec the application uses 鈥?otherwise this test could only ever
+    with the codec the application uses — otherwise this test could only ever
     agree with itself.
     """
     from datetime import UTC, datetime
@@ -688,7 +688,7 @@ def test_running_migrations_does_not_silence_the_application(isolated_db, tmp_pa
     """The alembic env used to call `fileConfig` with its default arguments.
 
     That disables every logger created beforehand, so a process which ran a
-    migration programmatically kept working and served requests 鈥?with no logs. It
+    migration programmatically kept working and served requests — with no logs. It
     also poisoned the test session: any later test that asserted on an emitted log
     line saw nothing, and only when the migration tests happened to run first.
     """

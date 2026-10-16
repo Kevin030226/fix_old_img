@@ -1,4 +1,4 @@
-"""Artifact store tests (plan 搂2.8 / 搂5.6).
+"""Artifact store tests (plan §2.8 / §5.6).
 
 Covers the local store, key normalisation (path traversal), the S3 adapter
 against a fake client, and the `ArtifactStore` protocol boundary.
@@ -256,9 +256,9 @@ def test_maybe_purge_is_probabilistic_but_probability_one_always_sweeps(
 
 
 def test_the_worker_sweeps_on_its_own_cadence(monkeypatch, tmp_path):
-    """Retention has to be reachable from the background process (plan 搂2.8).
+    """Retention has to be reachable from the background process (plan §2.8).
 
-    It used to hang off `PipelineOrchestrator.run()` only 鈥?the synchronous path 鈥?
+    It used to hang off `PipelineOrchestrator.run()` only — the synchronous path —
     so on the documented API + GPU-worker topology the TTL was a number nothing
     read, and expired artifacts accumulated until the disk filled.
     """
@@ -318,7 +318,7 @@ def test_ttl_setting_is_what_the_sweep_uses(tmp_path, monkeypatch):
 # ------------------------------------------------ publish / recover (S3 leg)
 #
 # `moto` implements the S3 API in-process, so these exercise the *real* boto3 code
-# path of S3ArtifactStore 鈥?not a hand-written client double. That distinction is
+# path of S3ArtifactStore — not a hand-written client double. That distinction is
 # the whole point of the section: the pipeline used to bypass the store protocol
 # entirely, so `FIXIMG_STORAGE_BACKEND=s3` never had its upload path run.
 def _requires_moto():
@@ -382,7 +382,7 @@ def test_the_result_is_published_and_the_key_recorded(moto_s3, tmp_path):
     ref = ArtifactRef(key=uri, backend="s3")
     assert moto_s3.exists(ref) is True
     assert moto_s3.get_bytes(ref) == (run_dir / "output" / "final.png").read_bytes()
-    # 搂2.10: uploading without timing it is how a cross-node result ends up as the
+    # §2.10: uploading without timing it is how a cross-node result ends up as the
     # slowest request nobody can explain.
     histograms = metrics.snapshot()["histograms"]
     assert any(k.startswith("artifact_io_seconds{op=publish") for k in histograms), list(histograms)
@@ -393,7 +393,7 @@ def test_a_local_store_publishes_nothing_and_leaves_the_key_null(isolated_db, mo
 
     Storing a *relative* key in `uri` for the local backend would make every
     `row["uri"] or row["path"]` reader resolve a path against the process's
-    working directory 鈥?a regression for the common single-node case, and the
+    working directory — a regression for the common single-node case, and the
     reason the column is NULL unless the bytes really went somewhere remote.
     """
     from fiximg.config import settings
@@ -485,7 +485,7 @@ def test_an_unpublished_local_file_still_410s_after_the_sweeper(isolated_db, tmp
 
 
 def test_the_sweeper_reclaims_published_objects(moto_s3, isolated_db, tmp_path, monkeypatch):
-    """Publishing without a remote reclaim turns a TTL into a lie (plan 搂2.8)."""
+    """Publishing without a remote reclaim turns a TTL into a lie (plan §2.8)."""
     import sqlite3
 
     from fiximg.config import settings
@@ -544,7 +544,7 @@ def test_the_local_backend_is_left_to_the_directory_sweep(isolated_db, monkeypat
     assert purge_expired_published(timestamps.cutoff(1)) == 0
 
 
-# ------------------------------------------- the input travels too (搂2.8/搂4.2)
+# ------------------------------------------- the input travels too (§2.8/§4.2)
 def _enqueue_input(moto_s3, isolated_db, monkeypatch):
     """Submit with a remote store and an inline worker off, so nothing executes."""
     from PIL import Image

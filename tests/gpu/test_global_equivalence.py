@@ -1,13 +1,13 @@
 """The native Global backend must reproduce the vendored CLI's numbers.
 
-Plan 搂3.5.1/搂4.2 replaced ``python run.py`` per request with in-process, resident
+Plan §3.5.1/§4.2 replaced ``python run.py`` per request with in-process, resident
 networks. A refactor of an inference path is only correct if the picture coming
-out is the picture that used to come out 鈥?so this runs the same image through
+out is the picture that used to come out — so this runs the same image through
 both implementations and compares them, rather than trusting that the
 preprocessing was transcribed faithfully.
 
-Measured on this machine (CPU, 298脳450 sample): PSNR ``inf``, SSIM ``1.0``,
-max abs diff ``0`` 鈥?byte-identical. The assertion below is a threshold, not
+Measured on this machine (CPU, 298×450 sample): PSNR ``inf``, SSIM ``1.0``,
+max abs diff ``0`` — byte-identical. The assertion below is a threshold, not
 equality, because ``cudnn.benchmark=True`` lets the two processes pick different
 CUDA kernels; on CPU the outputs are exact.
 
@@ -92,7 +92,7 @@ def test_native_output_matches_the_legacy_cli(tmp_path):
 def test_the_native_backend_never_spawns_a_subprocess(monkeypatch, tmp_path):
     """The point of the change: no interpreter start, no per-request weight load.
 
-    Asserted by making spawning impossible rather than by counting calls 鈥?if any
+    Asserted by making spawning impossible rather than by counting calls — if any
     part of the path still shells out, it fails here instead of quietly working.
     """
     import subprocess
@@ -112,7 +112,7 @@ def test_the_native_backend_never_spawns_a_subprocess(monkeypatch, tmp_path):
 
 
 def test_the_weights_stay_resident_between_requests():
-    """Two inferences, one load 鈥?what 'resident' is supposed to mean."""
+    """Two inferences, one load — what 'resident' is supposed to mean."""
     image = _sample_image()
     backend = GlobalRestoreBackend()
     backend.load("cpu")
