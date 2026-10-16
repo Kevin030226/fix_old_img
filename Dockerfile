@@ -63,8 +63,10 @@ RUN if [ "$FIXIMG_BAKE_WEIGHTS" = "true" ]; then \
 
 # Admin credentials are NOT baked into the image (plan §21): on first start the
 # app reads FIXIMG_ADMIN_PASSWORD when provided, otherwise it generates a random
-# one-time password, prints it once in the container log and stores it at
-# admin_data/initial_admin_password.txt (mode 0600). Change it immediately.
+# one-time password and stores it at admin_data/initial_admin_password.txt
+# (mode 0600). Outside production it is also printed once to stdout for a local
+# first boot; in production the log names that file instead of the secret.
+# Change it immediately.
 
 # The JSON API (/api/v1/*) is bearer-token protected: set FIXIMG_API_TOKEN to
 # pin the token at deploy time, otherwise the app generates one on first start,

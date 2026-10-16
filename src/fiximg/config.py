@@ -203,7 +203,7 @@ class Settings:
         # --- Security bootstrap (plan §21) ---
         # Set FIXIMG_ADMIN_PASSWORD to inject the initial admin password via the
         # deployment (Docker secret / compose env). Leave unset to get a random
-        # one-time password printed once on first boot. "false" disables the
+        # one-time password, printed once on first boot outside production.
         # bootstrap entirely (e.g. accounts provisioned by an external IdP).
         self.admin_username: str = _env("FIXIMG_ADMIN_USERNAME", "admin")
         self.auto_bootstrap_admin: bool = _env_bool("FIXIMG_AUTO_BOOTSTRAP_ADMIN", True)

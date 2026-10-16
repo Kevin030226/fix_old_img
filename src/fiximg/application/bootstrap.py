@@ -6,9 +6,11 @@ into the image. Policy:
   - FIXIMG_ADMIN_PASSWORD set  -> create 'admin' with exactly that password
     (one-time password injected by the deployment, e.g. a Docker secret).
   - not set                    -> generate a random 16-char password, create
-    'admin' with it, print it ONCE to stdout, and write it to
-    admin_data/initial_admin_password.txt (mode 0600). The operator must read
-    it from the container log on first boot and change it afterwards.
+    'admin' with it, and write it to admin_data/initial_admin_password.txt
+    (mode 0600). Outside production it is also printed ONCE to stdout, so a
+    local/demo boot needs no volume; in production the secret stays out of the
+    logs and the banner names the file to read instead. Either way the operator
+    must change it afterwards.
 
 Plan section 21 "force change": the randomly-generated account is created
 with must_change_password=1 — the Gradio login then keeps prompting the user
@@ -49,14 +51,25 @@ def _generate_password(length: int = _PASSWORD_LENGTH) -> str:
 
 
 def _print_once(password: str) -> None:
-    """Emit the one-time password on stdout (container logs) and persist it 0600."""
+    """Persist the one-time password 0600, and print it only outside production.
+
+    Printing it is what makes a local/demo first boot usable without a file
+    volume, and it is asserted by the bootstrap tests. In production the same
+    banner would copy a live admin credential into whatever collects container
+    stdout -- log shippers, `docker logs`, a CI transcript -- which is the leak
+    the 0600 file exists to avoid. There the operator reads the file instead;
+    the path is still announced so the credential is findable.
+    """
+    path = _password_file()
+    # The credential itself is withheld in production; the path still names where
+    # it was written, so the operator can read it without a secret in the logs.
+    shown = f"(not printed in production) see {path}" if settings.is_production else password
     print("=" * 64)
     print("[Bootstrap] First start: generated initial admin credentials")
     print(f"[Bootstrap]   username: {_admin_username()}")
-    print(f"[Bootstrap]   password: {password}")
+    print(f"[Bootstrap]   password: {shown}")
     print("[Bootstrap] Please log in and change this password immediately.")
     print("=" * 64)
-    path = _password_file()
     try:
         fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
         with os.fdopen(fd, "w", encoding="utf-8") as f:

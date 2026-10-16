@@ -1,7 +1,7 @@
 {
   "algorithm": "sha256",
-  "generated_at": "2026-09-24T16:02:33.669248+00:00",
-  "file_count": 26,
+  "generated_at": "2026-10-15T13:49:37.036481+00:00",
+  "file_count": 29,
   "files": [
     {
       "path": "Face_Detection/shape_predictor_68_face_landmarks.dat",
@@ -88,6 +88,13 @@
       "version": "1.0"
     },
     {
+      "path": "Global/checkpoints/restoration/mapping_scratch/latest_optimizer_mapping_net.pth",
+      "sha256": "4ab84a0aacb687cb6fe35870bca2b27201a8a34ed1f753c1e0c8eba0865e278e",
+      "size_bytes": 410776011,
+      "artifact": "global_restore",
+      "version": "1.0"
+    },
+    {
       "path": "Global/checkpoints/restoration/VAE_A_quality/latest_net_D.pth",
       "sha256": "9dc693d9430cdf62e6a2a0e140625ad43426e43b38302afab2720561e61629df",
       "size_bytes": 22121817,
@@ -140,6 +147,20 @@
       "path": "Global/checkpoints/restoration/VAE_B_quality/latest_net_G.pth",
       "sha256": "0e40d6ea7acf27f1420abd29197086c21d0c2a7b8fe98a9e09c60a339457a830",
       "size_bytes": 3498887,
+      "artifact": "global_restore",
+      "version": "1.0"
+    },
+    {
+      "path": "Global/checkpoints/restoration/VAE_B_quality/latest_optimizer_D.pth",
+      "sha256": "5d60fc7c0a6f5dfeaa2a98b4afb59a552ea41cc370c260ac640d12a7b64d71cc",
+      "size_bytes": 44241647,
+      "artifact": "global_restore",
+      "version": "1.0"
+    },
+    {
+      "path": "Global/checkpoints/restoration/VAE_B_quality/latest_optimizer_G.pth",
+      "sha256": "603e46ce9aec73a0e385b90d3410cedfe5dcd3256ee4f7b12e1f6eee6d894fb3",
+      "size_bytes": 6990137,
       "artifact": "global_restore",
       "version": "1.0"
     },

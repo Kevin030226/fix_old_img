@@ -117,8 +117,25 @@ def compute_sha256(path: str) -> str:
     return h.hexdigest()
 
 
+#: Files that exist only to keep an otherwise empty directory in version control.
+#: They must not be mistaken for artifact content: the checkout ships the
+#: checkpoint trees with a `.gitkeep` inside, and counting one as "the artifact is
+#: here" would skip the download it is meant to trigger.
+PLACEHOLDER_NAMES = (".gitkeep", ".gitignore")
+
+
 def _file_complete(path: str) -> bool:
-    return os.path.isdir(path) or os.path.isfile(path)
+    """Whether a path listed in ``files`` is actually present.
+
+    A directory counts only when it holds something other than a placeholder. The
+    checkout ships the checkpoint directories empty (``Face_Enhancement/checkpoints``,
+    ``Global/checkpoints``), and treating "the directory exists" as "the artifact
+    is complete" made ``download_all`` skip both zip artifacts on a fresh clone --
+    the entire restoration stack, silently, while reporting success.
+    """
+    if os.path.isdir(path):
+        return any(name not in PLACEHOLDER_NAMES for name in os.listdir(path))
+    return os.path.isfile(path)
 
 
 def _remote_size(url: str) -> int | None:
@@ -195,8 +212,11 @@ def download_all(skip_existing: bool = True) -> dict:
     """
     summary: dict = {}
     for name, spec in ARTIFACTS.items():
-        anchor = os.path.join(BASE_DIR, spec["files"][0])
-        if skip_existing and _file_complete(anchor):
+        # Every path the artifact promises, not just the anchor: an artifact whose
+        # anchor is a directory is only complete when that directory is populated.
+        if skip_existing and all(
+            _file_complete(os.path.join(BASE_DIR, rel)) for rel in spec["files"]
+        ):
             summary[name] = "skipped (exists)"
             continue
         if spec["kind"] == "raw":
