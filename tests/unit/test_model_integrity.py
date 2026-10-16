@@ -45,6 +45,14 @@ def sandbox(tmp_path, monkeypatch):
     (root / "checkpoints" / "detection" / "ft.pt").write_bytes(b"detector")
 
     monkeypatch.setattr(manifest_module, "PROJECT_ROOT", str(root))
+    # `_discover()` walks `weights_check.BASE_DIR`, NOT the manifest module's
+    # PROJECT_ROOT. Two tests below plant decoy files and then delete them, and
+    # one of them writes to ``weights/ddcolor/pytorch_model.pt`` -- the real
+    # checkout's path. Without this redirection that write lands on the actual
+    # 869 MB DDColor weight and the cleanup unlinks it: running the suite on a
+    # machine that *has* the weights destroys them, while CI (which has none)
+    # passes. Observed exactly once, on 2026-10-16.
+    monkeypatch.setattr(weights_check, "BASE_DIR", str(root))
 
     baseline = {
         "algorithm": "sha256",
