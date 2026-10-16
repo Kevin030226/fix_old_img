@@ -1,0 +1,71 @@
+{
+  "name": "FixOldImg Accessibility Tests",
+  "version": "1.0.0",
+  "description": "Accessibility testing configuration for the FixOldImg project",
+  
+  "rules": {
+    "contrast": {
+      "enabled": true,
+      "min_ratio_normal": 4.5,
+      "min_ratio_large": 3.0,
+      "severity": "critical"
+    },
+    "touch_targets": {
+      "enabled": true,
+      "min_size": 44,
+      "severity": "warning"
+    },
+    "focus_states": {
+      "enabled": true,
+      "require_focus_visible": true,
+      "severity": "warning"
+    },
+    "reduced_motion": {
+      "enabled": true,
+      "severity": "info"
+    },
+    "token_usage": {
+      "enabled": true,
+      "check_hardcoded_colors": true,
+      "check_hardcoded_spacing": true,
+      "severity": "info"
+    },
+    "form_labels": {
+      "enabled": true,
+      "require_aria_label": true,
+      "severity": "warning"
+    }
+  },
+  
+  "files": {
+    "include": [
+      "**/*.html",
+      "**/*.css",
+      "main.py"
+    ],
+    "exclude": [
+      "node_modules/**",
+      ".git/**",
+      "**/test_*.py",
+      "**/*_test.py",
+      "**/basicsr/**",
+      "**/ddcolor/**",
+      "**/Face_Enhancement/**",
+      "**/Face_Detection/**",
+      "**/Global/**",
+      "assets/design-tokens.css"
+    ]
+  },
+  
+  "thresholds": {
+    "critical": 0,
+    "warning": 10,
+    "info": 50
+  },
+  
+  "output": {
+    "format": "text",
+    "verbose": false,
+    "show_suggestions": true
+  }
+}
