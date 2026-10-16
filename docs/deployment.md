@@ -763,7 +763,7 @@ its own environment — `requirements.lock` carries
 
 | Tier | Where it runs | What is red |
 |---|---|---|
-| Lock portability | anywhere | a pin another machine cannot install (`torch @ file:///D:/...`) |
+| Lock portability | anywhere | a pin another machine cannot install (`torch @ file:///<local>/...`) |
 | Pin agreement | anywhere | a line in a group file that is not `name==version`, or differs from the lock |
 | Closure re-derivation | only in the frozen environment, and only for groups whose roots are installed | the file is not what that environment produces; a declared root that the environment does not provide |
 
@@ -774,8 +774,8 @@ that merely had a different Python.
 
 ### Why the freeze is not `pip freeze > requirements.lock`
 
-`pip freeze` writes `dlib @ file:///C:/bld/dlib-split_.../work` and
-`torch @ file:///D:/Soft/fixoldimg_wheels/torch-2.7.1+cu128-...whl` for anything
+`pip freeze` writes `dlib @ file:///<local>/dlib-split_.../work` and
+`torch @ file:///<local>/torch-2.7.1+cu128-...whl` for anything
 installed from a conda build or a local wheel. Those paths exist only on the
 machine that produced them, and the splitter copied them into
 `requirements/gpu.txt` — so the documented GPU install could not run anywhere

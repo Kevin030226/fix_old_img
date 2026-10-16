@@ -1195,8 +1195,8 @@ gradio 6.22 / SQLAlchemy+psycopg+redis+boto3）里跑同一套门禁，出现 5 
 ### §3.12 锁定审计的三个真问题
 
 1. **`requirements/gpu.txt` 装不上**：文档里"安装 GPU 栈"就是这一条命令，而它把
-   torch / torchvision / dlib 钉成 `file:///D:/Soft/fixoldimg_wheels/torch-2.7.1+cu128-...whl`
-   和 `file:///C:/bld/dlib-split_.../work` —— 只存在于生成它的那台机器的路径。
+   torch / torchvision / dlib 钉成 `file:///<local>/torch-2.7.1+cu128-...whl`
+   和 `file:///<local>/dlib-split_.../work` —— 只存在于生成它的那台机器的路径。
    根因是 `pip freeze` 对本地 wheel / conda build 就输出 direct-url，而分组生成器
    把锁里的整行原样抄走。
 2. **门禁自己造输入**：`test_export_reports_groups` 用无参方式调生成器，等于每跑一次
@@ -1415,11 +1415,11 @@ alembic 修订——正是 `make db-check` 该在部署脚本里挡住的那类�
 
 | 项 | 现象（实测） | 处理 |
 |---|---|---|
-| **独立 worker 不读数据库 URL** | API 进程经 `create_app()` 调 `apply_database_url()`，`cli/worker.py` 只调 `init_db()`。设了 `FIXIMG_DATABASE_URL` 之后，worker 自己打印 `db=E:\...\admin_data\fixoldimg.db` —— 它开的是默认 SQLite，而 API 写的是另一个库。compose 与所有文档里的分体拓扑都会踩：任务永远 queued，两个进程都"健康" | `prepare_database()`：`apply_database_url()` → `init_db()` → `ensure_schema()`，并把 `(kind, target)` 打进就绪日志。用变异确认：删掉那一行，测试报 "the engine itself was never relocated" |
+| **独立 worker 不读数据库 URL** | API 进程经 `create_app()` 调 `apply_database_url()`，`cli/worker.py` 只调 `init_db()`。设了 `FIXIMG_DATABASE_URL` 之后，worker 自己打印 `db=...\admin_data\fixoldimg.db` —— 它开的是默认 SQLite，而 API 写的是另一个库。compose 与所有文档里的分体拓扑都会踩：任务永远 queued，两个进程都"健康" | `prepare_database()`：`apply_database_url()` → `init_db()` → `ensure_schema()`，并把 `(kind, target)` 打进就绪日志。用变异确认：删掉那一行，测试报 "the engine itself was never relocated" |
 | GPU 峰值三处对不上 | 同一次运行里 stage 报 334.8 MB，`GET /stats` 报 146.3 MB。根因是 `MemorySampler` 每 stage `reset_peak_memory_stats()`，而 stats/model_manager 直接读那个"自上次 reset 以来"的计数器 | `gpu_memory` 维护一份不会被 reset 清掉的进程级 high-water（进 window 前、出 window 后各折一次）；`/stats` 再折入**其它进程**持久化下来的 stage 值（分体拓扑下 API 进程自己量到 0.0）。4 条测试 + 3 处变异各自变红 |
 | `artifacts.model_version` 全是 NULL | 列存在、API 也透出，但没有任何写入者 | `_run_plan` 记录每个 stage 写了哪些 kind，写行时填 `<stage>@<version>`（取后端 load 后报告的版本，不是 manifest 声明值）。e2e 断言 + 变异（把参数改回 `None`）变红 |
 | `stage_order` 在 HTTP 响应里消失 | 数据库有 0..3，聚合 SQL 的 `json_object` 列表没带上它，`StageView` 也就没有 | 聚合与视图都补上；e2e 断言 `[0,1,2,3]`。顺带发现 `list_tasks` 与 `get_task` 两份聚合必须同时改，否则分页视图又少一列 |
-| `/artifacts` 把服务器绝对路径发到线上 | `uri` = `C:\Users\...\storage\tasks\2026\09\<id>\output\final.png`，而 `ArtifactView` 的 docstring 写着"绝不含裸路径" | 视图层改为 store key / 相对 tasks_root 的 key 形状（正斜杠），远端 store 时仍是对象键；docstring 改为真话。变异（直接返回 path）变红 |
+| `/artifacts` 把服务器绝对路径发到线上 | `uri` = `<tasks_root>/2026/09/<id>/output/final.png`（形如 `C:\Users\...`），而 `ArtifactView` 的 docstring 写着"绝不含裸路径" | 视图层改为 store key / 相对 tasks_root 的 key 形状（正斜杠），远端 store 时仍是对象键；docstring 改为真话。变异（直接返回 path）变红 |
 | ArtifactKind 两个方向都漏 | 真实运行落库 5 种 kind，其中 `faces_dir`/`final`/`result`/`each_img_dir` **未声明**；而 `colorized`/`report` 声明了却无人写——原来那条"枚举成员必须可达"的门禁靠 metadata 键名和进度文案把它们判成了活的 | 补齐 4 个成员、删掉 2 个装饰成员，并加一条 AST 双向门禁（`add_artifact` 第二参 + 任意 `artifacts={...}` 字面量键）。两个方向各用一次变异证明会红 |
 | 事件词汇表只单向门禁 | `task.rejected`、`stage.retried` 由生产代码写库，`EventType` 里没有，文档里也没有；反过来文档曾列过没人发的事件名 | 补 2 个成员；文档按"是否带 task_id"区分可流式与仅审计（`task.rejected` 落在无 task 行的拒绝路径，客户端看到的是 HTTP 503 `QUEUE_FULL`）；新增双向门禁，4 次变异全红 |
 | `worker_max_queue` 零覆盖 | 队列饱和这条路径没有任何测试，"拒绝"到底拒到什么程度无人知晓 | 新增集成测试：拒绝后不得留下 tasks 行、不得留下产物目录、不得占队列槽位、`enqueue` 必须抛 503。**其中一条断言最初是假的**：我按 `tasks_root/<id>` 手写路径，而 `create_run_dir` 实际用 `tasks_root/<y>/<m>/<id>`，变异（把目录创建挪到检查之前）测不红；改成布局无关的扫描后才红 |

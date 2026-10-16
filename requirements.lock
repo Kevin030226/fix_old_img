@@ -7,11 +7,11 @@
 # installable on a machine that does not have those paths.
 # Frozen-environment: python 3.11 / win32
 #
-#   dlib==20.0.1 came from file:///C:/bld/dlib-split_1774832457722/work
-#   pip==26.1.2 came from file:///home/task_178229373358736/croot/pip_1782293756958/work
-#   torch==2.7.1+cu128 came from file:///D:/Soft/fixoldimg_wheels/torch-2.7.1%2Bcu128-cp311-cp311-win_amd64.whl
-#   torchaudio==2.7.1+cu128 came from file:///D:/Soft/fixoldimg_wheels/torchaudio-2.7.1%2Bcu128-cp311-cp311-win_amd64.whl
-#   torchvision==0.22.1+cu128 came from file:///D:/Soft/fixoldimg_wheels/torchvision-0.22.1%2Bcu128-cp311-cp311-win_amd64.whl
+#   dlib==20.0.1 came from file:///<local>/dlib-split_1774832457722/work
+#   pip==26.1.2 came from file:///<local>/pip_1782293756958/work
+#   torch==2.7.1+cu128 came from file:///<local>/torch-2.7.1%2Bcu128-cp311-cp311-win_amd64.whl
+#   torchaudio==2.7.1+cu128 came from file:///<local>/torchaudio-2.7.1%2Bcu128-cp311-cp311-win_amd64.whl
+#   torchvision==0.22.1+cu128 came from file:///<local>/torchvision-0.22.1%2Bcu128-cp311-cp311-win_amd64.whl
 aiofiles==23.2.1
 alembic==1.20.0
 annotated-doc==0.0.4

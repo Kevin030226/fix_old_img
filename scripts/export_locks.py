@@ -61,6 +61,7 @@ import json
 import os
 import sys
 from importlib.metadata import PackageNotFoundError, distribution, requires
+from urllib.parse import urlsplit
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DEFAULT_OUTPUT_DIR = os.path.join(PROJECT_ROOT, "requirements")
@@ -150,9 +151,9 @@ def lock_env_tag(path: str | None = None) -> str | None:
 def portability_problems(lines: list[str]) -> list[str]:
     """Lock lines another machine cannot install.
 
-    ``pip freeze`` emits ``torch @ file:///D:/Soft/fixoldimg_wheels/torch.whl`` for
-    anything installed from a local wheel or a conda build, and those paths exist
-    only on the machine that produced the freeze. Left in, they are copied into
+    ``pip freeze`` emits ``torch @ file:///<local>/torch.whl`` for anything
+    installed from a local wheel or a conda build, and those paths exist only on
+    the machine that produced the freeze. Left in, they are copied into
     ``requirements/gpu.txt`` and make the documented GPU install fail outright.
     """
     return [line for line in lines if "==" not in line]
@@ -261,6 +262,30 @@ def _require_frozen_environment() -> str:
     return tag
 
 
+LOCAL_SOURCE = "<local>"
+
+
+def _portable_source(url: str) -> str:
+    """A local install source with this machine's directories removed.
+
+    ``pip freeze`` records where a wheel came from, and for anything installed off
+    disk that is an absolute path on one machine: a wheel folder under a drive
+    letter, or a conda build record under ``/home/<account>/croot/``. The pin above
+    it is a plain ``name==version`` that installs anywhere, so the directory is
+    provenance and nothing else -- and publishing it put one machine's layout in
+    every release. Keep the artifact's own name (the file name, or the last two
+    segments when the source is a build directory) and write the root as
+    ``<local>``.
+    """
+    segments = [part for part in urlsplit(url).path.split("/") if part]
+    if not segments:
+        return f"file:///{LOCAL_SOURCE}"
+    tail = segments[-1]
+    if "." not in tail and len(segments) >= 2:
+        tail = f"{segments[-2]}/{tail}"
+    return f"file:///{LOCAL_SOURCE}/{tail}"
+
+
 def freeze() -> int:
     """Write ``requirements.lock`` from this interpreter, as installable pins."""
     from importlib.metadata import distributions
@@ -287,7 +312,8 @@ def freeze() -> int:
                 continue  # the project itself, as `pip freeze --exclude-editable` does
             url = str(info.get("url", ""))
             if url.startswith("file:") or url.startswith("/"):
-                provenance.append(f"#   {name}=={dist.version} came from {url}")
+                source = _portable_source(url)
+                provenance.append(f"#   {name}=={dist.version} came from {source}")
         pins[key] = (name, dist.version)
 
     header = LOCK_HEADER.format(tag=env_tag())
