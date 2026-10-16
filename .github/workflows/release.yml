@@ -219,9 +219,24 @@ jobs:
       - name: Create the GitHub release
         if: needs.version.outputs.publish == 'true'
         run: |
+          # Every release before v3.0.0 was titled after its own tag, with the
+          # description carried in the tag annotation; v3.0.0 was the first to be
+          # created here and came out as "fiximg vX.Y.Z", which matched neither.
+          # Deriving the title from the annotation keeps the two in step without
+          # anyone having to remember the format.
+          #
+          # `%(contents:subject)` is only the tag message for an ANNOTATED tag;
+          # on a lightweight one it reports the commit subject, which would title
+          # the release after whatever commit the tag happens to point at.
+          if [ "$(git cat-file -t "$GITHUB_REF_NAME")" = tag ]; then
+            title=$(git tag -l --format='%(contents:subject)' "$GITHUB_REF_NAME")
+          else
+            title=$GITHUB_REF_NAME
+          fi
+          title=${title:-$GITHUB_REF_NAME}
           gh release create "$GITHUB_REF_NAME" \
             --target "$GITHUB_SHA" \
-            --title "fiximg $GITHUB_REF_NAME" \
+            --title "$title" \
             --notes-file notes.md \
             dist/*.whl dist/*.tar.gz dist/sha256sums.txt
         env:
