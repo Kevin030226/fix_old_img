@@ -16,6 +16,26 @@ Select the profile with `FIXIMG_PROFILE` (or `FIXIMG_ENV`), default `local`.
 | `docker` | `configs/docker.yaml` | API and worker as separate processes sharing a DB and artifact volume |
 | `production` | `configs/production.yaml` | Split topology, startup warmup, no auto-provisioned accounts, fail-fast validation |
 
+### When the configuration cannot be used, the process does not start
+
+A deployment whose profile is missing or unreadable must never come up on the
+development defaults: the failure is invisible at boot and shows up later as a
+retention window measured in the wrong units, GPU inference inside the API
+process, or an admin account nobody asked for. So these are startup errors:
+
+| situation | result |
+|---|---|
+| `FIXIMG_PROFILE`/`FIXIMG_ENV` names a profile whose file does not exist | `ProfileConfigurationError`, naming the path to create |
+| any `configs/*.yaml` that exists cannot be parsed | `ProfileConfigurationError`, naming the file, line and column |
+| a profile file is not a mapping (a list, a scalar, empty document) | `ProfileConfigurationError` |
+| a profile declares `database_url` | `ProfileConfigurationError` — see [Database URL](#database-url) |
+| `configs/base.yaml` is absent **and** the profile was not requested | allowed: a pip install ships no `configs/` tree and runs on the code defaults |
+| the default profile (`local`) is absent and nothing selected it | allowed: that is the development path |
+
+The last two rows are what keep a source checkout and a wheel install working
+without configuration; the first four are what stop a *deployment* from silently
+running on values nobody chose.
+
 ### What a production boot refuses
 
 `app_env=production` (set by `configs/production.yaml`) turns on fail-fast checks;
@@ -888,12 +908,39 @@ sqlite:///admin_data/fixoldimg.db        default
 postgresql://user:pw@host:5432/fiximg    needs pip install 'fiximg[postgres]'
 ```
 
-An empty value uses `admin_data/fixoldimg.db` under the project root. Only the
-environment variable relocates the database — the shipped profiles deliberately
-declare no `database_url`, so a `DB_PATH` set by a test or an embedder stays
-authoritative. A scheme with no driver (e.g. `mysql://`) raises
-`UnsupportedDatabaseError` rather than falling back to SQLite: a silent fallback
-would look like a successful switch while writing to the wrong database.
+An empty value uses `admin_data/fixoldimg.db` under the project root.
+
+**This is the only knob that moves the database, and it is environment-only.**
+It is surfaced as `settings.database_url` and read through
+`engine.configured_database_url()`; nothing else produces a URL. Declaring a
+`database_url` key in `configs/*.yaml` is a startup error rather than a value that
+looks effective and is ignored — a profile value would outrank the `DB_PATH` an
+isolation fixture or an embedder sets, which is how the test suite once ended up
+sharing one developer database.
+
+A scheme with no driver (e.g. `mysql://`) raises `UnsupportedDatabaseError` rather
+than falling back to SQLite: a silent fallback would look like a successful switch
+while writing to the wrong database.
+
+### Where the management files live
+
+The API token (`api_token.txt`) and the generated initial admin password
+(`initial_admin_password.txt`) are files, not database rows, but they belong with
+the data the deployment keeps:
+
+| database | management directory |
+|---|---|
+| default SQLite (`admin_data/fixoldimg.db`) | `admin_data/` |
+| SQLite moved with `FIXIMG_DATABASE_URL` | the directory of the configured file |
+| PostgreSQL | `admin_data/` under the project root — unchanged |
+
+The last row is deliberate. A server database has no filesystem path, so it does
+not get to decide where a local credential file lives; converting
+`postgresql://host/db` into a directory name would create a folder called
+`postgresql:` next to the application. `apply_database_url()` therefore rewrites
+`settings.db_path` **only** for a SQLite target, and both writers resolve their
+path through `settings.management_data_dir`, which is derived from `db_path` at
+read time.
 
 ## Plugins
 

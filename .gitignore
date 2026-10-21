@@ -84,3 +84,48 @@ test_images/gpu_smoke_*/
 test_images/detect_smoke_out/
 .gates/
 examples/bi_li_daxiao.py
+
+# ---------- Local pollution (P5: never commit) ----------
+# These names appear at the repository root when a path built from an unset
+# variable (`%SystemDrive%`, `~`) or an interrupted pip build is used as a
+# directory name. They are not project files, they carry the local absolute
+# paths they were built from, and they were physically moved out of the tree
+# in the P5 remediation -- these rules are the second line of defence, so a
+# future run cannot reintroduce them into a commit.
+#
+# Every rule is root-anchored (`/` prefix) on purpose: an unanchored `undefined`
+# or `~` would match a directory of that name at any depth and silently exclude
+# legitimate source. Anchoring is what keeps this list from becoming the same
+# class of defect as the unanchored `storage/` rule that once excluded
+# src/fiximg/infrastructure/storage/.
+/%SystemDrive%/
+/undefined/
+/~/
+/pip-build-env-*/
+/pip-build-tracker-*/
+/pip-ephem-wheel-cache-*/
+/pip-install-*/
+
+# ---------- Execution evidence (P5: local only, never published) ----------
+# reports/ is tracked deliberately: the audit reports are project history and
+# are published once they pass the redaction gate. The evidence/ subtree is the
+# opposite -- raw machine output. JUnit XML carries the runner's hostname, the
+# pytest logs carry the absolute interpreter path, and neither is worth
+# publishing. The trivy_*.txt and modified_hashes.json files under evidence/
+# are clean and stay committable, so this block names the extensions, not the
+# directory.
+/reports/evidence/*.xml
+/reports/evidence/*.log
+
+# Any JUnit / coverage output that escapes the evidence directory.
+junit.xml
+junit-*.xml
+coverage.xml
+.coverage
+.coverage.*
+htmlcov/
+
+# ---------- Local quarantine (P5) ----------
+# The remediation moved local pollution to a sibling of the project root. If a
+# quarantine is ever created inside the tree by mistake, this keeps it out.
+/publication_quarantine_*/
