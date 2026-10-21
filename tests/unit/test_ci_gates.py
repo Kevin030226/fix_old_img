@@ -313,3 +313,91 @@ def test_referenced_ignore_files_exist():
                 if not os.path.exists(os.path.join(PROJECT_ROOT, str(value))):
                     missing.append(f"{job_id}/{step.get('name') or '?'}: {value}")
     assert not missing, f"CI references ignore files that are not committed: {missing}"
+
+
+# --------------------------------------------------------------- image matrix
+#: Every container image CI is required to build, smoke-test and scan.
+REQUIRED_IMAGES = {"api", "worker", "root"}
+
+
+def _docker_job():
+    """The `docker` job document, or None when the workflow moved it elsewhere."""
+    import yaml
+
+    with open(os.path.join(WORKFLOWS, "ci.yml"), encoding="utf-8") as handle:
+        document = yaml.safe_load(handle)
+    return (document.get("jobs") or {}).get("docker")
+
+
+def test_the_docker_job_is_a_matrix_over_every_image():
+    """One runner cannot hold three images, so each gets its own shard.
+
+    A standard `ubuntu-latest` runner has 14 GB of SSD and one worker/root image
+    needs ~19 GB transient to build (11.4 GB rootfs + 7.4 GB cuda base). Building
+    all three in one job therefore cannot succeed; it fails at the second build
+    after paying for the first. This asserts the matrix that replaced it still
+    names every image exactly once, and that the job keeps its id so nothing
+    downstream has to know the topology changed.
+    """
+    job = _docker_job()
+    assert job is not None, "the docker job is gone; image verification disappeared with it"
+    matrix = (job.get("strategy") or {}).get("matrix") or {}
+    include = matrix.get("include") or []
+    assert include, "the docker job is no longer a matrix; three images do not fit in one runner"
+
+    images = [entry.get("image") for entry in include]
+    assert set(images) == REQUIRED_IMAGES, (
+        f"the matrix covers {sorted(images)}, expected {sorted(REQUIRED_IMAGES)}"
+    )
+    assert len(images) == len(REQUIRED_IMAGES), f"duplicate matrix entries: {images}"
+    for entry in include:
+        for key in ("image", "dockerfile", "trivy_timeout"):
+            assert entry.get(key), f"matrix entry {entry} is missing {key!r}"
+
+
+def test_every_image_is_guarded_by_its_own_smoke_step():
+    """A matrix entry without a guard is an image that is built and never run."""
+    job = _docker_job()
+    assert job is not None
+    steps = job.get("steps") or []
+    for image in sorted(REQUIRED_IMAGES):
+        guards = [
+            step for step in steps
+            if f"matrix.image == '{image}'" in str(step.get("if", ""))
+        ]
+        assert guards, f"no step is guarded for image {image!r}; it is built but never exercised"
+
+
+def test_the_scan_is_parameterised_over_the_matrix():
+    """A hard-coded `image-ref` would scan one image three times."""
+    job = _docker_job()
+    assert job is not None
+    scans = [
+        step for step in (job.get("steps") or [])
+        if "trivy" in str(step.get("uses", "")).lower()
+    ]
+    assert scans, "the docker job no longer scans anything"
+    for scan in scans:
+        ref = str((scan.get("with") or {}).get("image-ref", ""))
+        assert "matrix.image" in ref, (
+            f"the scan targets {ref!r}; a fixed reference means the other images are never scanned"
+        )
+
+
+def test_compose_validation_runs_once_outside_the_matrix():
+    """Topology is not per-image; validating it three times hides nothing."""
+    import yaml
+
+    with open(os.path.join(WORKFLOWS, "ci.yml"), encoding="utf-8") as handle:
+        document = yaml.safe_load(handle)
+    jobs = document.get("jobs") or {}
+    compose_jobs = [
+        (job_id, job) for job_id, job in jobs.items()
+        if any("compose" in (step.get("run") or "") and "config" in (step.get("run") or "")
+               for step in job.get("steps") or [])
+    ]
+    assert compose_jobs, "no job validates the compose files"
+    for job_id, job in compose_jobs:
+        assert "strategy" not in job, (
+            f"job {job_id} runs compose validation inside a matrix; it is not a per-image check"
+        )
