@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "fiximg"
-version = "3.1.0"
+version = "3.1.1"
 description = "Old photo restoration, scratch repair and colorization platform (V3)"
 readme = "README.md"
 requires-python = ">=3.11"
