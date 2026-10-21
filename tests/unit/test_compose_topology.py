@@ -322,14 +322,50 @@ def _dockerfile_instructions(path: str) -> list[str]:
     return instructions
 
 
-#: A transport name, and what a compose file says to set to select it. The set is
-#: scraped from the deployment declarations rather than listed here: an image that
-#: cannot reach a backend the document offers is the bug, so the document is the source.
+#: A transport name, and what a compose file says to select it. The set is scraped
+#: from the deployment declarations rather than listed here: an image that cannot
+#: reach a backend its own topology offers is the bug, so the declaration is the
+#: source.
+#:
+#: Each transport matches either spelling an operator is given: the URL form in the
+#: `platform` profile, or the `FIXIMG_*=` selector a compose file names in prose
+#: ("set FIXIMG_QUEUE_BACKEND=redis together with FIXIMG_REDIS_URL"). The prose
+#: spelling matters: `docker-compose.yml` offers Redis that way and builds the
+#: root image, which is exactly the pairing that was missed.
 TRANSPORT_SELECTORS = {
-    "postgres": ("postgresql+psycopg://",),
-    "redis": ("redis://",),
+    "postgres": ("postgresql+psycopg://", "FIXIMG_DATABASE_URL=postgresql"),
+    "redis": ("redis://", "FIXIMG_QUEUE_BACKEND=redis"),
     "s3": ("FIXIMG_STORAGE_BACKEND=s3",),
 }
+
+
+def _build_spec(path: str, service: dict) -> tuple[str, str] | None:
+    """The ``(context, dockerfile)`` a service builds, or None if it builds nothing.
+
+    Compose accepts two spellings and Docker treats them identically::
+
+        build: .                                  # short form
+        build: {context: ., dockerfile: Dockerfile}   # long form
+
+    Only the long form was understood here, so `docker-compose.yml` -- the file
+    that builds the **root** Dockerfile with `build: .` -- contributed no builders
+    and the transport gate below skipped the very image whose missing drivers
+    were the reported defect: an image can only be held to a topology that the
+    scanner can see it built by. Normalising the short form is what puts the root
+    image inside the check rather than adding a second, weaker one beside it.
+    """
+    raw = (service or {}).get("build")
+    if raw is None:
+        return None
+    if isinstance(raw, str):
+        build: dict = {"context": raw}
+    elif isinstance(raw, dict):
+        build = raw
+    else:
+        return None
+    relative = build.get("dockerfile") or "Dockerfile"
+    context = os.path.join(os.path.dirname(path), build.get("context") or ".")
+    return context, relative
 
 
 def _compose_files_building(dockerfile: str) -> list[str]:
@@ -338,11 +374,10 @@ def _compose_files_building(dockerfile: str) -> list[str]:
     builders: list[str] = []
     for path, document in _documents():
         for service in (document.get("services") or {}).values():
-            build = (service or {}).get("build")
-            if not isinstance(build, dict):
+            spec = _build_spec(path, service or {})
+            if spec is None:
                 continue
-            relative = build.get("dockerfile") or "Dockerfile"
-            context = os.path.join(os.path.dirname(path), build.get("context") or ".")
+            context, relative = spec
             if os.path.normpath(os.path.join(context, relative)) == target:
                 builders.append(path)
                 break

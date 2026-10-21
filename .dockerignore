@@ -26,6 +26,18 @@ admin_data
 storage
 output
 weights
+# Model weights are distributed separately (see .gitignore) and must never be
+# baked into an image. These patterns need the `**/` prefix: a bare `*.pt`
+# anchors to the context root in Docker's ignore syntax, so it excluded nothing
+# under Global/checkpoints/ or Face_Enhancement/checkpoints/ and both trees were
+# copied into the worker image (measured: 2.1 GB + 704 MB of .pt/.pth inside
+# fiximg-worker:ci). The root-anchored forms are kept for files that really do
+# sit at the top level.
+**/*.pth
+**/*.pt
+**/*.dat
+**/*.ckpt
+**/*.onnx
 *.pth
 *.pt
 *.dat
@@ -54,4 +66,34 @@ test_images/detect_smoke_out
 # from git would delete the project's only evidence that any of this works.
 tests
 docs
+# Working directories, not source. `_audit/` holds the local scan ledgers and
+# scratch probes, `reports/` the generated audit reports; both are produced
+# beside the project and change on every session, so baking them into a
+# published image ships review notes nobody outside this checkout can act on.
+# They are listed here rather than in .gitignore because they are evidence of
+# work done, not build inputs.
+_audit
+reports
 
+
+# ---------- Local pollution (P5) ----------
+# The root Dockerfile builds with `COPY . /app`, so anything left in the context
+# ends up in the published image. These names appear at the repository root when
+# a path built from an unset variable (`%SystemDrive%`, `~`) or an interrupted pip
+# build is used as a directory name; they were moved out of the tree in the P5
+# remediation and these patterns keep a future run from baking them back in.
+#
+# Docker's ignore syntax anchors a pattern to the context root only with a
+# leading slash or an explicit `**/`. These are written root-anchored so a
+# legitimate directory that happens to share the name deeper in the tree is not
+# silently dropped from the build context.
+/%SystemDrive%
+/undefined
+/~
+/pip-build-env-*
+/pip-build-tracker-*
+/pip-ephem-wheel-cache-*
+/pip-install-*
+
+# A quarantine accidentally created inside the tree must never be shipped.
+/publication_quarantine_*

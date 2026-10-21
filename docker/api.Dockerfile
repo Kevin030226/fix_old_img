@@ -6,7 +6,11 @@
 #
 #   docker build -f docker/api.Dockerfile -t fiximg-api .
 #   docker run -p 9502:9502 -e FIXIMG_INLINE_WORKER=false fiximg-api
-FROM python:3.11-slim-bookworm
+# Base image as an ARG for the same reason as the root Dockerfile: the default is
+# the official name CI resolves, and a build behind a pull-through mirror or in an
+# air-gapped registry can point at its own copy without editing this file.
+ARG PYTHON_BASE_IMAGE=python:3.11-slim-bookworm
+FROM ${PYTHON_BASE_IMAGE}
 
 ENV DEBIAN_FRONTEND=noninteractive \
     PYTHONUNBUFFERED=1 \
