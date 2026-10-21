@@ -570,3 +570,64 @@ def test_submit_survives_a_dead_transport_without_losing_the_row(
     assert _submit("pub-2", tmp_path, monkeypatch, backend) is True
     assert repo.queued_count() == 1, "the task is queued in the database"
     assert repo.claim_next_task("w-2")["id"] == "pub-2", "and still claimable"
+
+
+# ------------------------------------------- client timeouts vs blocking reads
+def test_socket_timeout_exceeds_the_blocking_read_it_wraps(monkeypatch):
+    """`socket_timeout` must outlast the `XREADGROUP ... BLOCK` it wraps.
+
+    Found by running the worker against a real redis:7 with
+    `FIXIMG_QUEUE_BACKEND=redis`. `claim()` blocks server-side for 1000 ms
+    waiting for the next stream entry. With `socket_timeout=1.0` the client's
+    socket deadline expired at the same instant the reply was due, so every
+    poll raised `TimeoutError` and the worker logged, forever:
+
+        {"logger": "fiximg.queue.redis", "message": "redis claim failed",
+         "error": "Timeout reading from socket"}
+
+    while the task row sat `queued` in PostgreSQL and was never claimed.
+    Nothing failed, nothing crashed -- the queue simply never delivered.
+
+    This asserts the *relationship*, not the number, so tuning either value
+    keeps the two consistent.
+    """
+    import inspect
+    import re
+
+    import fiximg.config as config_mod
+    import fiximg.infrastructure.queue.redis as redis_module
+
+    captured: dict[str, object] = {}
+
+    class _StubRedis:
+        @classmethod
+        def from_url(cls, url, **kwargs):
+            captured.update(kwargs)
+            return cls()
+
+        def xgroup_create(self, *_args, **_kwargs):
+            return True
+
+    monkeypatch.setattr(redis_module.redis, "Redis", _StubRedis)
+    monkeypatch.setattr(config_mod.settings, "queue_backend", "redis")
+    monkeypatch.setattr(config_mod.settings, "redis_url", "redis://localhost:6379/0")
+    redis_module.build_redis_queue_from_settings(config_mod.settings)
+
+    socket_timeout = captured.get("socket_timeout")
+    assert socket_timeout is not None, (
+        "no socket_timeout is passed, so a dead server can hang the poll loop"
+    )
+
+    # The block value lives in `claim()`; read it from the source so this test
+    # cannot drift away from the call it is about.
+    source = inspect.getsource(redis_module.RedisQueueBackend.claim)
+    match = re.search(r"block=(\d+)", source)
+    assert match, "claim() no longer passes an explicit BLOCK to XREADGROUP"
+    block_seconds = int(match.group(1)) / 1000.0
+
+    assert float(socket_timeout) > block_seconds, (
+        f"socket_timeout={socket_timeout}s does not exceed the "
+        f"{block_seconds}s blocking read in claim(): the socket deadline expires "
+        "before (or exactly as) the reply arrives, so every poll raises "
+        "TimeoutError and no task is ever claimed"
+    )

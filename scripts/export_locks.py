@@ -393,6 +393,28 @@ def _file_pins(path: str) -> list[str]:
                 if line.strip() and not line.strip().startswith("#")]
 
 
+def markers_are_trustworthy() -> bool:
+    """Whether this interpreter can evaluate environment markers at all.
+
+    ``_spec_name_and_scope`` decides membership from markers like
+    ``hf-xet; platform_machine == "AMD64"``. ``platform.machine()`` is populated
+    from ``PROCESSOR_ARCHITECTURE`` on Windows, and that variable is absent from
+    stripped environments (some CI runners, sandboxes, and any process whose
+    environment was rebuilt rather than inherited). It then returns ``""``, every
+    ``platform_machine`` marker is false, and the closure silently loses those
+    packages -- which ``--check`` reported as "out of date: gpu" and then told the
+    operator to run ``--freeze``. Following that advice would have rewritten a
+    correct lock from a broken environment.
+
+    An empty ``platform_machine`` is the signal, because a real machine always
+    reports one; when it is empty the closure is not comparable and the check
+    must say so instead of inventing a difference.
+    """
+    from packaging.markers import default_environment
+
+    return bool((default_environment().get("platform_machine") or "").strip())
+
+
 def check(target_dir: str | None = None) -> int:
     """Verify the generated files; returns a process exit code.
 
@@ -420,7 +442,8 @@ def check(target_dir: str | None = None) -> int:
     pinned = read_lock(lines)
     groups = read_groups()
     tag = lock_env_tag()
-    strict = tag == env_tag()
+    markers_ok = markers_are_trustworthy()
+    strict = tag == env_tag() and markers_ok
 
     stale: list[str] = []
     drift: list[str] = []
@@ -459,6 +482,14 @@ def check(target_dir: str | None = None) -> int:
         elif _file_text(target) != body:
             stale.append(group)
 
+    if not markers_ok:
+        print(
+            "closure re-derivation skipped: this process cannot evaluate environment "
+            "markers\n  (platform_machine is empty -- PROCESSOR_ARCHITECTURE is missing "
+            "from the environment).\n  That is an environment problem, not a stale lock; "
+            "do not run --freeze here.\n  Re-run from a normal shell, or set "
+            "PROCESSOR_ARCHITECTURE=AMD64 on Windows."
+        )
     if not strict:
         print(
             "closure re-derivation skipped: requirements.lock was frozen from "

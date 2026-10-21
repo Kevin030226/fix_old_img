@@ -217,7 +217,21 @@ def build_redis_queue_from_settings(settings_obj, capabilities: Iterable[str] | 
     # Constructing the client opens a consumer group, so an unreachable server
     # fails here — at startup — rather than silently leaving a queue that never
     # delivers anything.
-    client = redis.Redis.from_url(url, socket_timeout=1.0, socket_connect_timeout=1.0)
+    # `socket_timeout` must exceed the longest blocking read this client issues.
+    # `claim()` calls `XREADGROUP ... BLOCK 1000`, i.e. the server holds the
+    # reply for up to 1s while the client waits. With `socket_timeout=1.0` the
+    # socket deadline expires at almost exactly the moment the reply is due, so
+    # every poll raised `TimeoutError: Timeout reading from socket` and the
+    # worker loop logged "redis claim failed" forever without ever claiming a
+    # task -- measured against a real redis:7 with the queue configured:
+    #
+    #   {"logger": "fiximg.queue.redis", "message": "redis claim failed",
+    #    "error": "Timeout reading from socket"}
+    #
+    # repeated every ~1.5s, while the task row sat `queued` in PostgreSQL.
+    # 5s clears the 1s block with margin and still bounds a dead server: a
+    # black-holed connection raises in 5s rather than hanging the poll loop.
+    client = redis.Redis.from_url(url, socket_timeout=5.0, socket_connect_timeout=1.0)
     return RedisQueueBackend(client, capabilities=capabilities)
 
 
