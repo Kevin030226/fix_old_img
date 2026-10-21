@@ -90,7 +90,7 @@ This system provides a complete pipeline to address these issues: **overall qual
 | Language/Environment | Python 3.11 (conda env `fixoldimg-gpu`) |
 | Web framework | Gradio 6.22 + FastAPI 0.141 + Uvicorn 0.52 |
 | Deep learning | PyTorch 2.7.1+cu128 (native RTX 50 series sm_120 support) |
-| Vision/Scientific computing | OpenCV 5.0, scikit-image 0.26, scipy 1.17, numpy 2.4, Pillow 12.3 |
+| Vision/Scientific computing | OpenCV 5.0, scikit-image 0.26, scipy 1.17, numpy 2.4, Pillow 13.0 |
 | Face/Colorization | dlib 20.0.1 (conda-forge), timm 0.9.2, DDColor |
 | Storage | SQLite (WAL mode) |
 | Models | Bringing Old Photos Back to Life + DDColor, 29 weight files in total |

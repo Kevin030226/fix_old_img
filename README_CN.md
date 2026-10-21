@@ -90,7 +90,7 @@
 | 语言/环境 | Python 3.11（conda 环境 `fixoldimg-gpu`） |
 | Web 框架 | Gradio 6.22 + FastAPI 0.141 + Uvicorn 0.52 |
 | 深度学习 | PyTorch 2.7.1+cu128（原生支持 RTX 50 系 sm_120） |
-| 视觉/科学计算 | OpenCV 5.0、scikit-image 0.26、scipy 1.17、numpy 2.4、Pillow 12.3 |
+| 视觉/科学计算 | OpenCV 5.0、scikit-image 0.26、scipy 1.17、numpy 2.4、Pillow 13.0 |
 | 人脸/上色 | dlib 20.0.1（conda-forge）、timm 0.9.2、DDColor |
 | 存储 | SQLite（WAL 模式） |
 | 模型 | Bringing Old Photos Back to Life + DDColor，共 29 个权重文件 |

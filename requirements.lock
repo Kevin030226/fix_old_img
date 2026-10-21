@@ -71,7 +71,7 @@ opentelemetry-semantic-conventions==0.66b0
 orjson==3.10.15
 packaging==26.0
 pandas==3.0.5
-pillow==12.3.0
+pillow==13.0.0
 pip==26.1.2
 pluggy==1.6.0
 protobuf==5.29.6

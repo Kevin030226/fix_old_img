@@ -30,7 +30,7 @@ pydantic>=2.7
 
 # ---- Scientific computing / imaging ----
 numpy==2.4.6
-Pillow==12.3.0
+Pillow==13.0.0
 opencv-python-headless==5.0.0.93
 scipy==1.17.1
 scikit-image==0.26.0
