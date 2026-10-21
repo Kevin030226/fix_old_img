@@ -374,19 +374,40 @@ jobs:
       - name: Boot the ASGI app and probe liveness
         if: matrix.image == 'root'
         run: |
-          docker run --rm -d --name fiximg-root-smoke -p 19502:9502 fiximg-root:ci
+          set -u
+          # The container must outlive its own exit so its final state and logs can
+          # still be read: `--rm` would delete it the moment the app stops, and the
+          # assertions below would then fail on a missing object instead of on the
+          # behaviour they are meant to check.
+          docker run -d --name fiximg-root-smoke -p 19502:9502 fiximg-root:ci
+          # Cleanup must run on every path, including the failing assertions below.
+          # `set -u` is on but `set -e` is deliberately not, so a failed assertion
+          # reports itself rather than being masked by an early exit.
+          trap 'docker rm -f fiximg-root-smoke >/dev/null 2>&1 || true' EXIT
+
           # The app exits when weights are absent; that is by design and is
           # asserted, so this step fails if the behaviour changes silently.
           sleep 20
-          docker inspect --format '{{.State.Status}}' fiximg-root-smoke
-          docker logs fiximg-root-smoke 2>&1 | tail -20
-          if [ "$(docker inspect --format '{{.State.Status}}' fiximg-root-smoke)" = "running" ]; then
+
+          status=$(docker inspect --format '{{.State.Status}}' fiximg-root-smoke)
+          echo "container state: $status"
+          docker logs fiximg-root-smoke 2>&1 | tail -40
+
+          if [ "$status" = 'running' ]; then
+            # Still up: it must actually serve liveness.
             curl -fsS http://127.0.0.1:19502/api/v1/health/live
-          else
+          elif [ "$status" = 'exited' ]; then
+            # Exited without weights: the expected message must be in the logs.
             echo 'container exited: expected without weights, see FIXIMG_BAKE_WEIGHTS'
-            docker logs fiximg-root-smoke 2>&1 | grep -q 'Weight verification failed'
+            if ! docker logs fiximg-root-smoke 2>&1 | grep -q 'Weight verification failed'; then
+              echo '::error::the root image exited without the expected weight-verification message'
+              exit 1
+            fi
+          else
+            # Any other state is a failure: the app neither served nor exited as designed.
+            echo "::error::unexpected container state: $status"
+            exit 1
           fi
-          docker rm -f fiximg-root-smoke
 
       # The scan is per shard so a finding names the image that carries it, and so
       # the scan of the largest image gets the analysis budget it needs. `exit-code:

@@ -401,3 +401,222 @@ def test_compose_validation_runs_once_outside_the_matrix():
         assert "strategy" not in job, (
             f"job {job_id} runs compose validation inside a matrix; it is not a per-image check"
         )
+
+
+# ------------------------------------------------------- root smoke lifecycle
+
+#: The step that boots the root image's ASGI app and asserts how it ends.
+SMOKE_STEP_NAME = "Boot the ASGI app and probe liveness"
+#: The message the app prints, and the step asserts, when weights are absent.
+EXPECTED_EXIT_MESSAGE = "Weight verification failed"
+
+
+def _smoke_step() -> dict:
+    """The root-image boot step, found by name so line moves do not break this."""
+    job = _docker_job()
+    assert job is not None, "the docker job is gone; image verification disappeared with it"
+    for step in job.get("steps") or []:
+        if SMOKE_STEP_NAME in str(step.get("name") or ""):
+            return step
+    raise AssertionError(
+        f"the docker job no longer has a {SMOKE_STEP_NAME!r} step; "
+        "the root image would be built and never run"
+    )
+
+
+def _smoke_script() -> str:
+    script = _smoke_step().get("run")
+    assert script, f"the {SMOKE_STEP_NAME!r} step has no script"
+    return str(script)
+
+
+def _smoke_commands() -> list[str]:
+    """The script's command lines, comments and blank lines dropped."""
+    return [
+        line.strip()
+        for line in _smoke_script().splitlines()
+        if line.strip() and not line.strip().startswith("#")
+    ]
+
+
+def test_the_root_smoke_step_is_guarded_to_the_root_image():
+    """A boot probe that also runs on api/worker would fail on their missing app."""
+    assert "root" in str(_smoke_step().get("if", "")), (
+        "the root boot step is not guarded to the root image"
+    )
+
+
+def test_a_container_whose_state_is_read_after_exit_is_never_run_with_rm():
+    """`--rm` deletes the container the moment it stops.
+
+    The step's whole point is to read the *final* state and the logs of a
+    container that exits by design, so `--rm` on that run would delete the
+    evidence before it is read -- which is exactly how this step failed.
+    """
+    commands = _smoke_commands()
+    offenders = [
+        command for command in commands
+        if re.search(r"\bdocker\s+run\b", command) and "--rm" in command
+    ]
+    assert not offenders, (
+        "the root smoke container is started with --rm, so it is deleted on exit "
+        f"and cannot be inspected afterwards: {offenders}"
+    )
+
+
+def test_the_smoke_container_is_started_detached_with_a_name():
+    """Detached and named: attached would block, unnamed cannot be inspected."""
+    runs = [c for c in _smoke_commands() if re.search(r"\bdocker\s+run\b", c)]
+    assert runs, "the root smoke step no longer starts a container"
+    for command in runs:
+        assert re.search(r"\s-d\b|\s--detach\b", command), (
+            f"the smoke container is not detached: {command}"
+        )
+        assert re.search(r"\s--name\s+\S+", command), (
+            f"the smoke container has no fixed name to inspect: {command}"
+        )
+
+
+def test_the_smoke_step_cleans_up_unconditionally():
+    """Cleanup must not depend on the assertions above it succeeding."""
+    script = _smoke_script()
+    traps = [line.strip() for line in script.splitlines() if re.search(r"\btrap\b", line)]
+    assert traps, (
+        "the root smoke step has no trap, so a failing assertion leaves the "
+        "container behind (and the port bound) for the next step"
+    )
+    assert any("EXIT" in trap for trap in traps), (
+        f"the smoke trap does not run on EXIT, so it is skipped on failure: {traps}"
+    )
+    assert any("rm" in trap for trap in traps), (
+        f"the smoke trap does not remove the container: {traps}"
+    )
+
+
+def test_the_smoke_step_reads_the_state_once_and_branches_on_it():
+    """One read, then both outcomes handled: a second read can disagree."""
+    commands = _smoke_commands()
+    inspects = [
+        c for c in commands
+        if re.search(r"\bdocker\s+inspect\b", c) and "State.Status" in c
+    ]
+    assert inspects, "the smoke step never reads the container's final state"
+    assert len(inspects) == 1, (
+        "the container state is read more than once; the branches can then "
+        f"disagree about what happened: {inspects}"
+    )
+    script = _smoke_script()
+    assert "running" in script, "the smoke step has no path for a still-running container"
+    assert "exited" in script, "the smoke step has no path for a container that exited"
+
+
+def test_a_running_smoke_container_is_probed_for_liveness():
+    """If the app stayed up, that has to be proven, not assumed."""
+    script = _smoke_script()
+    assert "health/live" in script, (
+        "the running branch does not probe the liveness endpoint"
+    )
+    commands = _smoke_commands()
+    assert any("curl" in c for c in commands), "the liveness probe does not use curl"
+
+
+def test_an_exited_smoke_container_must_show_the_expected_message():
+    """Exiting is the designed outcome, so the *reason* is what gets asserted."""
+    script = _smoke_script()
+    assert EXPECTED_EXIT_MESSAGE in script, (
+        f"the smoke step does not assert {EXPECTED_EXIT_MESSAGE!r}; an app that "
+        "exits for any other reason would pass"
+    )
+    # The assertion must be able to fail: a grep whose result is discarded, or an
+    # exit code swallowed afterwards, is not an assertion.
+    assertion = [
+        line for line in script.splitlines()
+        if EXPECTED_EXIT_MESSAGE in line and "grep" in line
+    ]
+    assert assertion, "the expected message is mentioned but never matched against the logs"
+    for line in assertion:
+        assert "if " in line or "&&" in line, (
+            f"the log assertion's result is not used to decide the step's outcome: {line.strip()}"
+        )
+
+
+def test_an_unexpected_container_state_fails_the_step():
+    """Neither running nor exited means the probe proved nothing."""
+    script = _smoke_script()
+    branches = re.findall(r"\belif\b|\belse\b", script)
+    assert len(branches) >= 2, (
+        "the smoke step does not have a final else branch, so an unexpected "
+        "container state would fall through as success"
+    )
+    # The final branch must end the step with a failure.
+    tail = script.split("else", 1)[-1]
+    assert re.search(r"\bexit\s+[1-9]", tail), (
+        "the unexpected-state branch does not exit non-zero"
+    )
+
+
+def test_the_smoke_assertions_cannot_be_waived_away():
+    """The gate is only a gate while it can fail."""
+    step = _smoke_step()
+    assert not step.get("continue-on-error"), (
+        "the root smoke step is allowed to fail; it no longer gates anything"
+    )
+    commands = _smoke_commands()
+    offenders = [
+        command for command in commands
+        if re.search(r"\|\|\s*(true|:)\b", command)
+        and not re.search(r"\b(rm|trap)\b", command)
+    ]
+    assert not offenders, (
+        "a smoke assertion swallows its own failure with `|| true`: " f"{offenders}"
+    )
+
+
+# ------------------------------------------------------------- pillow pinning
+
+#: The advisory block that forces this pin; keep the four files in step.
+PILLOW_PIN = "13.0.0"
+#: Every file that hard-pins Pillow for an installable surface.
+PILLOW_PIN_FILES = (
+    "requirements.txt",
+    "requirements.lock",
+    os.path.join("requirements", "runtime.txt"),
+    os.path.join("requirements", "gpu.txt"),
+)
+
+
+@pytest.mark.parametrize("relative", PILLOW_PIN_FILES)
+def test_every_pillow_pin_agrees_on_the_fixed_version(relative):
+    """Four files pin Pillow; one of them drifting re-opens the advisories.
+
+    Pillow 12.3.0 carries a CRITICAL and six HIGH advisories whose fix version
+    is 13.0.0, and `pip-audit --strict` plus the image scans both block on them.
+    A file left behind would keep the failure alive in exactly one install path.
+    """
+    path = os.path.join(PROJECT_ROOT, relative)
+    assert os.path.exists(path), f"{relative} is gone; the pin moved somewhere this gate does not see"
+    with open(path, encoding="utf-8") as handle:
+        body = handle.read()
+    pins = re.findall(r"^\s*[Pp]illow\s*==\s*(\S+)\s*$", body, re.MULTILINE)
+    assert pins, f"{relative} no longer pins Pillow; the audit would float"
+    for pin in pins:
+        assert pin == PILLOW_PIN, (
+            f"{relative} pins Pillow {pin}, expected {PILLOW_PIN}: the fixed version "
+            "is what clears the advisories"
+        )
+
+
+def test_the_readme_version_tables_match_the_pinned_pillow():
+    """The user-facing table is documentation of the pin, not decoration."""
+    for name in ("README.md", "README_CN.md"):
+        path = os.path.join(PROJECT_ROOT, name)
+        assert os.path.exists(path), name
+        with open(path, encoding="utf-8") as handle:
+            body = handle.read()
+        mentions = re.findall(r"Pillow\s+([0-9]+(?:\.[0-9]+)+)", body)
+        assert mentions, f"{name} no longer states a Pillow version"
+        for mention in mentions:
+            assert mention == PILLOW_PIN.rsplit(".", 1)[0], (
+                f"{name} advertises Pillow {mention}, expected "
+                f"{PILLOW_PIN.rsplit('.', 1)[0]} to match the pin {PILLOW_PIN}"
+            )
