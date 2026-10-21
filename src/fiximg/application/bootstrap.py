@@ -41,7 +41,13 @@ def _admin_username() -> str:
 
 
 def _password_file() -> str:
-    return os.path.join(os.path.dirname(settings.db_path), "initial_admin_password.txt")
+    """Where the generated one-time password is persisted (0600).
+
+    Same directory as the API token, and for the same reason: it must follow the
+    database this process actually opens, not the default one it may have been
+    configured away from.
+    """
+    return os.path.join(settings.management_data_dir, "initial_admin_password.txt")
 
 
 def _generate_password(length: int = _PASSWORD_LENGTH) -> str:

@@ -35,8 +35,16 @@ _cached: str | None = None
 
 
 def token_file() -> str:
-    """Path of the generated token (next to the SQLite database)."""
-    return os.path.join(os.path.dirname(settings.db_path), "api_token.txt")
+    """Path of the generated token, in the management data directory.
+
+    `settings.management_data_dir` derives the directory from `db_path` on every
+    read, so a deployment that relocates the database with `FIXIMG_DATABASE_URL`
+    gets the token beside the database it actually opens. Computing it here from
+    `os.path.dirname(settings.db_path)` is the same value on purpose -- the
+    property exists so both writers (this one and the bootstrap password file)
+    cannot drift apart again.
+    """
+    return os.path.join(settings.management_data_dir, "api_token.txt")
 
 
 def reset_cache() -> None:
