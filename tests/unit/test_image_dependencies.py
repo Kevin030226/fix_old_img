@@ -126,3 +126,91 @@ def test_every_compose_build_reference_resolves_to_a_real_dockerfile():
                 f"{os.path.basename(path)}: service {service!r} builds {resolved}, "
                 "which does not exist"
             )
+
+
+# --------------------------------------------------- resolved runtime dependencies
+
+def _docker_job() -> dict:
+    """The `docker` job of the CI workflow, parsed."""
+    import yaml
+
+    with open(os.path.join(PROJECT_ROOT, ".github", "workflows", "ci.yml"),
+              encoding="utf-8") as handle:
+        document = yaml.safe_load(handle)
+    return document["jobs"]["docker"]
+
+
+def _step_named(job: dict, fragment: str) -> dict:
+    matches = [step for step in job["steps"] if fragment in str(step.get("name", ""))]
+    assert len(matches) == 1, f"expected one step named like {fragment!r}, found {len(matches)}"
+    return matches[0]
+
+
+def test_every_image_asserts_the_resolved_runtime_dependencies():
+    """The files said 13.0.0 and the worker image shipped 12.3.0 anyway (P18).
+
+    Every gate in this file reads *declarations*, and declarations were not the
+    problem: `requirements.txt`, the lock and both other images all pinned 13.0.0.
+    The worker image installs the torch stack first, `torchvision==0.22.1` accepts
+    any `pillow>=5.3.0`, and the project was installed afterwards -- so the answer
+    depended on the *order* of two installs, which no file can express.
+
+    The only place that order is observable is the built image. So the workflow must
+    ask the image what it contains, in every shard, before the scan that would
+    otherwise be the first thing to notice.
+    """
+    job = _docker_job()
+    step = _step_named(job, "Assert the resolved runtime dependencies inside the image")
+    body = str(step.get("run", ""))
+
+    # The assertion must be about the image's own metadata, not a file it ships.
+    assert "importlib.metadata" in body, (
+        "the runtime assertion does not read installed distribution metadata, so it "
+        "cannot see what the image actually contains"
+    )
+    assert "matrix.image" in str(step.get("run", "")) or "matrix.image" in body, (
+        "the runtime assertion is not parameterised by the matrix image"
+    )
+    # Pillow, at the pinned version, and the removed framework as a negative.
+    assert "13.0.0" in body, "the runtime assertion does not state the expected Pillow"
+    for forbidden in ("gradio", "gradio-client"):
+        assert forbidden in body, (
+            f"the runtime assertion does not reject {forbidden!r}, so the removed "
+            "framework could return inside an image unnoticed"
+        )
+
+
+def test_the_runtime_assertion_runs_before_the_vulnerability_scan():
+    """A scan that fails first hides *why* the image was wrong.
+
+    Trivy does fail on a vulnerable Pillow, so a missing assertion would still be
+    caught -- as "19 findings in an unnamed package", twenty minutes in, with the
+    actual cause (an install-order regression) left for someone to reconstruct.
+    Asserting first names the defect in one line.
+    """
+    job = _docker_job()
+    names = [str(step.get("name", "")) for step in job["steps"]]
+    assertion = next(i for i, name in enumerate(names)
+                     if "Assert the resolved runtime dependencies" in name)
+    scan = next(i for i, name in enumerate(names)
+                if "Scan the" in name and "for known vulnerabilities" in name)
+    assert assertion < scan, (
+        "the runtime dependency assertion runs after the Trivy scan; a regression "
+        "would be reported as a scan finding instead of as the dependency it is"
+    )
+
+
+@pytest.mark.parametrize("relative", sorted(IMAGES))
+def test_no_image_can_skip_the_runtime_assertion(relative):
+    """The step is unguarded, so every matrix shard runs it.
+
+    A `if: matrix.image == '...'` guard would let the two images that already pass
+    carry the check while the one that regressed skips it -- which is exactly the
+    shape of the P18 failure.
+    """
+    job = _docker_job()
+    step = _step_named(job, "Assert the resolved runtime dependencies inside the image")
+    assert not step.get("if"), (
+        "the runtime dependency assertion is conditional; every image must run it, "
+        "because the image that regressed was the one with the unusual install order"
+    )

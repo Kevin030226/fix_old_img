@@ -576,6 +576,73 @@ def test_the_smoke_assertions_cannot_be_waived_away():
 
 #: The advisory block that forces this pin; keep the four files in step.
 PILLOW_PIN = "13.0.0"
+
+
+def _declared_requirements() -> dict[str, list[str]]:
+    """`pyproject.toml`'s base dependencies and every extra, as raw requirement strings.
+
+    Read with `tomllib` rather than by scanning lines: a gate that greps text is
+    checking the file's spelling, not what an installer would resolve.
+    """
+    import tomllib
+
+    with open(os.path.join(PROJECT_ROOT, "pyproject.toml"), "rb") as handle:
+        document = tomllib.load(handle)
+    project = document["project"]
+    declared = {"(base)": list(project["dependencies"])}
+    for extra, requirements in (project.get("optional-dependencies") or {}).items():
+        declared[extra] = [str(requirement) for requirement in requirements]
+    return declared
+
+
+def _requirement_for(requirements: list[str], name: str) -> str | None:
+    """The requirement string for `name`, matched on the distribution name."""
+    pattern = re.compile(rf"^\s*{re.escape(name)}\s*([<>=!~].*)?$", re.IGNORECASE)
+    for requirement in requirements:
+        if pattern.match(requirement.strip()):
+            return requirement.strip()
+    return None
+
+
+def test_pyproject_pins_pillow_exactly_rather_than_as_a_floor():
+    """A floor cannot clear the advisories on the worker image, and this is why.
+
+    The worker image installs the torch stack first. `torchvision==0.22.1` declares
+    `pillow!=8.3.*,>=5.3.0` with no upper bound, so pip satisfies it with whatever
+    Pillow the index serves -- 12.3.0 when this was measured. The project is
+    installed *afterwards*, and `Pillow>=10.0` then finds 12.3.0 already satisfied
+    and never upgrades it: the image builds, ships the vulnerable Pillow, and only
+    the Trivy scan notices (P18 run 39777646356, job `image (worker)`).
+
+    An exact pin is what makes the second install converge to 13.0.0 regardless of
+    what the first one left behind. Measured both ways in
+    `reports/p19_worker_pillow_remediation.md`: exact pin -> 13.0.0, floor ->
+    "Requirement already satisfied" at 12.3.0.
+    """
+    declared = _declared_requirements()
+    requirement = _requirement_for(declared["(base)"], "pillow")
+    assert requirement is not None, (
+        "pyproject.toml no longer declares Pillow at all; the pin moved somewhere "
+        "this gate does not see"
+    )
+    assert requirement == f"Pillow=={PILLOW_PIN}", (
+        f"pyproject.toml declares {requirement!r}. It must be the exact pin "
+        f"'Pillow=={PILLOW_PIN}', not a floor: a floor is already satisfied by the "
+        "12.3.0 the torch stack leaves behind, so the worker image would keep "
+        "shipping the advisories while every other path looks clean."
+    )
+
+
+def test_no_extra_relaxes_the_pillow_pin():
+    """An extra that re-declares Pillow as a floor would reopen the same hole."""
+    for extra, requirements in _declared_requirements().items():
+        requirement = _requirement_for(requirements, "pillow")
+        if requirement is None:
+            continue
+        assert requirement == f"Pillow=={PILLOW_PIN}", (
+            f"extra {extra!r} declares {requirement!r}; Pillow may only be declared "
+            f"as the exact pin 'Pillow=={PILLOW_PIN}'"
+        )
 #: Every file that hard-pins Pillow for an installable surface.
 PILLOW_PIN_FILES = (
     "requirements.txt",

@@ -300,6 +300,40 @@ jobs:
         run: |
           docker run --rm "fiximg-${{ matrix.image }}:ci" python3 -c "import sys; assert sys.version_info[:2] == (3, 11), sys.version; assert sys.version_info.releaselevel == 'final', sys.version; print(sys.version)"
 
+      # The resolved runtime dependency, asserted inside the image rather than
+      # inferred from the files that were installed. P18 proved why this step has
+      # to exist: the worker image installs the torch stack first, torchvision
+      # accepts any Pillow >=5.3.0, and the project's own install ran afterwards
+      # with a *floor* that 12.3.0 already satisfied -- so the image shipped
+      # Pillow 12.3.0 (3 CRITICAL + 16 HIGH in Trivy) while requirements.txt and
+      # the api/root images all said 13.0.0. Reading the files cannot catch that;
+      # asking the built image what it actually contains does. It runs in every
+      # shard, so no image can be the one that skips it.
+      - name: Assert the resolved runtime dependencies inside the image
+        run: |
+          docker run --rm "fiximg-${{ matrix.image }}:ci" python3 - <<'PY'
+          import importlib.metadata as md
+          import sys
+
+          expected_pillow = "13.0.0"
+          installed = md.version("pillow")
+          assert installed == expected_pillow, (
+              f"image ships pillow {installed}, expected {expected_pillow}; "
+              "a floor in pyproject.toml is satisfied by whatever the torch stack "
+              "left behind, so the exact pin is what forces the upgrade"
+          )
+
+          # The UI framework was removed in P17 and must not return on any path.
+          present = {dist.metadata["Name"].lower() for dist in md.distributions()
+                     if dist.metadata["Name"]}
+          for forbidden in ("gradio", "gradio-client", "gradio_client", "hf-gradio"):
+              assert forbidden not in present, (
+                  f"image ships {forbidden}; it requires pillow<13 and would "
+                  "re-open the advisories this pin exists to clear"
+              )
+          print(f"image: pillow {installed}, no UI framework")
+          PY
+
       - name: Smoke-test the api image
         if: matrix.image == 'api'
         run: |
