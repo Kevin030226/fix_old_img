@@ -181,7 +181,7 @@ def _spec_name_and_scope(spec: str) -> tuple[str, bool]:
     """(normalised name, does this interpreter need it?) for one requirement line.
 
     Installed metadata mixes unconditional deps with conditionals written for other
-    Pythons - gradio declares ``audioop-lts; python_version >= "3.13"``, some
+    Pythons - ``audioop-lts`` is declared for ``python_version >= "3.13"``, some
     packages declare ``importlib-metadata; python_version < "3.8"``. Collecting
     those unconditionally put names in ``requirements/runtime.txt`` that no installer
     can resolve on the interpreter the file is meant for, and made the audit red for

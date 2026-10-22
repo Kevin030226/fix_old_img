@@ -13,7 +13,7 @@ into the image. Policy:
     must change it afterwards.
 
 Plan section 21 "force change": the randomly-generated account is created
-with must_change_password=1 — the Gradio login then keeps prompting the user
+with must_change_password=1 — the sign-in page then keeps prompting the user
 until the password has been replaced (setting the password via
 FIXIMG_ADMIN_PASSWORD marks the credential as deployment-managed and does not
 force a change).

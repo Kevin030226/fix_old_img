@@ -7,7 +7,7 @@
 #   docker compose logs -f worker
 #
 # Other topologies:
-#   docker/compose.local.yaml  single container (API + Gradio + inline worker)
+#   docker/compose.local.yaml  single container (API + web UI + inline worker)
 #   docker/compose.yaml        full platform (+ Redis / PostgreSQL / MinIO)
 #
 # The queue is DB-backed by default; set FIXIMG_QUEUE_BACKEND=redis together
@@ -28,7 +28,7 @@ services:
       FIXIMG_DEVICE: auto
       # API process must NOT run GPU inference in this topology.
       FIXIMG_INLINE_WORKER: "false"
-      # Tells the Gradio UI a worker process consumes the queue (async path).
+      # Tells the web UI a worker process consumes the queue (async path).
       FIXIMG_HAS_EXTERNAL_WORKER: "true"
       # Bearer token required by every /api/v1/* route. When it is left unset a
       # token is generated on first start and stored at admin_data/api_token.txt

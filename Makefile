@@ -79,7 +79,7 @@ bench-memory: ## Peak RSS (+ GPU) per stage
 	$(PYTHON) -m benchmark.memory
 
 # --------------------------------------------------------------------- runtime
-serve: ## Start the web service (FastAPI + Gradio + inline worker)
+serve: ## Start the web service (FastAPI + native web UI + inline worker)
 	$(PYTHON) main.py
 
 worker: ## Start a standalone GPU worker process

@@ -1,7 +1,7 @@
-﻿@echo off
+@echo off
 REM ============================================================
 REM [DEPRECATED] This script corresponds to the legacy Python 3.8 environment (old_photo_restore).
-REM For the current project please use setup_gpu.bat (Python 3.11 + PyTorch cu128 + Gradio 6).
+REM For the current project please use setup_gpu.bat (Python 3.11 + PyTorch cu128 + native web UI).
 REM ============================================================
 echo ============================================
 echo  Old Photo Restoration - Conda Setup Script
@@ -27,7 +27,7 @@ call conda install pytorch torchvision cpuonly -c pytorch -y
 
 echo [3/4] Installing core dependencies...
 call conda install -c conda-forge dlib -y
-pip install scikit-image easydict PyYAML dominate dill tensorboardX scipy opencv-python einops matplotlib pyspng gradio fastapi uvicorn numpy Pillow
+pip install scikit-image easydict PyYAML dominate dill tensorboardX scipy opencv-python einops matplotlib pyspng fastapi uvicorn numpy Pillow
 echo [note] PySimpleGUI (desktop GUI, GUI.py) is an optional dependency; 5.x is now commercially licensed, install separately if needed.
 
 echo [4/4] Installing Synchronized-BatchNorm-PyTorch...

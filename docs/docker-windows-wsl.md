@@ -151,7 +151,7 @@ docker run -d --name fiximg-wsl --gpus all \
 |---|---|
 | 容器内监听 | `9502`（`FIXIMG_PORT=9502`） |
 | 发布到宿主 | `9502:9502` |
-| Web UI | <http://127.0.0.1:9502/>（Gradio 挂在 `/`） |
+| Web UI | <http://127.0.0.1:9502/>（原生 Web 界面挂在 `/`） |
 | API 文档 | `/docs`、`/redoc`、`/openapi.json` |
 | 健康探针 | `/api/v1/health/live`、`/api/v1/health/ready`（**公开，不需要令牌**） |
 

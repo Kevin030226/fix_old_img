@@ -68,7 +68,7 @@ def build_ddcolor_model(
 
 
 class ColorizationPipeline:
-    """Shared image colorization pipeline used by CLI/Gradio/Cog.
+    """Shared image colorization pipeline used by CLI/Cog.
 
     - input: BGR uint8 image (OpenCV)
     - output: BGR uint8 image (OpenCV)

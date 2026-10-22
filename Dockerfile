@@ -1,5 +1,5 @@
 # Old photo restoration system — all-in-one image (V3)
-# Python 3.11 + PyTorch 2.7.1 cu128 (RTX 50 / sm_120) + Gradio 6 + FastAPI
+# Python 3.11 + PyTorch 2.7.1 cu128 (RTX 50 / sm_120) + FastAPI + native web UI
 #
 # Build: docker build -t fixoldimg .
 # Run:   docker run --gpus all -p 9502:9502 fixoldimg

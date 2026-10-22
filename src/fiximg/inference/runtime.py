@@ -5,7 +5,7 @@ The orchestrator is the only component that knows how a run flows:
 Web/UI code never calls stages directly.
 
 Two entry points:
-  - run(): synchronous, used by Gradio callbacks (V1-compatible UX).
+  - run(): synchronous, the V1-compatible in-process path.
   - execute_queued(): DB-queue path; a worker claims a queued row and the
     input image is reloaded from artifact storage (storage/tasks/...).
 """

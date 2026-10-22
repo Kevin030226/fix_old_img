@@ -1,4 +1,4 @@
-# API image (plan §3.13): FastAPI gateway + Gradio UI, no GPU stack.
+# API image (plan §3.13): FastAPI gateway + native web UI, no GPU stack.
 #
 # Deliberately torch-free — the API only validates requests, persists tasks and
 # serves results, so the image stays small and starts fast. Set

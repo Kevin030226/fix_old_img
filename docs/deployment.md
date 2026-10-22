@@ -12,7 +12,7 @@ Select the profile with `FIXIMG_PROFILE` (or `FIXIMG_ENV`), default `local`.
 
 | Profile | File | Topology |
 |---|---|---|
-| `local` | `configs/local.yaml` | One process: API + Gradio + inline worker, SQLite, local artifacts, lazy models |
+| `local` | `configs/local.yaml` | One process: API + native web UI + inline worker, SQLite, local artifacts, lazy models |
 | `docker` | `configs/docker.yaml` | API and worker as separate processes sharing a DB and artifact volume |
 | `production` | `configs/production.yaml` | Split topology, startup warmup, no auto-provisioned accounts, fail-fast validation |
 

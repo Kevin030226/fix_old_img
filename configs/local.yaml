@@ -1,6 +1,6 @@
 # Local development profile (default).
 #
-# Everything runs in one process: FastAPI + Gradio + an inline worker thread,
+# Everything runs in one process: FastAPI + the web UI + an inline worker thread,
 # SQLite for state, the local filesystem for artifacts, models loaded lazily.
 # Selected by FIXIMG_PROFILE=local (the default).
 

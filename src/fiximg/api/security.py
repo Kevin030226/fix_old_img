@@ -1,6 +1,6 @@
 """Bearer-token authentication for the JSON API (`/api/v1/*`).
 
-Why this exists: the Gradio UI talks to the service layer *in process*, but the
+Why this exists: the web UI talks to the service layer *in process*, but the
 JSON API is plain HTTP. When the service is bound to a routable address
 (`FIXIMG_HOST=0.0.0.0`, as the Dockerfile/compose topology does), every
 `/api/v1/*` route used to be reachable without credentials — including the

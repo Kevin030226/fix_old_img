@@ -3,7 +3,7 @@
     python worker.py                     # poll forever, one GPU task at a time
     FIXIMG_DEVICE=auto python worker.py
 
-The API/Gradio process only enqueues (tasks table); this process claims rows via
+The API process only enqueues (tasks table); this process claims rows via
 the DB-backed queue and runs the inference runtime. Keeping GPU models out of the
 API process means models load once here regardless of how many uvicorn workers
 serve HTTP (plan §13).

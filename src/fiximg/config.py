@@ -246,7 +246,7 @@ class Settings:
         # --- Inference ---
         self.device: str = _env("FIXIMG_DEVICE", "auto")
         self.max_image_side: int = _env_int("FIXIMG_MAX_IMAGE_SIDE", 4096)
-        # API upload guard (plan section 22); Gradio uses the same via max_file_size.
+        # API upload guard (plan section 22); the web UI enforces the same limit.
         self.max_upload_mb: int = _env_int("FIXIMG_MAX_UPLOAD_MB", 10)
         # §18 ImageTiler: tile_size <= 0 disables tiling entirely.
         self.tile_size: int = _env_int("FIXIMG_TILE_SIZE", 1536)
@@ -280,7 +280,7 @@ class Settings:
         #: that lies about what was accepted.
         self.priority_max: int = _env_int("FIXIMG_PRIORITY_MAX", 10)
         # Set to true when a standalone `python worker.py` process consumes the
-        # queue, so the Gradio UI can use the async path (plan §23).
+        # queue, so the web UI can use the async path (plan §23).
         self.external_worker: bool = _env_bool("FIXIMG_HAS_EXTERNAL_WORKER", False)
 
         # --- DDColor colorization model ---
@@ -553,7 +553,7 @@ class Settings:
 
     @property
     def pipeline_modes(self) -> dict:
-        """Compatibility alias used by the legacy Gradio UI (plan section 4)."""
+        """Compatibility alias for the pipeline mode table (plan section 4)."""
         from fiximg.application.pipeline_modes import PIPELINE_MODES
 
         return PIPELINE_MODES
