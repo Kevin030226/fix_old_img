@@ -28,7 +28,6 @@ from __future__ import annotations
 import pytest
 
 from fiximg import app_factory
-from fiximg.application.pipeline_modes import SWITCHES
 from fiximg.config import settings
 
 
@@ -151,56 +150,81 @@ def test_the_boot_check_runs_when_the_app_starts(isolated_db, monkeypatch):
     assert "FIXIMG_HAS_EXTERNAL_WORKER" in warnings[0]["hint"], warnings[0]
 
 
-def test_the_per_submission_line_names_the_remedy(boot_check, monkeypatch):
-    """The boot line can be missed; the line that repeats on every submit cannot.
+def test_the_web_ui_always_enqueues_and_never_runs_inference_in_process():
+    """The sync fallback is gone, which is a stronger property than a warning.
 
-    This is the one that would have saved the debugging session: it appears at the
-    moment the work is redirected, so it is the natural place to read the hint.
+    The Gradio callback checked `has_worker()` and, when the answer was false,
+    executed the pipeline inside the API process — the CUDA-OOM path this module
+    exists for. Its only mitigation was a log line naming the remedy.
+
+    The native UI has no such branch: a browser submission goes through
+    `application.submission.submit_upload` to `TaskService.enqueue` and nowhere else,
+    so there is no configuration in which a request can start inference in the web
+    process. That is asserted here rather than described, because "we removed the
+    branch" is exactly the kind of claim that comes back.
     """
-    from fiximg.ui import task_progress as tp
+    from fiximg.api.dependencies import Principal
+    from fiximg.application import submission
 
-    seen: list[dict] = []
+    calls: list[tuple] = []
 
-    def _capture(logger, level, message, **fields):
-        seen.append({"level": level, "message": message, **fields})
+    def _enqueue(*args, **kwargs):
+        calls.append((args, kwargs))
+        return "t-1"
 
-    monkeypatch.setattr(tp, "log_event", _capture, raising=False)
-    monkeypatch.setattr(tp, "_check_password_change", lambda _s: None)
-    monkeypatch.setattr(tp.task_service, "has_worker", lambda: False)
-    monkeypatch.setattr(tp.task_service, "submit",
-                        lambda *a, **k: ("/tmp/out.png", "done"))
+    # If the route could reach the synchronous orchestrator, this would be the
+    # method it used. It must not be reachable from the submission path at all.
+    monkeypatch_target = submission.task_service
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(monkeypatch_target, "enqueue", _enqueue)
+        patch.setattr(monkeypatch_target, "submit",
+                      lambda *a, **k: pytest.fail("the web UI ran inference in-process"))
+        patch.setattr(monkeypatch_target, "has_worker", lambda: False)
 
-    names = list(SWITCHES.get("auto", {}))
-    handler = tp.make_submit_handler("auto")
-    for _frame in handler(object(), {"username": "tester"}, *([False] * len(names))):
-        pass
+        principal = Principal(user_id="tester", role="user", via="session")
+        result = submission.submit_upload(
+            principal=principal,
+            task_type="restore",
+            image_bytes=_png_bytes(),
+            options_raw="{}",
+            request=None,
+        )
 
-    fallbacks = [e for e in seen if e["message"] == "ui submit sync fallback"]
-    assert fallbacks, seen
-    assert "FIXIMG_HAS_EXTERNAL_WORKER" in fallbacks[0]["hint"], fallbacks[0]
-    assert "OOM" in fallbacks[0]["consequence"], fallbacks[0]
+    assert result.task_id == "t-1"
+    assert calls, "the submission never reached the queue"
+    assert not [call for call in calls if call[1].get("_synchronous")], calls
 
 
-def test_the_queued_path_does_not_log_the_fallback_at_all(boot_check, monkeypatch):
-    """The warning must mean something: a healthy deployment never emits it."""
-    from fiximg.ui import task_progress as tp
+def test_the_ui_module_has_no_synchronous_execution_path():
+    """Read the source: the removed branch must not reappear under a new name.
 
-    seen: list[dict] = []
-    monkeypatch.setattr(tp, "log_event",
-                        lambda _logger, _level, message, **_f: seen.append(
-                            {"message": message}), raising=False)
-    monkeypatch.setattr(tp, "_check_password_change", lambda _s: None)
-    monkeypatch.setattr(tp.task_service, "has_worker", lambda: True)
-    monkeypatch.setattr(tp.task_service, "enqueue", lambda *a, **k: "t-1")
-    monkeypatch.setattr(tp.task_service, "get_task", lambda _t: {
-        "status": "failed", "error_code": "MODEL_UNAVAILABLE",
-        "error_message": "Native scratch repair does not implement the HR branch",
-    })
+    A behavioural test can only prove the path taken by the input it was given.
+    This one is about the code: the UI must not import or call the orchestrator's
+    synchronous `run`, so no future edit can quietly restore the fallback.
+    """
+    import ast
+    from pathlib import Path
 
-    names = list(SWITCHES.get("auto", {}))
-    handler = tp.make_submit_handler("auto")
-    for _frame in handler(object(), {"username": "tester"}, *([True] * len(names))):
-        pass
+    ui_dir = Path(__file__).resolve().parents[2] / "src" / "fiximg" / "ui"
+    offenders: list[str] = []
+    for path in sorted(ui_dir.rglob("*.py")):
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Attribute) and node.attr == "submit":
+                offenders.append(f"{path.name}: .submit(")
+            if isinstance(node, ast.Name) and node.id == "has_worker":
+                offenders.append(f"{path.name}: has_worker")
+    assert not offenders, (
+        "the web UI can still reach the synchronous in-process path, which is the "
+        f"CUDA-OOM shape this module exists for: {offenders}"
+    )
 
-    assert not [e for e in seen if e["message"] == "ui submit sync fallback"], seen
-    assert [e for e in seen if e["message"] == "ui submit queued"], seen
+
+def _png_bytes(width: int = 48, height: int = 32) -> bytes:
+    import io
+
+    from tests.fixtures import make_photo
+
+    buffer = io.BytesIO()
+    make_photo(width=width, height=height).save(buffer, format="PNG")
+    return buffer.getvalue()

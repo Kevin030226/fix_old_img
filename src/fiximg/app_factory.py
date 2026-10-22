@@ -5,11 +5,18 @@ here. V3 makes the assembly explicit instead of one long function:
 
     create_app()
       ├── register_routes()      JSON API routers (health/tasks/models/users/stats)
-      ├── register_middleware()  correlation ids, UI session plumbing
-      ├── register_ui()          Gradio demo mounted at "/"
+      ├── register_middleware()  correlation ids, acting-user attribution
+      ├── register_ui()          the native web UI at "/"
       └── _app_lifespan()        DB init, security bootstrap, worker start/stop
 
 The factory only *assembles*; it never implements business policy.
+
+The UI is a FastAPI router (`fiximg.ui.web.routes`), not a mounted third-party
+application. That is the whole of the P17 change: the shell it replaced
+(`gradio.Blocks` mounted at `/`) was the only reason `gradio` was in the published
+dependency graph, and `gradio` pins `pillow<13` — so the UI framework was the
+single thing standing between this project and the Pillow release that clears the
+open advisories. See `reports/p17_fastapi_ui_migration.md`.
 
 GPU worker topology (plan §12/§28):
   - FIXIMG_INLINE_WORKER=true (default): a PipelineWorker thread consumes the
@@ -22,7 +29,6 @@ from __future__ import annotations
 import os
 from contextlib import asynccontextmanager
 
-import gradio as gr
 from fastapi import FastAPI
 
 from fiximg.api.errors import register_exception_handlers
@@ -31,7 +37,13 @@ from fiximg.api.routes import health, models as models_routes, stats, tasks, use
 from fiximg.config import settings
 from fiximg.infrastructure.db.engine import apply_database_url, init_db
 from fiximg.infrastructure.db.repositories.task_repository import ensure_schema
-from fiximg.ui.gradio_app import APP_TITLE, build_demo, custom_css
+from fiximg.ui.web.routes import register_ui_routes
+
+#: The page title, kept in one place so the document and the API agree.
+APP_TITLE = (
+    "Old Photo Restoration & Scratch Repair via Deep Learning "
+    "(GANs and Variational Autoencoders)"
+)
 
 # Reference to the inline PipelineWorker while the app is running (None otherwise).
 _inline_worker = None
@@ -40,8 +52,6 @@ _inline_worker = None
 def get_inline_worker():
     """Return the in-process PipelineWorker, or None when running standalone-mode."""
     return _inline_worker
-
-
 # --------------------------------------------------------------------- lifecycle
 @asynccontextmanager
 async def _app_lifespan(_app):
@@ -213,34 +223,36 @@ def register_middleware(app: FastAPI) -> None:
         from fiximg.infrastructure.db.repositories.user_repository import get_user
         from fiximg.infrastructure.observability.logging import set_user_id
 
+        # Two credentials reach this process: the API bearer token, and the UI's
+        # session cookie. Both are attributed here so a log line says who acted,
+        # whichever door the request came through.
         auth = request.headers.get("authorization", "")
+        username = ""
         if auth.lower().startswith("bearer "):
             username = auth[7:].strip()
-            if username and get_user(username):
-                set_user_id(username)
+        if not username:
+            from fiximg.ui.web.session import COOKIE_NAME, resolve_session
+
+            session = resolve_session(request.cookies.get(COOKIE_NAME))
+            username = session.username if session else ""
+        if username and get_user(username):
+            set_user_id(username)
         return await call_next(request)
 
 
 def register_ui(app: FastAPI) -> FastAPI:
-    """Mount the Gradio demo at "/" (route order matters for "/" and sessions)."""
-    demo = build_demo()
-    app = gr.mount_gradio_app(
-        app,
-        demo,
-        path="/",
-        auth=_auth_fn,
-        auth_message="Please enter your username and password",
-        max_file_size=f"{settings.max_upload_mb}mb",
-        show_error=False,
-        css=custom_css,
-    )
+    """Mount the native web UI.
 
-    # HTML middleware needs the mounted Gradio app for session reads.
-    from fiximg.ui.middleware import make_html_middleware
+    Registered last, after the JSON routers, because it owns `/` and the catch-all
+    document route — the same position the Gradio mount held, and the reason route
+    order still matters here.
 
-    _gradio_mount = app.routes[-1] if app.routes else None
-    holder = {"app": getattr(_gradio_mount, "app", None) if _gradio_mount else None}
-    app.middleware("http")(make_html_middleware(holder))
+    There is no conditional "is the UI available" branch any more. The UI is a
+    router in this package: if this module imported, the UI is there. The Gradio
+    version needed that branch because the framework could be absent from an
+    install, which is exactly the coupling this change removed.
+    """
+    register_ui_routes(app)
     return app
 
 
@@ -253,27 +265,8 @@ def create_app() -> FastAPI:
     return register_ui(app)
 
 
-def _auth_fn(username: str, password: str) -> bool:
-    """Login verification used by Gradio (constant-time hash comparison)."""
-    from fiximg.application.auth_service import authenticate
-
-    return authenticate(username, password)
-
-
-def _auth_message_fn(username: str) -> str:
-    """Gradio login banner; warns §21 force-change accounts after login."""
-    try:
-        from fiximg.infrastructure.db.repositories.user_repository import get_user
-
-        user = get_user(username or "")
-        if user and user.get("must_change_password"):
-            return "⚠ Please open the Admin Panel → Account and replace the initial password."
-    except Exception:  # noqa: BLE001 — the banner must never block login
-        pass
-    return ""
-
-
 __all__ = [
+    "APP_TITLE",
     "create_app",
     "get_inline_worker",
     "register_middleware",

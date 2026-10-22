@@ -2,7 +2,7 @@
 
 The role of the caller drives three things: which tabs are visible, which rows of
 the history are visible, and whether the admin panel is reachable. Before, that
-decision was duplicated: ``gradio_app.apply_role`` looked the user up, and
+decision was duplicated: the page-load handler looked the user up, and
 ``history_panel._visible_user_id`` re-derived the scoping rule from the state
 dict. Two implementations of the same rule is how the two drift apart.
 
@@ -52,7 +52,7 @@ class UserState:
 
 
 def resolve_user_state(request) -> UserState:
-    """Resolve the caller from a Gradio request, failing safe to a plain user.
+    """Resolve the caller from a request object, failing safe to a plain user.
 
     A lookup failure must never hand out the admin layout, so any error resolves
     to the least privileged role.

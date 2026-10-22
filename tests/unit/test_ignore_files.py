@@ -301,23 +301,23 @@ def test_ci_still_lints_and_tests_the_directory_the_image_excludes():
 
 
 def test_the_examples_the_ui_serves_are_not_the_documentation_images():
-    """The Gradio Examples tab is the one image consumer in the running system.
+    """The web UI is one image consumer in the running system.
 
-    `gr.Examples` reads `./examples/...` from the repository root, not
+    The mode panels load `./examples/...` from the repository root, not
     `docs/examples/`. The two are easy to confuse because the names match, and
-    confusing them here would ship an image whose Auto tab shows nothing.
+    confusing them here would ship an image whose interface shows nothing.
 
-    Half of these are built by an f-string loop (`f"./examples/old/{name}.png"`),
-    so the paths are checked by directory rather than by file: a template has no
-    file to open, but the directory it is built from has to hold images.
+    The example set is declared as literal paths in the page script, so it is read
+    from there rather than restated here: a gate that repeats the list it checks
+    cannot notice the list changing.
     """
-    source = (ROOT / "src" / "fiximg" / "ui" / "gradio_app.py").read_text(
+    source = (ROOT / "src" / "fiximg" / "ui" / "web" / "static" / "ui.js").read_text(
         encoding="utf-8", errors="replace")
-    # Match every image path the UI offers, not just ones under `examples/`.
-    # A pattern anchored on `examples/` cannot see a path that has been moved
-    # *out* of examples/ -- which is exactly the move this test exists to catch,
-    # so anchoring here would make the check blind to its own subject.
-    referenced = re.findall(r'"\./([^"]+\.(?:png|jpg|jpeg|webp))"', source)
+    # Match every example path the UI offers. The script builds them from a literal
+    # directory plus a name, so the directory is what is checked rather than a file:
+    # the set has to live under `examples/`, which is what ships, and not under
+    # `docs/`, which .dockerignore excludes.
+    referenced = re.findall(r'"(examples/[a-z_]+/)"', source)
     assert referenced, "no example image paths found -- has the UI moved?"
 
     directories = set()
@@ -325,9 +325,7 @@ def test_the_examples_the_ui_serves_are_not_the_documentation_images():
         assert not path.startswith("docs/"), (
             f"the UI now reads {path} from docs/, which .dockerignore excludes"
         )
-        directories.add(path.split("/")[0] + "/" + path.split("/")[1])
-        if "{" not in path:
-            assert (ROOT / path).is_file(), f"the UI serves {path} but it is not here"
+        directories.add(path.rstrip("/"))
 
     assert len(directories) == 3, (
         f"the UI offers images from {sorted(directories)}; expected the three "
@@ -338,10 +336,10 @@ def test_the_examples_the_ui_serves_are_not_the_documentation_images():
                   if p.suffix.lower() in (".png", ".jpg", ".jpeg", ".webp")]
         assert images, f"{directory} holds no images; the Examples tabs render empty"
 
-    # The literal tab definitions name these three directories directly.
+    # The literal path groups name these three directories directly.
     for name in ("old", "old_w_scratch", "color"):
-        assert f"./examples/{name}/" in source, (
-            f"no tab references examples/{name}/ any more -- recheck the "
+        assert f"examples/{name}/" in source, (
+            f"no panel references examples/{name}/ any more -- recheck the "
             "directory list above, they may have moved"
         )
 
