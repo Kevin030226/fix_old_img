@@ -255,7 +255,7 @@ class PipelineOrchestrator:
 
     # ---------------------------------------------------------------- sync API
     def run(self, input_image, user_state, task_type: str, options: dict | None = None):
-        """Synchronous execution used by the Gradio callbacks (V1-compatible UX).
+        """Synchronous execution (the V1-compatible in-process path).
 
         Returns (result_path, evaluation_text_or_None).
         """
@@ -307,7 +307,7 @@ class PipelineOrchestrator:
             artifact_service.maybe_purge()
             return result_path, evaluation_text
         except TaskCancelledError as exc:
-            # The synchronous (Gradio) task can be cancelled too — its id is listed in
+            # The synchronous task can be cancelled too — its id is listed in
             # the history panel and `POST /tasks/{id}/cancel` takes any row. Same rule
             # as the queued path: the row says `cancelled`, so it must not be
             # overwritten with `failed` here.
