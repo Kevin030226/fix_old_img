@@ -309,30 +309,47 @@ jobs:
       # the api/root images all said 13.0.0. Reading the files cannot catch that;
       # asking the built image what it actually contains does. It runs in every
       # shard, so no image can be the one that skips it.
+      #
+      # The code travels as `python3 -c`, never on stdin. The first version of this
+      # step used `docker run ... python3 - <<'PY'` and was a silent no-op: without
+      # `-i` docker does not attach the container's stdin, so the heredoc stayed in
+      # the host shell, the interpreter read EOF, and an empty script exited 0 in
+      # about six milliseconds. The step reported success while asserting nothing.
+      # Passing the program as an argument removes that failure mode entirely --
+      # there is no stream to forget to connect. `tests/unit/test_image_dependencies.py`
+      # now rejects the stdin form so it cannot come back.
       - name: Assert the resolved runtime dependencies inside the image
         run: |
-          docker run --rm "fiximg-${{ matrix.image }}:ci" python3 - <<'PY'
+          docker run --rm --env IMAGE_KIND="${{ matrix.image }}" \
+              "fiximg-${{ matrix.image }}:ci" \
+              python3 -c '
           import importlib.metadata as md
-          import sys
+          import os
 
-          expected_pillow = "13.0.0"
+          expected = "13.0.0"
           installed = md.version("pillow")
-          assert installed == expected_pillow, (
-              f"image ships pillow {installed}, expected {expected_pillow}; "
-              "a floor in pyproject.toml is satisfied by whatever the torch stack "
-              "left behind, so the exact pin is what forces the upgrade"
+          assert installed == expected, (
+              f"image ships pillow {installed}, expected {expected}; a floor in "
+              "pyproject.toml is satisfied by whatever the torch stack left "
+              "behind, so the exact pin is what forces the upgrade"
           )
 
           # The UI framework was removed in P17 and must not return on any path.
-          present = {dist.metadata["Name"].lower() for dist in md.distributions()
-                     if dist.metadata["Name"]}
-          for forbidden in ("gradio", "gradio-client", "gradio_client", "hf-gradio"):
-              assert forbidden not in present, (
-                  f"image ships {forbidden}; it requires pillow<13 and would "
-                  "re-open the advisories this pin exists to clear"
+          # Names are normalised the way a package index normalises them, so
+          # `gradio_client`, `gradio-client` and `Gradio` are one answer.
+          names = {
+              (d.metadata["Name"] or "").lower().replace("_", "-").replace(".", "-")
+              for d in md.distributions()
+          }
+          for bad in ("gradio", "gradio-client", "hf-gradio"):
+              assert bad not in names, (
+                  f"image ships {bad}; it requires pillow<13 and would re-open "
+                  "the advisories this pin exists to clear"
               )
-          print(f"image: pillow {installed}, no UI framework")
-          PY
+
+          kind = os.environ["IMAGE_KIND"]
+          print(f"RUNTIME-ASSERT-OK image={kind} pillow={installed} gradio=absent")
+          '
 
       - name: Smoke-test the api image
         if: matrix.image == 'api'

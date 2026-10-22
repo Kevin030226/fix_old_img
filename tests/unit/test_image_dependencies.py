@@ -214,3 +214,275 @@ def test_no_image_can_skip_the_runtime_assertion(relative):
         "the runtime dependency assertion is conditional; every image must run it, "
         "because the image that regressed was the one with the unusual install order"
     )
+
+# ---------------------------------------- the runtime assertion must actually run
+#
+# P20 shipped a step that looked like a gate and was a no-op. It read:
+#
+#     docker run --rm "fiximg-<image>:ci" python3 - <<'PY'
+#     ... assertions ...
+#     PY
+#
+# Without `-i`, docker does not attach the container's stdin. The heredoc stayed
+# in the host shell, the container's interpreter read EOF, and an EMPTY program
+# exited 0 in about six milliseconds. Three images "passed" a check that asserted
+# nothing, and the only trace was the absence of output nobody was looking for.
+#
+# The fix passes the program as an argument (`python3 -c '...'`), so there is no
+# stream to forget to connect. The gates below hold that shape: they reject the
+# stdin form outright rather than trusting that someone will remember `-i`, and
+# they require the assertions and the success marker to be present in the code
+# that actually reaches the container.
+
+
+def _docker_steps() -> list[dict]:
+    """Every step of the CI docker job, parsed from the committed workflow."""
+    import yaml
+
+    with open(os.path.join(PROJECT_ROOT, ".github", "workflows", "ci.yml"),
+              encoding="utf-8") as handle:
+        document = yaml.safe_load(handle)
+    return document["jobs"]["docker"]["steps"]
+
+
+def _runtime_assert_step() -> dict:
+    matches = [step for step in _docker_steps()
+               if "runtime dependencies" in str(step.get("name", ""))]
+    assert len(matches) == 1, (
+        f"expected exactly one runtime-assertion step, found {len(matches)}; a "
+        "second copy would drift from the first"
+    )
+    return matches[0]
+
+
+def _docker_run_lines(body: str) -> list[str]:
+    """The docker run commands in a step body, with continuations joined."""
+    joined: list[str] = []
+    pending = ""
+    for raw in body.splitlines():
+        line = raw.strip()
+        if not line:
+            continue
+        if pending:
+            pending += " " + line
+        else:
+            pending = line
+        if pending.endswith(chr(92)):
+            pending = pending[:-1].rstrip()
+            continue
+        joined.append(pending)
+        pending = ""
+    if pending:
+        joined.append(pending)
+    return [line for line in joined if line.startswith("docker run")]
+
+
+def _python_program(step: dict) -> str:
+    """The Python source the container will actually execute.
+
+    Extracted from the `-c` argument. If the step uses stdin instead, this
+    returns an empty string -- which the caller treats as a failure, because that
+    form cannot be shown to deliver the code without also checking a `-i` flag
+    that is easy to omit.
+    """
+    body = str(step.get("run", ""))
+    lines = body.splitlines()
+    for index, line in enumerate(lines):
+        if "python3 -c" not in line:
+            continue
+        tail = line.split("python3 -c", 1)[1].lstrip()
+        if not tail.startswith(chr(39)):
+            continue
+        collected = [tail[1:]]
+        for follow in lines[index + 1:]:
+            if follow.strip() == chr(39):
+                break
+            collected.append(follow)
+        else:
+            continue
+        return chr(10).join(collected)
+    return ""
+
+
+def _run_container_program(program: str, pillow: str, extra_dists=()) -> tuple[int, str]:
+    """Execute the container program against stubbed metadata.
+
+    The program is the exact text that travels to the image, so running it here
+    measures what the gate will actually do. The stub replaces importlib.metadata
+    with one that reports the given Pillow version and distribution names, which
+    is the only thing the program reads.
+    """
+    import subprocess
+    import sys
+    import tempfile
+
+    harness = chr(10).join([
+        "import sys, types, os",
+        "os.environ.setdefault('IMAGE_KIND', 'stub')",
+        "fake = types.ModuleType('importlib.metadata')",
+        "class _D:",
+        "    def __init__(self, name): self.metadata = {'Name': name}",
+        f"fake.distributions = lambda: [_D(n) for n in {list(('Pillow',) + tuple(extra_dists))!r}]",
+        f"fake.version = lambda n: {pillow!r} if n.lower() == 'pillow' else '0.0.0'",
+        "sys.modules['importlib.metadata'] = fake",
+        "import importlib; importlib.metadata = fake",
+        "exec(compile(open(sys.argv[1], encoding='utf-8').read(), sys.argv[1], 'exec'), {'__name__': '__main__'})",
+    ])
+    with tempfile.TemporaryDirectory() as tmp:
+        harness_path = os.path.join(tmp, "harness.py")
+        program_path = os.path.join(tmp, "program.py")
+        with open(harness_path, "w", encoding="utf-8") as handle:
+            handle.write(harness)
+        with open(program_path, "w", encoding="utf-8") as handle:
+            handle.write(program)
+        result = subprocess.run([sys.executable, harness_path, program_path],
+                                capture_output=True, text=True)
+    return result.returncode, result.stdout + result.stderr
+
+
+def _program_rejects_installed_gradio(program: str) -> bool:
+    """True when the program fails if gradio is among the installed packages."""
+    code, _output = _run_container_program(program, "13.0.0",
+                                           extra_dists=("fastapi", "gradio"))
+    return code != 0
+
+
+def _program_accepts_a_clean_image(program: str) -> tuple[bool, str]:
+    """True when a correct image (Pillow 13.0.0, no framework) passes, plus output."""
+    code, output = _run_container_program(program, "13.0.0",
+                                          extra_dists=("fastapi", "torch"))
+    return code == 0, output
+
+
+def _program_rejects_wrong_pillow(program: str) -> bool:
+    """True when the program fails for the version P18 actually shipped."""
+    code, _output = _run_container_program(program, "12.3.0",
+                                           extra_dists=("fastapi",))
+    return code != 0
+
+
+def test_the_runtime_assertion_delivers_its_code_as_an_argument_not_via_stdin():
+    """The exact defect P20 found, rejected structurally.
+
+    Two acceptable shapes exist: `python3 -c '<code>'`, or an explicit
+    `docker run -i ... <<'PY'`. Only the first is used here, and the gate requires
+    it -- a heredoc form is rejected unless `-i` is present on the same command, so
+    the silent no-op cannot return by someone copying an older snippet.
+    """
+    step = _runtime_assert_step()
+    body = str(step.get("run", ""))
+
+    program = _python_program(step)
+    assert program.strip(), (
+        "the runtime assertion does not pass its program with python3 -c; the "
+        "container would have to read it from stdin, which is exactly the form "
+        "that silently executed nothing when -i was missing"
+    )
+
+    for command in _docker_run_lines(body):
+        if "python3 -" in command and "-c" not in command:
+            assert " -i" in command or " --interactive" in command, (
+                "a docker run ... python3 - command is missing -i, so the "
+                "container's stdin is closed and the program never arrives: " + command
+            )
+
+
+def test_the_container_program_asserts_pillow_exactly_and_gradio_absent():
+    """The semantics, checked on the code that reaches the container."""
+    program = _python_program(_runtime_assert_step())
+    assert program.strip(), "no program to check"
+
+    assert "importlib.metadata" in program, (
+        "the program does not read installed distribution metadata, so it cannot "
+        "see what the image actually contains"
+    )
+    assert "md.version(" in program, "the program does not read a distribution version"
+    assert _program_rejects_wrong_pillow(program), (
+        "the program does not fail for Pillow 12.3.0 -- the version the worker "
+        "image shipped in P18 -- so a regression would pass"
+    )
+
+    # The framework check is measured by *running* the program, not by looking for
+    # the word "gradio": the first version of this gate asserted the substring and
+    # passed a mutation that emptied the rejection loop, because the literals were
+    # still in the source. Executing the program against a stubbed metadata that
+    # reports gradio installed must fail; that is the property.
+    assert _program_rejects_installed_gradio(program), (
+        "the program does not fail when gradio is installed; it would ship the "
+        "framework this project removed and re-open the pillow<13 advisories"
+    )
+
+    # The marker is checked by running a *clean* image through the program and
+    # requiring the marker in its output. A source-only check would pass a program
+    # whose print statement was unreachable, which is the same class of defect as
+    # P20: the code looked right and produced nothing.
+    ok, output = _program_accepts_a_clean_image(program)
+    assert ok, (
+        "a correct image (Pillow 13.0.0, no UI framework) did not pass the "
+        f"container program; output was: {output.strip()[:300]}"
+    )
+    assert "RUNTIME-ASSERT-OK" in output, (
+        "the program produced no success marker for a correct image, so a silent "
+        "no-op would be indistinguishable from a pass -- which is how P20's defect "
+        f"survived review; output was: {output.strip()[:300]}"
+    )
+    assert "pillow=13.0.0" in output, (
+        f"the marker does not report the Pillow version it verified: {output.strip()[:200]}"
+    )
+    assert "gradio=absent" in output, (
+        f"the marker does not report the framework result: {output.strip()[:200]}"
+    )
+    assert "image=" in output, (
+        f"the marker does not identify which image was asserted: {output.strip()[:200]}"
+    )
+
+
+def test_the_runtime_assertion_fails_the_step_on_a_mismatch():
+    """An assertion is only a gate if it can fail the step.
+
+    `python3 -c` exits non-zero on an AssertionError, and the workflow runs
+    each run block under `bash -e`, so a failed assertion fails the job. What must
+    not happen is a program that swallows the failure.
+    """
+    program = _python_program(_runtime_assert_step())
+    assert "assert " in program, "the program contains no assertion"
+    assert "except" not in program, (
+        "the program catches exceptions, so a mismatch could be swallowed"
+    )
+    assert "sys.exit(0)" not in program, "the program forces a zero exit"
+
+
+def test_the_runtime_assertion_runs_before_every_trivy_scan():
+    """Assert first, scan second: a scan finding names a package, not a cause."""
+    steps = _docker_steps()
+    names = [str(step.get("name", "")) for step in steps]
+    assertion = next(i for i, name in enumerate(names)
+                     if "runtime dependencies" in name)
+    scans = [i for i, step in enumerate(steps)
+             if "trivy-action" in str(step.get("uses", ""))]
+    assert scans, "no Trivy scan step in the docker job"
+    assert assertion < min(scans), (
+        "the runtime assertion runs after the Trivy scan; a dependency regression "
+        "would then be reported as a scan finding instead of as the dependency it is"
+    )
+
+
+def test_every_matrix_image_runs_the_runtime_assertion():
+    """One shared, unguarded step -- not three copies that can drift apart."""
+    step = _runtime_assert_step()
+    assert not step.get("if"), (
+        "the runtime assertion is conditional; the image that regressed in P18 was "
+        "the one with the unusual install order, so every shard must run it"
+    )
+    assert "matrix.image" in str(step.get("run", "")), (
+        "the assertion is not parameterised by the matrix image"
+    )
+    import yaml
+
+    with open(os.path.join(PROJECT_ROOT, ".github", "workflows", "ci.yml"),
+              encoding="utf-8") as handle:
+        document = yaml.safe_load(handle)
+    matrix = document["jobs"]["docker"]["strategy"]["matrix"]["include"]
+    assert {entry["image"] for entry in matrix} == {"api", "worker", "root"}, (
+        "the docker matrix no longer covers exactly the three published images"
+    )
