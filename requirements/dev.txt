@@ -6,3 +6,4 @@
 #
 # Install with:  pip install -r requirements/dev.txt
 ruff==0.15.7
+typing_extensions==4.12.2

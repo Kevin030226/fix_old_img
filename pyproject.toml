@@ -10,7 +10,7 @@ readme = "README.md"
 requires-python = ">=3.11"
 license = { file = "LICENSE" }
 authors = [{ name = "Kevin030226" }]
-keywords = ["image-restoration", "colorization", "fastapi", "gradio", "gpu", "worker"]
+keywords = ["image-restoration", "colorization", "fastapi", "gpu", "worker"]
 classifiers = [
     "Programming Language :: Python :: 3.11",
     "Topic :: Scientific/Engineering :: Image Processing",
@@ -19,11 +19,19 @@ classifiers = [
 # Runtime core: the web layer + the light imaging stack. The heavy inference
 # stack (torch/dlib) lives in the `gpu` extra so a CPU-only API container does
 # not have to install it (plan §3.12).
+#
+# There is deliberately no UI framework here. The web interface is a FastAPI router
+# with a static script (`src/fiximg/ui/web/`), so serving a page costs the
+# dependencies below and nothing else. `gradio` used to be listed here, and it pins
+# `pillow<13` — which made the Pillow release that clears this project's open
+# advisories unresolvable from every install path. Removing the framework is what
+# made the pin installable; `reports/p17_fastapi_ui_migration.md` records the
+# migration. It must not come back as an extra either: an installable legacy UI
+# would reintroduce the same conflict on a path nobody is testing.
 dependencies = [
     "fastapi>=0.115",
     "uvicorn>=0.30",
     "python-multipart>=0.0.9",
-    "gradio>=5.0",
     "pydantic>=2.7",
     "numpy>=1.26",
     "Pillow>=10.0",
