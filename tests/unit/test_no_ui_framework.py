@@ -272,3 +272,55 @@ def test_no_trivy_or_audit_exemption_names_a_pillow_advisory():
                 f"{relative} exempts {line}. The Pillow advisories are fixed by the "
                 "13.0.0 pin; an exemption here would hide a real vulnerability."
             )
+
+
+def test_no_module_still_imports_a_deleted_ui_module():
+    """A dangling import of a removed module is a latent ImportError.
+
+    Removing the Gradio shell left one behind: the shared fixtures still did
+    `from fiximg.ui import gradio_app` inside a helper nothing called any more. No
+    test failed, because no test called the helper — the import would only have
+    raised the day somebody reused it, and by then the traceback would point at the
+    fixture rather than at the removal that orphaned it.
+
+    The rule is the general one: nothing may import a module this change deleted.
+    """
+    deleted = (
+        "fiximg.ui.gradio_app",
+        "fiximg.ui.admin_panel",
+        "fiximg.ui.history_panel",
+        "fiximg.ui.task_progress",
+        "fiximg.ui.middleware",
+        "fiximg.ui.components",
+    )
+    pattern = re.compile(
+        r"^\s*(?:from|import)\s+(" + "|".join(re.escape(name) for name in deleted) + r")\b",
+        re.MULTILINE,
+    )
+    offenders = []
+    for relative, text in _python_sources():
+        for match in pattern.finditer(text):
+            line = text[:match.start()].count(chr(10)) + 1
+            offenders.append(f"{relative}:{line} imports {match.group(1)}")
+    assert not offenders, (
+        "these files import a module the UI migration deleted; the import is only "
+        "latent because nothing calls the code around it yet:\n  "
+        + "\n  ".join(offenders)
+    )
+
+
+def test_every_ui_module_the_migration_added_still_exists():
+    """The other direction: a docstring that names a module must not be the only trace."""
+    for relative in (
+        os.path.join("src", "fiximg", "ui", "web", "session.py"),
+        os.path.join("src", "fiximg", "ui", "web", "pages.py"),
+        os.path.join("src", "fiximg", "ui", "web", "routes.py"),
+        os.path.join("src", "fiximg", "ui", "web", "static", "ui.js"),
+        os.path.join("src", "fiximg", "ui", "progress.py"),
+        os.path.join("src", "fiximg", "ui", "history.py"),
+        os.path.join("src", "fiximg", "application", "submission.py"),
+        os.path.join("src", "fiximg", "api", "schemas", "ui.py"),
+    ):
+        assert os.path.isfile(os.path.join(PROJECT_ROOT, relative)), (
+            f"{relative} is named by the UI layer but does not exist"
+        )
