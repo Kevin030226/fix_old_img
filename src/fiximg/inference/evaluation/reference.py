@@ -95,7 +95,7 @@ def calculate_difference_metrics(original_path: str, result_path: str) -> dict:
 
 
 def format_difference_report(metrics: dict, notes: str | list[str] | None = None) -> str:
-    """Human-facing text for the Gradio result panel.
+    """Human-facing text for the result panel.
 
     ``notes`` takes one reason or several: a report can both carry a stage
     degradation warning and explain that the measured difference includes a

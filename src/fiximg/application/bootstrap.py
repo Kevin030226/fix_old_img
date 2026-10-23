@@ -13,7 +13,7 @@ into the image. Policy:
     must change it afterwards.
 
 Plan section 21 "force change": the randomly-generated account is created
-with must_change_password=1 — the Gradio login then keeps prompting the user
+with must_change_password=1 — the sign-in page then keeps prompting the user
 until the password has been replaced (setting the password via
 FIXIMG_ADMIN_PASSWORD marks the credential as deployment-managed and does not
 force a change).
@@ -41,7 +41,13 @@ def _admin_username() -> str:
 
 
 def _password_file() -> str:
-    return os.path.join(os.path.dirname(settings.db_path), "initial_admin_password.txt")
+    """Where the generated one-time password is persisted (0600).
+
+    Same directory as the API token, and for the same reason: it must follow the
+    database this process actually opens, not the default one it may have been
+    configured away from.
+    """
+    return os.path.join(settings.management_data_dir, "initial_admin_password.txt")
 
 
 def _generate_password(length: int = _PASSWORD_LENGTH) -> str:

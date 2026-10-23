@@ -1,6 +1,6 @@
 """Bearer-token authentication for the JSON API (`/api/v1/*`).
 
-Why this exists: the Gradio UI talks to the service layer *in process*, but the
+Why this exists: the web UI talks to the service layer *in process*, but the
 JSON API is plain HTTP. When the service is bound to a routable address
 (`FIXIMG_HOST=0.0.0.0`, as the Dockerfile/compose topology does), every
 `/api/v1/*` route used to be reachable without credentials — including the
@@ -35,8 +35,16 @@ _cached: str | None = None
 
 
 def token_file() -> str:
-    """Path of the generated token (next to the SQLite database)."""
-    return os.path.join(os.path.dirname(settings.db_path), "api_token.txt")
+    """Path of the generated token, in the management data directory.
+
+    `settings.management_data_dir` derives the directory from `db_path` on every
+    read, so a deployment that relocates the database with `FIXIMG_DATABASE_URL`
+    gets the token beside the database it actually opens. Computing it here from
+    `os.path.dirname(settings.db_path)` is the same value on purpose -- the
+    property exists so both writers (this one and the bootstrap password file)
+    cannot drift apart again.
+    """
+    return os.path.join(settings.management_data_dir, "api_token.txt")
 
 
 def reset_cache() -> None:

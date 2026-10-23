@@ -2,7 +2,7 @@
 
 Topology::
 
-    API/Gradio  →  queue (tasks table by default)  →  worker  →  inference runtime
+    API/UI  →  queue (tasks table by default)  →  worker  →  inference runtime
 
 V3 changes vs V2:
 

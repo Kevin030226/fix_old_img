@@ -23,32 +23,127 @@ from fiximg.paths import CONFIGS_DIR, PROJECT_ROOT
 BASE_DIR = PROJECT_ROOT
 
 
-def _load_profile() -> dict:
-    """Merge ``configs/base.yaml`` with the selected profile's overrides."""
-    profile = (
+class ProfileConfigurationError(RuntimeError):
+    """A configuration file that was needed could not be used.
+
+    Raised instead of continuing with defaults. A deployment that loses its
+    profile and boots anyway silently reverts every timeout, retention window
+    and topology switch to the development value, and fails much later in a way
+    that names nothing. The message carries the path and, for a parse failure,
+    the position -- never the file's contents, which may hold credentials.
+    """
+
+
+def selected_profile() -> str:
+    """The profile name chosen by the deployment (FIXIMG_PROFILE -> FIXIMG_ENV -> local)."""
+    return (
         os.environ.get("FIXIMG_PROFILE")
         or os.environ.get("FIXIMG_ENV")
         or "local"
     ).strip() or "local"
 
-    merged: dict = {}
+
+def profile_was_requested() -> bool:
+    """Whether the deployment named a profile, as opposed to taking the default.
+
+    The distinction keeps local development frictionless (a checkout without
+    `configs/local.yaml` still runs on base + code defaults) while a deployment
+    that *asked for* a profile and lost it fails at import instead of booting on
+    the development values.
+    """
+    return bool(
+        (os.environ.get("FIXIMG_PROFILE") or os.environ.get("FIXIMG_ENV") or "").strip()
+    )
+
+
+#: Profile keys that are deliberately *not* settable from YAML.
+#:
+#: The database URL is a deployment-level statement: `apply_database_url` moves
+#: `DB_PATH` from it, and a value read out of a profile would outrank a `DB_PATH`
+#: that a test fixture or an embedder set directly (that inversion is how ~176
+#: tests once shared one developer database). Declaring one in a profile used to
+#: be accepted and then ignored; it is now refused by name so the operator is
+#: told the environment-variable spelling instead of getting silence.
+ENV_ONLY_PROFILE_KEYS: dict[str, str] = {"database_url": "FIXIMG_DATABASE_URL"}
+
+
+def _read_profile_file(path: str) -> dict:
+    """Parse one profile file, or raise ProfileConfigurationError."""
     try:
         import yaml
     except ImportError:  # pragma: no cover - PyYAML is a declared dependency
-        return merged
+        return {}
+    try:
+        with open(path, encoding="utf-8") as handle:
+            data = yaml.safe_load(handle)
+    except Exception as exc:  # noqa: BLE001 - every failure mode is "unusable file"
+        mark = getattr(exc, "problem_mark", None)
+        where = f" (line {mark.line + 1}, column {mark.column + 1})" if mark else ""
+        raise ProfileConfigurationError(
+            f"{path}: cannot be parsed as YAML{where} [{type(exc).__name__}]. "
+            "Fix the file, or select another profile with FIXIMG_PROFILE."
+        ) from exc
+    if data is None:
+        return {}
+    if not isinstance(data, dict):
+        raise ProfileConfigurationError(
+            f"{path}: expected a mapping of settings, got {type(data).__name__}. "
+            "Fix the file, or select another profile with FIXIMG_PROFILE."
+        )
+    return data
 
-    for name in ("base", profile):
-        path = os.path.join(CONFIGS_DIR, f"{name}.yaml")
+
+def resolve_profile(profile: str | None = None, *, configs_dir: str | None = None) -> dict:
+    """Merge `configs/base.yaml` with the selected profile's overrides.
+
+    Pure and importable so the failure modes are testable without reloading this
+    module (a reload would rebuild the process-wide `settings` singleton that
+    every other module already holds a reference to).
+
+    Rules, in the order they matter:
+
+    * `configs/base.yaml` is optional: the shipped wheel contains `src/fiximg`
+      only, so a pip install legitimately has no `configs/` tree.
+    * A profile file that exists but cannot be parsed always raises, because
+      continuing would boot on defaults while the operator believes their file
+      is in force.
+    * A profile the deployment explicitly asked for and that is absent raises. An
+      unrequested default (`local`) may be absent, and the code defaults then
+      apply -- that is the development path.
+    """
+    name = (profile or selected_profile()).strip() or "local"
+    root = configs_dir or CONFIGS_DIR
+    requested = bool(profile) or profile_was_requested()
+
+    merged: dict = {}
+    for candidate in ("base", name):
+        path = os.path.join(root, f"{candidate}.yaml")
         if not os.path.exists(path):
+            if candidate == name and requested and candidate != "base":
+                raise ProfileConfigurationError(
+                    f"{path}: profile {name!r} was selected with "
+                    "FIXIMG_PROFILE/FIXIMG_ENV but no such file exists. "
+                    "Create it, or drop the variable to use the default profile."
+                )
             continue
-        try:
-            with open(path, encoding="utf-8") as handle:
-                data = yaml.safe_load(handle) or {}
-        except Exception:  # noqa: BLE001 — a broken profile must not block boot
-            continue
-        if isinstance(data, dict):
-            merged.update(data)
+        data = _read_profile_file(path)
+        unsupported = sorted(set(data) & set(ENV_ONLY_PROFILE_KEYS))
+        if unsupported:
+            hints = ", ".join(
+                f"{key} (use {ENV_ONLY_PROFILE_KEYS[key]})" for key in unsupported
+            )
+            raise ProfileConfigurationError(
+                f"{path}: {hints} cannot be set from a profile. Database addresses "
+                "are environment-only so a profile cannot outrank the database a "
+                "test fixture or an embedder configures."
+            )
+        merged.update(data)
     return merged
+
+
+def _load_profile() -> dict:
+    """Import-time wrapper: the same rules, applied to the process environment."""
+    return resolve_profile()
 
 
 #: Profile values resolved once at import time (env vars still take precedence).
@@ -151,7 +246,7 @@ class Settings:
         # --- Inference ---
         self.device: str = _env("FIXIMG_DEVICE", "auto")
         self.max_image_side: int = _env_int("FIXIMG_MAX_IMAGE_SIDE", 4096)
-        # API upload guard (plan section 22); Gradio uses the same via max_file_size.
+        # API upload guard (plan section 22); the web UI enforces the same limit.
         self.max_upload_mb: int = _env_int("FIXIMG_MAX_UPLOAD_MB", 10)
         # §18 ImageTiler: tile_size <= 0 disables tiling entirely.
         self.tile_size: int = _env_int("FIXIMG_TILE_SIZE", 1536)
@@ -185,7 +280,7 @@ class Settings:
         #: that lies about what was accepted.
         self.priority_max: int = _env_int("FIXIMG_PRIORITY_MAX", 10)
         # Set to true when a standalone `python worker.py` process consumes the
-        # queue, so the Gradio UI can use the async path (plan §23).
+        # queue, so the web UI can use the async path (plan §23).
         self.external_worker: bool = _env_bool("FIXIMG_HAS_EXTERNAL_WORKER", False)
 
         # --- DDColor colorization model ---
@@ -219,16 +314,33 @@ class Settings:
         self.redis_url: str = _env("FIXIMG_REDIS_URL", "")
 
         # --- Database / history ---
+        #: The SQLite file this process opens **when no database URL is configured**.
+        #:
+        #: It also anchors the local management files (API token, initial admin
+        #: password, archive roots). Those are not database rows: they live on the
+        #: filesystem the process can write, next to the data directory.
+        #:
+        #: `engine.apply_database_url()` rewrites this attribute when
+        #: `FIXIMG_DATABASE_URL` names a SQLite file, so it always describes the
+        #: database the engine will actually open. A **server** URL (PostgreSQL)
+        #: deliberately leaves it alone: the database has no filesystem path, and the
+        #: management files keep their own, independent location.
         self.db_path: str = os.path.join(self.base_dir, "admin_data", "fixoldimg.db")
         self.history_max: int = _env_int("FIXIMG_HISTORY_MAX", 2000)
         self.archive_ttl: int = _env_int("FIXIMG_ARCHIVE_TTL", 7 * 24 * 3600)
 
-        # --- V3: pluggable backends (plan §2.7/§2.8/§3.3) ---
-        #: Database URL. Empty means "use ``db_path``", and that default is
-        #: deliberate: the engine prefers an explicit URL over ``DB_PATH``, so a
-        #: URL derived from ``db_path`` here would outrank the ``DB_PATH`` an
-        #: isolation fixture or an embedder sets — every test would then share
-        #: one database, and the shipped profiles all declare a URL anyway.
+        # --- V3: pluggable backends (plan 2.7/2.8/3.3) ---
+        #: Database URL, and the single place the engine learns it from.
+        #:
+        #: Precedence, complete: `FIXIMG_DATABASE_URL` (this field) when non-empty,
+        #: otherwise the engine `DB_PATH` global. Nothing else can produce a URL:
+        #: `database_url` is listed in ENV_ONLY_PROFILE_KEYS, so the same key in a
+        #: `configs/*.yaml` file is a startup error instead of a value that looks
+        #: effective and is silently ignored.
+        #:
+        #: The empty default is load-bearing: a URL derived from `db_path` here
+        #: would outrank the `DB_PATH` an isolation fixture or an embedder sets, so
+        #: every test would share one database (measured once: 176 failures).
         self.database_url: str = _env("FIXIMG_DATABASE_URL", "")
         #: queue transport: "sqlite" (default, DB-backed) or "redis" (P2).
         self.queue_backend: str = _env("FIXIMG_QUEUE_BACKEND", "sqlite")
@@ -353,14 +465,30 @@ class Settings:
                 f"Unknown FIXIMG_APP_ENV: {self.app_env!r} (expected one of "
                 f"{', '.join(sorted(KNOWN_ENVS))})"
             )
-        # A profile name that matches neither a known environment nor a file is
-        # a typo that would silently load base.yaml only — reject it instead.
-        if self.profile not in KNOWN_ENVS and not os.path.exists(
-            os.path.join(CONFIGS_DIR, f"{self.profile}.yaml")
-        ):
+        # The profile selector must name something that exists. Two rules, because
+        # they close different holes:
+        #
+        #  * a name that is neither a known environment nor a file is a typo, and
+        #    must not silently boot on base.yaml alone;
+        #  * a *shipped* or explicitly requested profile whose file is absent is a
+        #    deployment that lost its configuration -- and because `KNOWN_ENVS`
+        #    also contains `production`, the old check accepted that case and the
+        #    process came up as production with every value reverted to the
+        #    development default (fail-fast disabled, an admin account created,
+        #    GPU inference inside the API process).
+        profile_file = os.path.join(CONFIGS_DIR, f"{self.profile}.yaml")
+        if self.profile not in KNOWN_ENVS and not os.path.exists(profile_file):
             raise ValueError(
                 f"Unknown FIXIMG_PROFILE: {self.profile!r} "
                 f"(no configs/{self.profile}.yaml)"
+            )
+        if profile_was_requested() and not os.path.exists(profile_file):
+            raise ProfileConfigurationError(
+                f"{profile_file}: profile {self.profile!r} was selected with "
+                "FIXIMG_PROFILE/FIXIMG_ENV but no such file exists. The process "
+                "would run on code defaults while the deployment believes its "
+                "profile is in force, so it refuses to start. Create the file, or "
+                "drop the variable to use the default profile."
             )
         if self.queue_backend not in ("sqlite", "redis"):
             raise ValueError(f"Unknown FIXIMG_QUEUE_BACKEND: {self.queue_backend!r}")
@@ -406,8 +534,26 @@ class Settings:
         return self.app_env == "production"
 
     @property
+    def management_data_dir(self) -> str:
+        """Directory for the non-database management files (token, initial password).
+
+        Deliberately derived from `db_path` on every read, not captured when the
+        object was built: `engine.apply_database_url()` rewrites `db_path` when a
+        SQLite URL moves the database, and a cached copy here would keep the
+        token and the initial admin password beside the *old* file. Both writers
+        (`api.security.token_file`, `application.bootstrap._password_file`) go
+        through this property for exactly that reason.
+
+        For a server URL (PostgreSQL) the directory is unchanged and independent:
+        a database with no filesystem path does not get to decide where a local
+        credential file lives, and `db_path` keeps describing the default SQLite
+        location the deployment would fall back to.
+        """
+        return os.path.dirname(self.db_path) or self.base_dir
+
+    @property
     def pipeline_modes(self) -> dict:
-        """Compatibility alias used by the legacy Gradio UI (plan section 4)."""
+        """Compatibility alias for the pipeline mode table (plan section 4)."""
         from fiximg.application.pipeline_modes import PIPELINE_MODES
 
         return PIPELINE_MODES

@@ -1,4 +1,4 @@
-# Single-container profile (plan §3.13): API + Gradio + inline worker thread,
+# Single-container profile (plan §3.13): API + web UI + inline worker thread,
 # SQLite for state and the local filesystem for artifacts.
 #
 #   docker compose -f docker/compose.local.yaml up -d --build

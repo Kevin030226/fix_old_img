@@ -1,4 +1,4 @@
-﻿<!--
+<!--
   fix_old_img — 基于深度学习的旧照片恢复、划痕修复与老照片上色系统
   中文备份版;默认文档为英文,请查看 README.md
 -->
@@ -10,7 +10,6 @@
 
 [![Python 3.11](https://img.shields.io/badge/Python-3.11-blue?logo=python&logoColor=white)](https://www.python.org/)
 [![PyTorch](https://img.shields.io/badge/PyTorch-2.7.1%2Bcu128-ee4c2c?logo=pytorch&logoColor=white)](https://pytorch.org/)
-[![Gradio](https://img.shields.io/badge/Gradio-6.22-orange?logo=gradio&logoColor=white)](https://gradio.app/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.141-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![CI](https://github.com/Kevin030226/fix_old_img/actions/workflows/ci.yml/badge.svg)](https://github.com/Kevin030226/fix_old_img/actions/workflows/ci.yml)
@@ -22,7 +21,7 @@
   <img src="docs/upstream/bob-0001.jpg" width="100%">
 </p>
 
-本系统用 Python 3.11 与 PyTorch（CUDA 12.8）构建了一套面向真实老照片的 Web 端图像修复系统：支持整体质量修复、划痕检测与修复、面部增强，以及黑白老照片自动上色。Web 层使用 Gradio 6 + FastAPI + Uvicorn，数据层使用 SQLite（WAL），并附带完整的管理后台（任务记录、照片档案、用户管理）。
+本系统用 Python 3.11 与 PyTorch（CUDA 12.8）构建了一套面向真实老照片的 Web 端图像修复系统：支持整体质量修复、划痕检测与修复、面部增强，以及黑白老照片自动上色。Web 层使用 FastAPI + Uvicorn 与原生 HTML/CSS/JS 界面（无 UI 框架），数据层使用 SQLite（WAL），并附带完整的管理后台（任务记录、照片档案、用户管理）。
 
 </div>
 
@@ -88,9 +87,9 @@
 | 类别 | 技术 |
 | --- | --- |
 | 语言/环境 | Python 3.11（conda 环境 `fixoldimg-gpu`） |
-| Web 框架 | Gradio 6.22 + FastAPI 0.141 + Uvicorn 0.52 |
+| Web 框架 | FastAPI 0.141 + Uvicorn 0.52 + 原生 HTML/CSS/JS 界面 |
 | 深度学习 | PyTorch 2.7.1+cu128（原生支持 RTX 50 系 sm_120） |
-| 视觉/科学计算 | OpenCV 5.0、scikit-image 0.26、scipy 1.17、numpy 2.4、Pillow 12.3 |
+| 视觉/科学计算 | OpenCV 5.0、scikit-image 0.26、scipy 1.17、numpy 2.4、Pillow 13.0 |
 | 人脸/上色 | dlib 20.0.1（conda-forge）、timm 0.9.2、DDColor |
 | 存储 | SQLite（WAL 模式） |
 | 模型 | Bringing Old Photos Back to Life + DDColor，共 29 个权重文件 |
@@ -192,7 +191,7 @@ conda activate fixoldimg-gpu
 pip install torch==2.7.1 torchvision==0.22.1 torchaudio==2.7.1 \
     --index-url https://download.pytorch.org/whl/cu128
 
-# 3. 安装项目依赖（含 Gradio/FastAPI/OpenCV/DDColor 所需 timm 等）
+# 3. 安装项目依赖（含 FastAPI/OpenCV/DDColor 所需 timm 等）
 pip install -r requirements.txt
 
 # 3b. 让 `fiximg` 包可被导入（`python -m fiximg.*` 需要）
@@ -275,7 +274,7 @@ python main.py
 ### 5.3 V2 任务 API
 
 所有 `/api/v1/*` 接口都要求以 Bearer 方式携带 API token（`/health`、`/health/ready`
-保持公开以便探针使用）。Gradio 界面不受影响——它直接调用进程内服务层。
+保持公开以便探针使用）。Web 界面不受影响——它使用自己的浏览器会话直接调用进程内服务层。
 
 ```bash
 # token 来自 FIXIMG_API_TOKEN，或首次启动时生成的文件（控制台/容器日志仅打印一次）
@@ -369,7 +368,7 @@ python run.py --input_folder ./test_images/old --output_folder ./output --GPU 0
 | `FIXIMG_INLINE_WORKER` | `true` | 在 API 进程内运行队列 worker（`false` = 独立 `python worker.py`） |
 | `FIXIMG_WORKER_POLL` | `0.5` | worker 队列轮询间隔（秒） |
 | `FIXIMG_WORKER_MAX_QUEUE` | `100` | 队列积压上限，超限后新提交返回 503（`0` = 不限制） |
-| `FIXIMG_HAS_EXTERNAL_WORKER` | `false` | 有独立 worker 消费队列时设为 `true`，Gradio UI 走异步路径 |
+| `FIXIMG_HAS_EXTERNAL_WORKER` | `false` | 有独立 worker 消费队列时设为 `true`，Web UI 走异步路径 |
 | `FIXIMG_MAX_UPLOAD_MB` | `10` | API 上传大小上限（超过返回 HTTP 413） |
 | `FIXIMG_RESULT_TTL` | `7200` | 推理产物保留秒数 |
 | `FIXIMG_HISTORY_MAX` | `2000` | 历史记录上限 |
@@ -393,7 +392,7 @@ python run.py --input_folder ./test_images/old --output_folder ./output --GPU 0
 
 `GET /health` 返回存活状态；`GET /health/ready` 额外检查 SQLite 连接以及模型管理器与 worker/队列状态，数据库异常时返回 HTTP 503。`GET /api/v1/stats?days=N` 聚合任务成功率与各阶段 P50/P95 耗时。
 
-Gradio 界面同样走异步路径：提交按钮入队任务并以阶段进度条流式展示（方案 §23/§24）。当没有可用的队列消费者时，UI 自动回退到同步执行以保持 V1 体验；运行独立 `worker.py` 时请设置 `FIXIMG_HAS_EXTERNAL_WORKER=true` 让 UI 使用队列。
+Web 界面同样走异步路径：提交按钮入队任务并以阶段进度条流式展示（方案 §23/§24）。当没有可用的队列消费者时，UI 自动回退到同步执行以保持 V1 体验；运行独立 `worker.py` 时请设置 `FIXIMG_HAS_EXTERNAL_WORKER=true` 让 UI 使用队列。
 
 ## 6. 输入输出示例
 

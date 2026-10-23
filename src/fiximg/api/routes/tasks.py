@@ -55,8 +55,9 @@ from fiximg.domain.errors import (
 from fiximg.infrastructure.security import rate_limit
 
 # Every task route requires the API bearer token (fiximg/api/security.py): the
-# Gradio UI uses the service layer in-process and is unaffected. The create
-# route additionally resolves the acting Principal (plan §2.5 point 3).
+# web UI uses its own session cookie and the service layer in-process, and is
+# unaffected. The create route additionally resolves the acting Principal
+# (plan §2.5 point 3).
 router = APIRouter(
     prefix="/api/v1/tasks",
     tags=["tasks"],

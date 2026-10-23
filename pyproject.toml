@@ -4,13 +4,13 @@ build-backend = "hatchling.build"
 
 [project]
 name = "fiximg"
-version = "3.1.0"
+version = "3.1.1"
 description = "Old photo restoration, scratch repair and colorization platform (V3)"
 readme = "README.md"
 requires-python = ">=3.11"
 license = { file = "LICENSE" }
 authors = [{ name = "Kevin030226" }]
-keywords = ["image-restoration", "colorization", "fastapi", "gradio", "gpu", "worker"]
+keywords = ["image-restoration", "colorization", "fastapi", "gpu", "worker"]
 classifiers = [
     "Programming Language :: Python :: 3.11",
     "Topic :: Scientific/Engineering :: Image Processing",
@@ -19,14 +19,33 @@ classifiers = [
 # Runtime core: the web layer + the light imaging stack. The heavy inference
 # stack (torch/dlib) lives in the `gpu` extra so a CPU-only API container does
 # not have to install it (plan §3.12).
+#
+# There is deliberately no UI framework here. The web interface is a FastAPI router
+# with a static script (`src/fiximg/ui/web/`), so serving a page costs the
+# dependencies below and nothing else. `gradio` used to be listed here, and it pins
+# `pillow<13` — which made the Pillow release that clears this project's open
+# advisories unresolvable from every install path. Removing the framework is what
+# made the pin installable; `reports/p17_fastapi_ui_migration.md` records the
+# migration. It must not come back as an extra either: an installable legacy UI
+# would reintroduce the same conflict on a path nobody is testing.
+#
+# Pillow is an **exact** pin, not a floor, and that is load-bearing rather than
+# tidiness. 12.3.0 carries a CRITICAL and six HIGH advisories whose fix version is
+# 13.0.0, and a floor cannot deliver that: the worker image installs the torch stack
+# first, and `torchvision==0.22.1` declares `pillow!=8.3.*,>=5.3.0` with no upper
+# bound, so pip satisfies it with whatever Pillow the index serves (12.3.0 at the
+# time this was measured). The project is installed *afterwards*, and a floor of
+# `>=10.0` then finds 12.3.0 already satisfied and never upgrades it. The image
+# builds, ships the vulnerable Pillow, and only the Trivy scan notices. An exact pin
+# makes the second install resolve *to* 13.0.0 regardless of what the first one
+# left behind. See `reports/p19_worker_pillow_remediation.md`.
 dependencies = [
     "fastapi>=0.115",
     "uvicorn>=0.30",
     "python-multipart>=0.0.9",
-    "gradio>=5.0",
     "pydantic>=2.7",
     "numpy>=1.26",
-    "Pillow>=10.0",
+    "Pillow==13.0.0",
     "opencv-python-headless>=4.9",
     "scipy>=1.11",
     "scikit-image>=0.22",

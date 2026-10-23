@@ -22,7 +22,10 @@
 # ============================================================
 
 # ---- Web layer ----
-gradio==6.22.0
+# No UI framework: the interface is a FastAPI router plus one static script
+# (src/fiximg/ui/web/). `gradio` was pinned here and it requires `pillow<13`,
+# so this file could not be installed together with the Pillow release that
+# clears the open advisories. Do not add it back, as a pin or as an extra.
 fastapi==0.141.1
 uvicorn==0.52.1
 python-multipart
@@ -30,7 +33,7 @@ pydantic>=2.7
 
 # ---- Scientific computing / imaging ----
 numpy==2.4.6
-Pillow==12.3.0
+Pillow==13.0.0
 opencv-python-headless==5.0.0.93
 scipy==1.17.1
 scikit-image==0.26.0

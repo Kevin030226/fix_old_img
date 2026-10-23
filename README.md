@@ -10,8 +10,8 @@
 
 [![Python 3.11](https://img.shields.io/badge/Python-3.11-blue?logo=python&logoColor=white)](https://www.python.org/)
 [![PyTorch](https://img.shields.io/badge/PyTorch-2.7.1%2Bcu128-ee4c2c?logo=pytorch&logoColor=white)](https://pytorch.org/)
-[![Gradio](https://img.shields.io/badge/Gradio-6.22-orange?logo=gradio&logoColor=white)](https://gradio.app/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.141-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
+[![Web UI](https://img.shields.io/badge/Web%20UI-native%20HTML%2FCSS%2FJS-blue)](https://github.com/Kevin030226/fix_old_img)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![CI](https://github.com/Kevin030226/fix_old_img/actions/workflows/ci.yml/badge.svg)](https://github.com/Kevin030226/fix_old_img/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/Kevin030226/fix_old_img?sort=semver)](https://github.com/Kevin030226/fix_old_img/releases)
@@ -22,7 +22,7 @@
   <img src="docs/upstream/bob-0001.jpg" width="100%">
 </p>
 
-This project is a web-based image restoration system for real old photos, built with Python 3.11 and PyTorch (CUDA 12.8). It supports overall quality restoration, scratch detection & repair, face enhancement, and automatic colorization of black-and-white photos. The web layer uses Gradio 6 + FastAPI + Uvicorn, data storage uses SQLite (WAL), and a complete admin panel is included (task history, photo archive, user management).
+This project is a web-based image restoration system for real old photos, built with Python 3.11 and PyTorch (CUDA 12.8). It supports overall quality restoration, scratch detection & repair, face enhancement, and automatic colorization of black-and-white photos. The web layer is FastAPI + Uvicorn with a native HTML/CSS/JS interface (no UI framework), data storage uses SQLite (WAL), and a complete admin panel is included (task history, photo archive, user management).
 
 </div>
 
@@ -88,9 +88,9 @@ This system provides a complete pipeline to address these issues: **overall qual
 | Category | Technology |
 | --- | --- |
 | Language/Environment | Python 3.11 (conda env `fixoldimg-gpu`) |
-| Web framework | Gradio 6.22 + FastAPI 0.141 + Uvicorn 0.52 |
+| Web framework | FastAPI 0.141 + Uvicorn 0.52 + native HTML/CSS/JS UI |
 | Deep learning | PyTorch 2.7.1+cu128 (native RTX 50 series sm_120 support) |
-| Vision/Scientific computing | OpenCV 5.0, scikit-image 0.26, scipy 1.17, numpy 2.4, Pillow 12.3 |
+| Vision/Scientific computing | OpenCV 5.0, scikit-image 0.26, scipy 1.17, numpy 2.4, Pillow 13.0 |
 | Face/Colorization | dlib 20.0.1 (conda-forge), timm 0.9.2, DDColor |
 | Storage | SQLite (WAL mode) |
 | Models | Bringing Old Photos Back to Life + DDColor, 29 weight files in total |
@@ -191,7 +191,7 @@ conda activate fixoldimg-gpu
 pip install torch==2.7.1 torchvision==0.22.1 torchaudio==2.7.1 \
     --index-url https://download.pytorch.org/whl/cu128
 
-# 3. Install project dependencies (Gradio/FastAPI/OpenCV/timm for DDColor, etc.)
+# 3. Install project dependencies (FastAPI/OpenCV/timm for DDColor, etc.)
 pip install -r requirements.txt
 
 # 3b. Make the `fiximg` package importable (needed by `python -m fiximg.*`).
@@ -275,8 +275,8 @@ Admin users only see the "Admin Panel"; normal users can use the four image proc
 ### 5.3 V2 Task API
 
 Every `/api/v1/*` endpoint requires the API token as a bearer credential
-(`/health` and `/health/ready` stay public for probes). The Gradio UI is not
-affected: it calls the service layer in process.
+(`/health` and `/health/ready` stay public for probes). The web UI is not
+affected: it uses its own browser session and calls the service layer in process.
 
 ```bash
 # The token comes from FIXIMG_API_TOKEN, or from the file generated on first
@@ -373,7 +373,7 @@ The output directory contains `final_output/` (final results), per-stage interme
 | `FIXIMG_INLINE_WORKER` | `true` | Run the DB-queue worker inside the API process (`false` = standalone `python worker.py`) |
 | `FIXIMG_WORKER_POLL` | `0.5` | Worker queue polling interval (seconds) |
 | `FIXIMG_WORKER_MAX_QUEUE` | `100` | Max queued tasks before new submissions return 503 (`0` = unlimited) |
-| `FIXIMG_HAS_EXTERNAL_WORKER` | `false` | Set `true` when a standalone worker consumes the queue, so the Gradio UI uses the async path |
+| `FIXIMG_HAS_EXTERNAL_WORKER` | `false` | Set `true` when a standalone worker consumes the queue, so the web UI uses the async path |
 | `FIXIMG_MAX_UPLOAD_MB` | `10` | API upload size limit (HTTP 413 above it) |
 | `FIXIMG_RESULT_TTL` | `7200` | Inference result retention (seconds) |
 | `FIXIMG_HISTORY_MAX` | `2000` | History record cap |
@@ -397,7 +397,7 @@ The output directory contains `final_output/` (final results), per-stage interme
 
 `GET /health` returns liveness; `GET /health/ready` additionally checks the SQLite connection plus model-manager and worker/queue state, returning HTTP 503 on database errors. `GET /api/v1/stats?days=N` aggregates task success rate and per-stage P50/P95 durations.
 
-The Gradio UI uses the async path too: submit buttons enqueue a task and stream a per-stage progress bar (plan sections 23/24). When no queue consumer is reachable, the UI automatically falls back to synchronous execution to preserve the V1 experience; set `FIXIMG_HAS_EXTERNAL_WORKER=true` when running the standalone `worker.py` so the UI uses the queue.
+The web UI uses the async path too: submit buttons enqueue a task and stream a per-stage progress bar (plan sections 23/24). When no queue consumer is reachable, the UI automatically falls back to synchronous execution to preserve the V1 experience; set `FIXIMG_HAS_EXTERNAL_WORKER=true` when running the standalone `worker.py` so the UI uses the queue.
 
 ## 6. Input/Output Examples
 
@@ -465,7 +465,7 @@ src/fiximg/
 │   ├── observability/ # JSON logging, metrics registry, tracing seam
 │   ├── security/      # password hashing, rate limiting
 │   └── models/        # weight integrity verification
-├── ui/                # Gradio blocks, Before/After + history panel, auth pages, admin panel
+├── ui/                # native web UI (web/), auth pages, progress + history formatting
 ├── cli/               # api / worker / batch / weights / migrate entry points
 ├── config.py          # Settings (defaults → configs/*.yaml → FIXIMG_* env)
 └── paths.py           # single source of truth for filesystem locations

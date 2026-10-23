@@ -242,6 +242,39 @@ class MigrationRunner:
 
 
 # ----------------------------------------------------------------------- CLI
+def _console_safe(text: str) -> str:
+    """Make ``text`` printable on the console this process inherited.
+
+    ``history`` echoes each revision's docstring, and those are written prose:
+    they contain an em dash and a section sign. A UTF-8 console renders them,
+    but Windows console code pages do not -- cp437 and cp1252 have neither
+    U+2014 nor U+00A7 -- and ``print`` then raises ``UnicodeEncodeError`` and
+    aborts the command. The same happens on any POSIX box whose ``LANG`` is
+    C/ASCII, and whenever ``PYTHONIOENCODING`` names such a codec.
+
+    The fix belongs here rather than in the caller: the console encoding is
+    decided by whoever launched the process, and a migration tool must print
+    its history regardless of how its stdout was configured. ``backslashreplace``
+    keeps the text recognisable (``\\u2014``) instead of dropping it or crashing.
+
+    A stream without an ``encoding`` (a ``StringIO`` in tests, a pipe on some
+    platforms) is already text-safe and is returned unchanged.
+    """
+    encoding = getattr(sys.stdout, "encoding", None)
+    if not encoding:
+        return text
+    try:
+        text.encode(encoding)
+    except (UnicodeEncodeError, LookupError):
+        return text.encode(encoding, "backslashreplace").decode(encoding, "replace")
+    return text
+
+
+def _print(text: str) -> None:
+    """``print`` that cannot raise on a console the text does not fit."""
+    print(_console_safe(text))
+
+
 def _main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Database migrations (Alembic)")
     parser.add_argument(
@@ -285,9 +318,9 @@ def _main(argv: list[str] | None = None) -> int:
     if args.action == "history":
         for entry in history():
             marker = " (head)" if entry["is_head"] else ""
-            print(f"{entry['revision']}  <- {entry['down_revision'] or 'base'}{marker}")
+            _print(f"{entry['revision']}  <- {entry['down_revision'] or 'base'}{marker}")
             if entry["doc"]:
-                print(f"          {entry['doc']}")
+                _print(f"          {entry['doc']}")
         return 0
 
     if args.action == "current":

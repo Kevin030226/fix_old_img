@@ -1,6 +1,6 @@
 """Task service: the single entry the web/UI layers use (plan §8 / §12).
 
-Hides whether execution is synchronous (Gradio callback, V1-compatible) or
+Hides whether execution is synchronous (the V1-compatible in-process path) or
 queued (DB-backed GPU worker) — callers always get a documented result shape.
 
 Queued path (plan §12/§28):
@@ -36,7 +36,7 @@ class TaskService:
 
     # ---------------------------------------------------------------- create
     def submit(self, mode: str, input_image, user_state: dict, options: dict | None = None):
-        """Run a pipeline synchronously for a Gradio callback (V1-compatible UX).
+        """Run a pipeline synchronously (V1-compatible UX; used by the inline worker path).
 
         mode: restore / restore_scratch / detect / colorize (see pipeline_modes).
         Returns (result_path, evaluation_text_or_None).
@@ -542,11 +542,12 @@ class TaskService:
     # ------------------------------------------------------------- internals
     @staticmethod
     def _to_pil(input_image):
-        """Normalise Gradio (numpy) / PIL / path inputs to a PIL RGB image.
+        """Normalise a numpy array / PIL image / path input to a PIL RGB image.
 
-        Gradio 6 Image components hand callbacks a numpy.ndarray; the sync
-        orchestrator already normalises internally, but the queued path saves
-        the image to disk first, so the conversion must happen here.
+        A browser upload arrives as bytes and is decoded by the route, but the
+        JSON API and the batch CLI can both hand this a numpy array; the sync
+        orchestrator normalises internally, while the queued path saves the image
+        to disk first, so the conversion must happen here.
         """
         if input_image is None:
             return None

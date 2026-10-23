@@ -9,7 +9,6 @@ import os
 import threading
 from collections.abc import Iterable
 
-from fiximg.config import settings
 from fiximg.domain.tasks import decode_json_column
 from fiximg.infrastructure.db import timestamps
 from fiximg.infrastructure.db.dialect import default_dialect
@@ -173,6 +172,18 @@ def _database_key() -> tuple[str, str]:
     return resolve_database()
 
 
+def _ensure_database_dir(kind: str, target: str) -> None:
+    """Create the parent directory of a SQLite database file, if there is one.
+
+    A server database is reached over a URL, so `target` is not a path there and
+    no directory is created for it.
+    """
+    if kind != "sqlite" or not target or target == ":memory:":
+        return
+    parent = os.path.dirname(target)
+    if parent:
+        os.makedirs(parent, exist_ok=True)
+
 def ensure_schema() -> None:
     """Create V2/V3 task tables once per database; add missing columns if upgrading."""
     global _DDL_DONE
@@ -182,7 +193,9 @@ def ensure_schema() -> None:
     with _DDL_LOCK:
         if wanted == _DDL_DONE:
             return
-        os.makedirs(os.path.dirname(settings.db_path), exist_ok=True)
+        # Same rule as `engine.ensure_core_schema`: create the directory of the
+        # database that was resolved, which is the one this schema is about.
+        _ensure_database_dir(*wanted)
         conn = _get_conn()
         conn.executescript(_SCHEMA)
         # Lightweight forward migration: add any column introduced after the

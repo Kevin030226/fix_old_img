@@ -1,0 +1,18 @@
+# Normalise text to LF in the repository; keep CRLF out of diffs on Windows.
+* text=auto eol=lf
+
+# Scripts must keep a line ending the target shell can execute.
+*.cmd text eol=crlf
+*.bat text eol=crlf
+*.ps1 text eol=crlf
+
+# Binary assets: never touch.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.webp binary
+*.pt binary
+*.pth binary
+*.dat binary
+*.onnx binary
+*.db binary

@@ -281,6 +281,45 @@ def test_a_local_source_is_recorded_without_the_machine_that_built_it(locks):
 
 
 # --------------------------------------------------- the committed artifacts
+def test_a_stripped_environment_is_reported_as_such_not_as_a_stale_lock():
+    """A missing PROCESSOR_ARCHITECTURE must not be read as "the lock is stale".
+
+    ``platform.machine()`` is empty when that variable is absent (stripped CI
+    environments, sandboxes, rebuilt process environments), so every
+    ``platform_machine`` marker evaluates false and the closure loses packages
+    such as ``hf-xet``. ``--check`` used to report "out of date: gpu" and advise
+    ``--freeze`` -- advice that would rewrite a correct lock from a broken
+    environment.
+
+    The contract asserted here: the check still succeeds (the committed pins are
+    verified), and it says why the closure was not re-derived.
+    """
+    module = _load_script()
+    monkeypatch_env = {"PROCESSOR_ARCHITECTURE": ""}
+    result = _run("--check", env={**os.environ, **monkeypatch_env})
+    combined = result.stdout + result.stderr
+    assert "out of date" not in combined, combined
+    if module.markers_are_trustworthy() and os.name == "nt":
+        # Only meaningful on the platform whose machine() reads that variable.
+        assert result.returncode == 0, combined
+        assert "cannot evaluate environment markers" in combined, combined
+
+
+def test_marker_trust_detects_an_empty_platform_machine(monkeypatch):
+    """The guard reads the same marker environment packaging does."""
+    module = _load_script()
+    monkeypatch.setattr(
+        "packaging.markers.default_environment",
+        lambda: {"platform_machine": ""},
+    )
+    assert module.markers_are_trustworthy() is False
+    monkeypatch.setattr(
+        "packaging.markers.default_environment",
+        lambda: {"platform_machine": "AMD64"},
+    )
+    assert module.markers_are_trustworthy() is True
+
+
 def test_the_committed_lock_files_are_current():
     """``make lock-check`` must pass as this checkout stands."""
     result = _run("--check")

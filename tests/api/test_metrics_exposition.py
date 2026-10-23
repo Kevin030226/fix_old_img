@@ -312,8 +312,24 @@ def test_the_stage_percentiles_agree_with_the_json_stats_endpoint(client):
 
 
 def test_queue_wait_is_derived_from_the_same_instants_the_worker_used(client):
-    """A wait that disagrees with the worker's own reading is a second answer."""
+    """A wait that disagrees with the worker's own reading is a second answer.
+
+    Asserted against the deployment renderer, not against the served exposition,
+    for the same reason `test_the_stage_percentiles_agree_with_the_json_stats_endpoint`
+    is: `/metrics` deliberately stands the deployment series down when this
+    process's own registry already holds the name, and `queue_wait_seconds` is
+    recorded by `worker._queue_wait_seconds`. In a full-suite run an earlier
+    test has usually left a registry observation behind, so the served
+    `queue_wait_seconds_count`/_avg then describe *that* observation rather than
+    the rows this test wrote — the assertion would be answering "did an earlier
+    test run a worker" instead of "does the exposition derive the wait from the
+    same instants".
+
+    `isolated_db` gives this test its own database, so the deployment rows are
+    exactly the one task created here.
+    """
     from fiximg.infrastructure.db import timestamps
+    from fiximg.infrastructure.observability.metrics import render_deployment_series
 
     repo.create_task("t-wait", "restore", "u")
     repo.start_task("t-wait")
@@ -321,12 +337,18 @@ def test_queue_wait_is_derived_from_the_same_instants_the_worker_used(client):
     gap = (timestamps.parse(row["started_at"])
            - timestamps.parse(row["created_at"])).total_seconds()
 
-    count = next((v for base, _l, v in _parse_exposition(_exposition(client))
+    text = "\n".join(render_deployment_series(repo.deployment_metrics()))
+    parsed = _parse_exposition(text)
+
+    count = next((v for base, _l, v in parsed
                   if base == "queue_wait_seconds_count"), None)
-    assert count == 1.0, count
-    avg = next((v for base, _l, v in _parse_exposition(_exposition(client))
+    assert count == 1.0, (count, text)
+    avg = next((v for base, _l, v in parsed
                 if base == "queue_wait_seconds_avg"), None)
-    assert avg is not None and abs(avg - gap) < 0.05, (avg, gap)
+    assert avg is not None, text
+    # The repository rounds the average to four decimals, so equality is asserted
+    # to that precision rather than to floating-point identity.
+    assert avg == pytest.approx(round(gap, 4), abs=1e-4), (avg, gap)
 
 
 def test_nearest_rank_is_the_definition_the_exposition_claims():

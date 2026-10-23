@@ -319,46 +319,93 @@ def validate_database_url(url: str | None = None) -> str:
     return source
 
 
-def _configured_database_url() -> str:
-    """The explicitly configured URL — the environment variable, and only it.
+def configured_database_url() -> str:
+    """The database URL the deployment configured, or "" for the default file.
 
-    ``DB_PATH`` is what the engine opens; :func:`apply_database_url` moves it when
-    a deployment states a URL. Reading ``settings.database_url`` here as well
-    would invert that: a profile value (or a default derived from ``db_path``)
-    outranked the ``DB_PATH`` an isolation fixture or an embedder sets, so every
-    test silently shared the developer database — 176 ``database is locked`` and
-    ``UNIQUE constraint failed`` failures at once.
+    Complete precedence, in this order and nothing else:
+
+    1. `FIXIMG_DATABASE_URL`, surfaced as `settings.database_url`;
+    2. the empty string -- use `DB_PATH`.
+
+    A profile (`configs/*.yaml`) cannot contribute here: `database_url` is listed
+    in `config.ENV_ONLY_PROFILE_KEYS` and a profile that declares it fails at
+    import, so a value that is accepted is always a value that takes effect.
+
+    `settings` is read first and the environment second, which keeps one
+    observable rule: a caller that assigns `settings.database_url` (an embedder,
+    a fixture) changes the database, as the attribute name promises. The
+    environment stays the fallback for the paths that run before `config` is
+    importable.
     """
-    return os.environ.get("FIXIMG_DATABASE_URL", "")
+    try:
+        value = getattr(_settings(), "database_url", "")
+    except Exception:  # noqa: BLE001 -- config must not be required to probe it
+        value = ""
+    return (value or os.environ.get("FIXIMG_DATABASE_URL", "") or "").strip()
+
+
+def _configured_database_url() -> str:
+    """Backwards-compatible alias for :func:`configured_database_url`."""
+    return configured_database_url()
 
 
 def apply_database_url(url: str | None = None) -> str:
     """Relocate :data:`DB_PATH` from an **explicitly configured** URL.
 
-    Only the environment variable triggers relocation. The shipped YAML files
-    also declare ``database_url``, but treating that as authoritative would
-    override a ``DB_PATH`` set directly by a test or an embedder — and the
-    resolved default is the same file anyway. The env var is the deployment's
-    explicit statement of intent, so that is what moves the path.
+    Only an explicit URL triggers relocation; with none configured the default
+    file stays and a caller's own `DB_PATH` assignment (a fixture, an embedder) is
+    left untouched. That ordering is what stops the YAML default from overriding a
+    test's database -- the inversion that once made ~176 tests share one
+    developer database.
 
-    Returns the effective path (or the URL, for PostgreSQL, which has no path).
+    The move is applied to **both** owners of the value:
+
+    * `engine.DB_PATH` / `engine.ADMIN_DATA_DIR`, which the engine opens, and
+    * `settings.db_path`, which every consumer derives paths from -- the API token
+      file and the initial admin password file among them.
+
+    Keeping only the first in sync is the defect this function exists to prevent:
+    the engine wrote to the configured database while the credentials were written
+    beside the *default* one, so a PostgreSQL or relocated-SQLite deployment lost
+    both files on the next container recreate.
+
+    A server URL relocates nothing: it has no filesystem path, and the local
+    management directory keeps its own, independent meaning.
+
+    Returns the effective path (or the URL, for PostgreSQL).
     Raises :class:`UnsupportedDatabaseError` for an unknown scheme, before
     anything is opened.
     """
     global DB_PATH, ADMIN_DATA_DIR
-    source = url if url is not None else os.environ.get("FIXIMG_DATABASE_URL", "")
+    source = url if url is not None else configured_database_url()
     if not (source or "").strip():
         return DB_PATH
 
     kind, target = resolve_database(source)
     if kind == "postgresql":
-        # Nothing to relocate: the connection is opened from the URL itself.
+        # Nothing to relocate: the connection is opened from the URL itself, and
+        # the management files keep the directory they already had.
         return target
     DB_PATH = target
-    if target != ":memory:":
-        ADMIN_DATA_DIR = os.path.dirname(target) or ADMIN_DATA_DIR
+    if target == ":memory:":
+        return target
+    ADMIN_DATA_DIR = os.path.dirname(target) or ADMIN_DATA_DIR
+    _sync_settings_db_path(target)
     return target
 
+
+def _sync_settings_db_path(target: str) -> None:
+    """Point `settings.db_path` at the database this process just moved to.
+
+    Deliberately one-directional (engine -> settings): the engine owns the
+    resolved target, and everything that derives a path from configuration reads
+    the attribute. Best-effort, because the engine is usable without
+    `fiximg.config` (the migration runner imports it before the app does).
+    """
+    try:
+        _settings().db_path = target
+    except Exception:  # noqa: BLE001 -- config is optional for this module
+        pass
 
 def init_db():
     """Create tables and run one-time migrations."""
@@ -385,6 +432,21 @@ def _remember_core_schema() -> None:
         _core_schema_targets.add(resolve_database())
 
 
+def _ensure_database_dir(kind: str, target: str) -> None:
+    """Create the parent directory of a SQLite database file, if there is one.
+
+    A server database (PostgreSQL) is reached over the network through a URL;
+    the ``target`` is then not a path, and creating a directory named after it
+    would litter the working tree with ``postgresql:`` -- which is what happened
+    while this was ``os.makedirs(os.path.dirname(settings.db_path))`` and a test
+    repointed ``DB_PATH`` at a path without creating it first.
+    """
+    if kind != "sqlite" or not target or target == ":memory:":
+        return
+    parent = os.path.dirname(target)
+    if parent:
+        os.makedirs(parent, exist_ok=True)
+
 def ensure_core_schema() -> None:
     """Create the app-level tables (users, history, model_versions) if they are absent.
 
@@ -403,9 +465,11 @@ def ensure_core_schema() -> None:
     with _core_schema_lock:
         if wanted in _core_schema_targets:
             return
-    from fiximg.config import settings
-
-    os.makedirs(os.path.dirname(settings.db_path), exist_ok=True)
+    # Create the directory of the database that was just resolved, not the one
+    # `settings.db_path` happened to hold: they are the same value once
+    # `apply_database_url()` has run, and the resolved target is authoritative
+    # for a caller that repointed `DB_PATH` directly (a fixture, an embedder).
+    _ensure_database_dir(*wanted)
     conn = get_conn()
     conn.executescript(_SCHEMA)
     conn.commit()

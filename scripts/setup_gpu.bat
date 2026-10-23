@@ -1,7 +1,7 @@
 @echo off
 echo ============================================
 echo  Old Photo Restoration - GPU Env Setup
-echo  (Python 3.11 + PyTorch 2.7.1 cu128 + Gradio 6)
+echo  (Python 3.11 + PyTorch 2.7.1 cu128 + native web UI)
 echo ============================================
 echo.
 

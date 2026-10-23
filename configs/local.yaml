@@ -1,6 +1,6 @@
 # Local development profile (default).
 #
-# Everything runs in one process: FastAPI + Gradio + an inline worker thread,
+# Everything runs in one process: FastAPI + the web UI + an inline worker thread,
 # SQLite for state, the local filesystem for artifacts, models loaded lazily.
 # Selected by FIXIMG_PROFILE=local (the default).
 
@@ -17,6 +17,10 @@ has_external_worker: false
 # No database_url here on purpose: the engine opens admin_data/fixoldimg.db
 # under base_dir, and only FIXIMG_DATABASE_URL relocates it (plan §3.3 keeps the
 # connection string a deployment concern, not a checked-in one).
+#
+# Declaring `database_url` in any profile is now a startup error, not a silently
+# ignored key: config.ENV_ONLY_PROFILE_KEYS refuses it by name, because a value
+# read from here would outrank the `DB_PATH` a test fixture or an embedder sets.
 queue_backend: sqlite
 storage_backend: local
 redis_url: ""

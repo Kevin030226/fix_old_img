@@ -11,4 +11,3 @@ MarkupSafe==2.1.5
 psycopg==3.3.6
 SQLAlchemy==2.1.1
 typing_extensions==4.12.2
-tzdata==2025.3

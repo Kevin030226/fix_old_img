@@ -301,23 +301,23 @@ def test_ci_still_lints_and_tests_the_directory_the_image_excludes():
 
 
 def test_the_examples_the_ui_serves_are_not_the_documentation_images():
-    """The Gradio Examples tab is the one image consumer in the running system.
+    """The web UI is one image consumer in the running system.
 
-    `gr.Examples` reads `./examples/...` from the repository root, not
+    The mode panels load `./examples/...` from the repository root, not
     `docs/examples/`. The two are easy to confuse because the names match, and
-    confusing them here would ship an image whose Auto tab shows nothing.
+    confusing them here would ship an image whose interface shows nothing.
 
-    Half of these are built by an f-string loop (`f"./examples/old/{name}.png"`),
-    so the paths are checked by directory rather than by file: a template has no
-    file to open, but the directory it is built from has to hold images.
+    The example set is declared as literal paths in the page script, so it is read
+    from there rather than restated here: a gate that repeats the list it checks
+    cannot notice the list changing.
     """
-    source = (ROOT / "src" / "fiximg" / "ui" / "gradio_app.py").read_text(
+    source = (ROOT / "src" / "fiximg" / "ui" / "web" / "static" / "ui.js").read_text(
         encoding="utf-8", errors="replace")
-    # Match every image path the UI offers, not just ones under `examples/`.
-    # A pattern anchored on `examples/` cannot see a path that has been moved
-    # *out* of examples/ -- which is exactly the move this test exists to catch,
-    # so anchoring here would make the check blind to its own subject.
-    referenced = re.findall(r'"\./([^"]+\.(?:png|jpg|jpeg|webp))"', source)
+    # Match every example path the UI offers. The script builds them from a literal
+    # directory plus a name, so the directory is what is checked rather than a file:
+    # the set has to live under `examples/`, which is what ships, and not under
+    # `docs/`, which .dockerignore excludes.
+    referenced = re.findall(r'"(examples/[a-z_]+/)"', source)
     assert referenced, "no example image paths found -- has the UI moved?"
 
     directories = set()
@@ -325,9 +325,7 @@ def test_the_examples_the_ui_serves_are_not_the_documentation_images():
         assert not path.startswith("docs/"), (
             f"the UI now reads {path} from docs/, which .dockerignore excludes"
         )
-        directories.add(path.split("/")[0] + "/" + path.split("/")[1])
-        if "{" not in path:
-            assert (ROOT / path).is_file(), f"the UI serves {path} but it is not here"
+        directories.add(path.rstrip("/"))
 
     assert len(directories) == 3, (
         f"the UI offers images from {sorted(directories)}; expected the three "
@@ -338,9 +336,93 @@ def test_the_examples_the_ui_serves_are_not_the_documentation_images():
                   if p.suffix.lower() in (".png", ".jpg", ".jpeg", ".webp")]
         assert images, f"{directory} holds no images; the Examples tabs render empty"
 
-    # The literal tab definitions name these three directories directly.
+    # The literal path groups name these three directories directly.
     for name in ("old", "old_w_scratch", "color"):
-        assert f"./examples/{name}/" in source, (
-            f"no tab references examples/{name}/ any more -- recheck the "
+        assert f"examples/{name}/" in source, (
+            f"no panel references examples/{name}/ any more -- recheck the "
             "directory list above, they may have moved"
         )
+
+
+# ---------------------------------------------------------------------------
+# Weight patterns must be recursive, not root-anchored.
+#
+# `.dockerignore` uses a different matching rule from `.gitignore` for a bare
+# glob: `*.pt` is anchored to the *context root*, so it matches `./model.pt`
+# and nothing else. Every checkpoint this project loads lives at least one
+# directory down (`Global/checkpoints/detection/FT_Epoch_latest.pt`,
+# `Face_Enhancement/checkpoints/FaceSR_512/latest_net_G.pth`), so those
+# patterns excluded nothing and 2.9 GB of model weights were copied into the
+# worker image -- measured inside the published `fiximg-worker:ci`:
+#
+#     2.1G  /app/Global/checkpoints
+#     704M  /app/Face_Enhancement/checkpoints
+#
+# That contradicts both THIRD_PARTY_NOTICES.md ("code only") and the
+# Dockerfile's own statement that weights are deliberately not baked in. It is
+# also invisible to a passing build: the image simply got 3 GB larger.
+#
+# The fix is the `**/` prefix. These tests assert the *form* of the patterns,
+# because the failure mode is a pattern that looks like it excludes weights
+# and does not.
+
+#: Extensions that carry model weights. Every one of them must be excluded at
+#: any depth, not just at the context root.
+WEIGHT_SUFFIXES = [".pt", ".pth", ".ckpt", ".onnx"]
+
+
+@pytest.mark.parametrize("suffix", WEIGHT_SUFFIXES)
+def test_weight_patterns_are_recursive_not_root_anchored(suffix):
+    """A bare `*.pt` anchors to the context root and excludes nothing nested."""
+    raw = _raw_entries(DOCKERIGNORE)
+    recursive = [p for p in raw if p == "**/*" + suffix]
+    assert recursive, (
+        ".dockerignore has no '**/*" + suffix + "' entry, so a weight file at "
+        "any depth below the context root (e.g. Global/checkpoints/**/*"
+        + suffix + ") is copied into the image. A bare pattern is anchored to "
+        "the root and does not do this job."
+    )
+
+
+def test_no_weight_file_in_the_tree_would_reach_the_build_context():
+    """The end-to-end check, run against the files actually on disk.
+
+    A pattern test can pass while the tree still ships weights -- through a new
+    extension, or a path that escapes the glob. This walks the real files, so it
+    fails on the artifact rather than on the rule.
+    """
+    import fnmatch
+
+    raw = _raw_entries(DOCKERIGNORE)
+
+    def excluded(rel: str) -> bool:
+        parts = rel.split("/")
+        for pattern in raw:
+            candidate = pattern.rstrip("/")
+            if candidate.startswith("**/"):
+                tail = candidate[3:]
+                if fnmatch.fnmatch(parts[-1], tail):
+                    return True
+            elif "/" in candidate:
+                if fnmatch.fnmatch(rel, candidate) or rel.startswith(candidate + "/"):
+                    return True
+            elif fnmatch.fnmatch(parts[-1], candidate):
+                return True
+        return False
+
+    leaked: list[str] = []
+    for suffix in WEIGHT_SUFFIXES:
+        for path in ROOT.rglob("*" + suffix):
+            if not path.is_file():
+                continue
+            rel = path.relative_to(ROOT).as_posix()
+            if excluded(rel):
+                continue
+            leaked.append(rel)
+
+    assert not leaked, (
+        "these weight files are in the tree and NOT excluded from the build "
+        "context, so they would be baked into the image: "
+        + repr(leaked[:10]) + " (" + str(len(leaked)) + " total). Model "
+        "weights are distributed separately and must never ship inside an image."
+    )

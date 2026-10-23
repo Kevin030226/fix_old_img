@@ -38,6 +38,36 @@ requires_alembic = pytest.mark.skipif(
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+
+def _run_cli(*args: str, env: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:
+    """Run the migration CLI and decode its output as UTF-8, explicitly.
+
+    ``text=True`` alone leaves the decoding to ``locale.getpreferredencoding()``,
+    which on a Chinese Windows box is GBK/cp936. The revision docstrings contain
+    an em dash and a section sign, so the *child* writes those as UTF-8 bytes only
+    when its stdout is UTF-8 -- and when it is not, this side still tried to decode
+    with the locale codec and raised ``UnicodeDecodeError: 'gbk' codec can't decode
+    byte 0x94``, which surfaced as ``stdout is None`` inside the assertion.
+
+    Two things are therefore pinned here rather than left to the environment:
+
+    * the child is told to write UTF-8 (``PYTHONIOENCODING``), so its bytes do not
+      depend on the console it happens to inherit, and
+    * this side decodes those bytes as UTF-8 (``encoding=``), so the parent does
+      not use a locale codec either.
+
+    That keeps the assertion about the CLI's *content* on every platform, instead
+    of turning a console code page into a test result.
+    """
+    merged = {**os.environ, "PYTHONIOENCODING": "utf-8", "PYTHONUTF8": "1"}
+    if env:
+        merged.update(env)
+    return subprocess.run(
+        [sys.executable, "-m", "fiximg.infrastructure.db.migrations.runner", *args],
+        cwd=PROJECT_ROOT, capture_output=True, text=True, encoding="utf-8",
+        errors="strict", env=merged,
+    )
+
 #: Tables the migrations must create — derived from the DDL the runtime ships.
 #:
 #: Listing them by hand could only ever record what someone remembered, which is
@@ -401,10 +431,9 @@ def test_dry_run_does_not_touch_the_database(migrated_db):
 # ------------------------------------------------------------------- CLI
 @requires_alembic
 def test_cli_status_reports_pending(migrated_db):
-    result = subprocess.run(
-        [sys.executable, "-m", "fiximg.infrastructure.db.migrations.runner", "status"],
-        cwd=PROJECT_ROOT, capture_output=True, text=True,
-        env={**os.environ, "FIXIMG_DATABASE_URL": f"sqlite:///{migrated_db.as_posix()}",
+    result = _run_cli(
+        "status",
+        env={"FIXIMG_DATABASE_URL": f"sqlite:///{migrated_db.as_posix()}",
              "PYTHONPATH": os.path.join(PROJECT_ROOT, "src")},
     )
     assert result.returncode == 0, result.stderr
@@ -417,25 +446,18 @@ def test_cli_upgrade_then_current(migrated_db):
     env = {**os.environ, "FIXIMG_DATABASE_URL": f"sqlite:///{migrated_db.as_posix()}",
            "PYTHONPATH": os.path.join(PROJECT_ROOT, "src")}
 
-    upgraded = subprocess.run(
-        [sys.executable, "-m", "fiximg.infrastructure.db.migrations.runner", "upgrade"],
-        cwd=PROJECT_ROOT, capture_output=True, text=True, env=env,
-    )
+    upgraded = _run_cli("upgrade", env=env)
     assert upgraded.returncode == 0, upgraded.stderr
 
-    current = subprocess.run(
-        [sys.executable, "-m", "fiximg.infrastructure.db.migrations.runner", "current"],
-        cwd=PROJECT_ROOT, capture_output=True, text=True, env=env,
-    )
+    current = _run_cli("current", env=env)
     assert current.stdout.strip() == HEAD_REVISION
 
 
 @requires_alembic
 def test_cli_history_prints_the_chain(migrated_db):
-    result = subprocess.run(
-        [sys.executable, "-m", "fiximg.infrastructure.db.migrations.runner", "history"],
-        cwd=PROJECT_ROOT, capture_output=True, text=True,
-        env={**os.environ, "FIXIMG_DATABASE_URL": f"sqlite:///{migrated_db.as_posix()}",
+    result = _run_cli(
+        "history",
+        env={"FIXIMG_DATABASE_URL": f"sqlite:///{migrated_db.as_posix()}",
              "PYTHONPATH": os.path.join(PROJECT_ROOT, "src")},
     )
     assert result.returncode == 0, result.stderr
@@ -445,13 +467,69 @@ def test_cli_history_prints_the_chain(migrated_db):
 
 
 @requires_alembic
+def test_cli_history_survives_a_console_that_cannot_encode_its_docstrings(migrated_db):
+    """The revision docstrings carry an em dash and a section sign.
+
+    A console code page without those code points (cp437, cp1252, ASCII, and any
+    POSIX box with ``LANG=C``) made ``print`` raise ``UnicodeEncodeError`` inside
+    the CLI, so ``history`` exited 1 with a traceback instead of printing the
+    chain. The runner now degrades the unprintable characters instead of dying,
+    which is what this asserts: exit 0 and the chain still legible.
+
+    ``PYTHONIOENCODING`` is forced to cp437 rather than inherited, so this
+    reproduces on every platform -- including the UTF-8 ones where the original
+    bug was invisible.
+    """
+    result = _run_cli(
+        "history",
+        env={"FIXIMG_DATABASE_URL": f"sqlite:///{migrated_db.as_posix()}",
+             "PYTHONPATH": os.path.join(PROJECT_ROOT, "src"),
+             "PYTHONIOENCODING": "cp437"},
+    )
+    assert result.returncode == 0, (
+        "history aborted on a cp437 console:\n" + result.stderr
+    )
+    assert "0001" in result.stdout
+    assert "0002" in result.stdout
+    assert "(head)" in result.stdout
+    assert "UnicodeEncodeError" not in result.stderr
+    # The em dash is not representable in cp437; it must be escaped, not dropped.
+    assert "\\u2014" in result.stdout, (
+        "the unprintable character was not escaped, so the text was lost: "
+        + repr(result.stdout[:200])
+    )
+
+
+def test_console_safe_leaves_utf8_text_untouched():
+    """The guard must be a no-op on a console that can already print the text."""
+    assert migration_runner._console_safe("0001 \u2014 baseline \u00a76") == "0001 \u2014 baseline \u00a76"
+
+
+def test_console_safe_escapes_only_what_the_console_cannot_print(monkeypatch):
+    """Degrade the character, keep the sentence around it."""
+    import io
+
+    fake = io.TextIOWrapper(io.BytesIO(), encoding="cp437")
+    monkeypatch.setattr(migration_runner.sys, "stdout", fake)
+    assert migration_runner._console_safe("0001 \u2014 baseline \u00a76") == (
+        "0001 \\u2014 baseline \\xa76"
+    )
+
+
+def test_console_safe_tolerates_a_stream_without_an_encoding(monkeypatch):
+    """A ``StringIO`` (captured output, some pipes) has no codec and needs none."""
+    import io
+
+    monkeypatch.setattr(migration_runner.sys, "stdout", io.StringIO())
+    assert migration_runner._console_safe("0001 \u2014 baseline") == "0001 \u2014 baseline"
+
+
+@requires_alembic
 def test_offline_sql_mode_emits_ddl_without_connecting(migrated_db):
     """`--sql` is what makes a migration reviewable before it runs."""
-    result = subprocess.run(
-        [sys.executable, "-m", "fiximg.infrastructure.db.migrations.runner",
-         "upgrade", "--sql"],
-        cwd=PROJECT_ROOT, capture_output=True, text=True,
-        env={**os.environ, "FIXIMG_DATABASE_URL": f"sqlite:///{migrated_db.as_posix()}",
+    result = _run_cli(
+        "upgrade", "--sql",
+        env={"FIXIMG_DATABASE_URL": f"sqlite:///{migrated_db.as_posix()}",
              "PYTHONPATH": os.path.join(PROJECT_ROOT, "src")},
     )
     assert result.returncode == 0, result.stderr

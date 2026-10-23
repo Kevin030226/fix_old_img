@@ -1,5 +1,20 @@
 name: CI
 
+# Least privilege (P5). Without an explicit `permissions:` block a workflow
+# inherits the repository default, which for older repositories is `write-all`,
+# and a pull request from a fork then runs with a token that can push. CI only
+# reads the checkout and pulls public images, so nothing here needs write access:
+#
+#   * no `upload-artifact` (the docker job prints its evidence into the log),
+#   * no registry login (Trivy pulls the image it already built locally),
+#   * no release, no PR comment, no issue write.
+#
+# `release.yml` keeps its own `contents: write` + `packages: write`: publishing a
+# Release and pushing to GHCR is exactly what that workflow exists to do, and
+# tests/unit/test_ci_gates.py asserts both halves of that split.
+permissions:
+  contents: read
+
 on:
   push:
     branches: [main, master]
@@ -138,29 +153,322 @@ jobs:
       - name: Throughput baseline
         run: python -m benchmark.throughput --tasks 10
 
+  # ---------------------------------------------------------------- images
+  # Each image is built, smoked and scanned in its OWN runner.
+  #
+  # Why this is a matrix and not one job with eleven steps: a standard
+  # `ubuntu-latest` runner has 14 GB of SSD (GitHub-hosted runner reference,
+  # "Standard runners for public repositories"). The worker and root images are
+  # 17.7 GB by `docker image inspect` -- 11.4 GB of actual filesystem, the rest
+  # is what the layer store keeps -- and building one of them also pulls
+  # `nvidia/cuda:12.8.0-cudnn-runtime-ubuntu22.04` (7.44 GB) plus the python
+  # base. Measured on this checkout: the extracted rootfs is 11.39 GB for the
+  # worker and 11.40 GB for root, so one build alone needs ~19 GB of transient
+  # space before the image is even exported. Three of them in one runner cannot
+  # fit, and the previous single job would have died at the second `docker build`
+  # with "no space left on device" -- after paying for the first one.
+  #
+  # `fail-fast: false` is deliberate: a broken worker image must not cancel the
+  # root and api shards, because the point of the job is to learn which of the
+  # three broke. The job id stays `docker` so nothing downstream has to change.
   docker:
     runs-on: ubuntu-latest
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - image: api
+            dockerfile: docker/api.Dockerfile
+            trivy_timeout: 15m
+          - image: worker
+            dockerfile: docker/worker.Dockerfile
+            trivy_timeout: 30m
+          - image: root
+            dockerfile: Dockerfile
+            trivy_timeout: 30m
+    name: image (${{ matrix.image }})
     steps:
       - uses: actions/checkout@v4
-      - name: Build API image (torch-free)
-        run: docker build -f docker/api.Dockerfile -t fiximg-api:ci .
-      # The worker image carries the GPU stack and the vendored model code, so it
-      # is the one that actually breaks when a dependency or COPY path moves.
-      - name: Build worker image
-        run: docker build -f docker/worker.Dockerfile -t fiximg-worker:ci .
-      - name: Validate compose files
+
+      # ------------------------------------------------------------------ disk
+      # A standard `ubuntu-latest` runner has 14 GB of SSD (GitHub-hosted runner
+      # reference, "Standard runners for public repositories"), and it arrives with
+      # ~10 GB of it already consumed by the preinstalled toolchains. Measured on
+      # this checkout, one worker/root build needs ~19 GB transient (11.4 GB
+      # extracted rootfs + 7.4 GB `nvidia/cuda` base + layer-store overhead), so
+      # the shard has to both report and reclaim before it builds. All three steps
+      # are separate so the log says which one made the difference.
+      - name: Report disk budget before the build
         run: |
-          for f in docker-compose.yml docker/compose.yaml docker/compose.local.yaml docker/compose.multigpu.yaml; do
-            echo "== $f"
-            docker compose -f "$f" config --quiet
-          done
-      - name: Scan the API image for known vulnerabilities
-        # The tag needs its `v`. Every release of this action is published as
-        # `vX.Y.Z`; pinned as `0.28.0` the reference did not resolve, CI failed
-        # with "unable to find version 0.28.0", and the scan never ran at all.
+          echo "== free space before =="
+          df -h / | tail -1
+          echo
+          echo "== docker storage =="
+          docker system df
+
+      # The worker and root images do not fit in 14 GB, so this shard reclaims the
+      # runner's preinstalled toolchains first. This is the same space a "free disk
+      # space" action frees, done explicitly with the exact paths named, so the
+      # reclaim is auditable in the log instead of hidden behind a third-party
+      # action. Everything listed is a preinstalled SDK this project never invokes,
+      # and all of it is on the same filesystem as the docker store.
+      #
+      # Nothing under /var/lib/docker, /usr/bin, /lib, /opt/venv or the workspace is
+      # touched, and no `docker system prune` runs -- the runner starts with no
+      # images, so there is nothing of the project's to reclaim.
+      - name: Reclaim preinstalled toolchains (heavy images only)
+        if: matrix.image != 'api'
+        run: |
+          echo "== before =="
+          df -h / | tail -1
+          sudo rm -rf \
+            /usr/share/dotnet \
+            /usr/share/swift \
+            /usr/local/lib/android \
+            /usr/local/share/boost \
+            /opt/ghc \
+            /opt/google/chrome \
+            /opt/microsoft/msedge \
+            /usr/local/share/chromium \
+            /opt/hostedtoolcache \
+            /usr/local/graalvm \
+            /usr/local/share/powershell \
+            /usr/local/share/miniconda \
+            /usr/local/share/chromedriver-linux64 \
+            /usr/local/share/gecko_driver \
+            /usr/lib/jvm \
+            /usr/local/aws-cli \
+            /usr/local/aws-sam-cli \
+            /usr/local/go \
+            /usr/local/n \
+            /usr/local/php \
+            /usr/local/share/nvm \
+            /usr/local/rustup \
+            /usr/local/cargo \
+            /opt/az \
+            /opt/pipx \
+            /usr/lib/firefox \
+            /usr/lib/R \
+            /usr/lib/mono
+          sudo apt-get clean
+          echo "== after =="
+          df -h / | tail -1
+
+      # The gate, after the reclaim: fail here rather than 20 minutes into a build
+      # with a half-written layer store. 20 GiB is above the largest single-image
+      # footprint this repository measures (~19 GB transient for worker/root), so a
+      # green preflight means the shard can finish. The message names the way out,
+      # because the fix is a runner choice, not a Dockerfile change.
+      - name: Assert enough disk for this image
+        run: |
+          available_kb=$(df -Pk / | awk 'NR==2 {print $4}')
+          available_gb=$((available_kb / 1024 / 1024))
+          minimum_gb=20
+          if [ "${{ matrix.image }}" = "api" ]; then minimum_gb=6; fi
+          echo "available on /: ${available_gb} GiB (need ${minimum_gb} GiB)"
+          if [ "$available_gb" -lt "$minimum_gb" ]; then
+            echo "::error::only ${available_gb} GiB free, but the ${{ matrix.image }} image needs at least ${minimum_gb} GiB."
+            echo "A standard ubuntu-latest runner ships 14 GB of SSD, which is not"
+            echo "enough for the worker/root images even after the toolchain reclaim."
+            echo "Run this shard on a larger runner, or split the image build."
+            echo "See reports/p3_github_actions_docker_capacity_report.md."
+            exit 1
+          fi
+      - name: Build the ${{ matrix.image }} image
+        run: |
+          echo "== disk before build =="
+          df -h / | tail -1
+          docker build --progress=plain \
+            -f "${{ matrix.dockerfile }}" \
+            -t "fiximg-${{ matrix.image }}:ci" .
+          echo "== disk after build =="
+          df -h / | tail -1
+          docker image inspect "fiximg-${{ matrix.image }}:ci" \
+            --format '{{.Id}} {{.Size}} bytes'
+          docker system df
+
+      # The three images must agree on the interpreter, and it must be a
+      # *released* one. The worker image built from Ubuntu 22.04's python3.11
+      # reported "3.11.0rc1 ... releaselevel='candidate'": no `>=3.11` wheel
+      # will install for a pre-release, and the interpreter differed from the
+      # one both other images ship. A bare `version_info[:2] == (3, 11)` test
+      # passes for rc1, so it is not the check that closes this class --
+      # `releaselevel == "final"` is. It runs in every shard, so no image can
+      # skip it by not being the one that asserted.
+      - name: Assert a final (non-prerelease) Python 3.11
+        run: |
+          docker run --rm "fiximg-${{ matrix.image }}:ci" python3 -c "import sys; assert sys.version_info[:2] == (3, 11), sys.version; assert sys.version_info.releaselevel == 'final', sys.version; print(sys.version)"
+
+      # The resolved runtime dependency, asserted inside the image rather than
+      # inferred from the files that were installed. P18 proved why this step has
+      # to exist: the worker image installs the torch stack first, torchvision
+      # accepts any Pillow >=5.3.0, and the project's own install ran afterwards
+      # with a *floor* that 12.3.0 already satisfied -- so the image shipped
+      # Pillow 12.3.0 (3 CRITICAL + 16 HIGH in Trivy) while requirements.txt and
+      # the api/root images all said 13.0.0. Reading the files cannot catch that;
+      # asking the built image what it actually contains does. It runs in every
+      # shard, so no image can be the one that skips it.
+      #
+      # The code travels as `python3 -c`, never on stdin. The first version of this
+      # step used `docker run ... python3 - <<'PY'` and was a silent no-op: without
+      # `-i` docker does not attach the container's stdin, so the heredoc stayed in
+      # the host shell, the interpreter read EOF, and an empty script exited 0 in
+      # about six milliseconds. The step reported success while asserting nothing.
+      # Passing the program as an argument removes that failure mode entirely --
+      # there is no stream to forget to connect. `tests/unit/test_image_dependencies.py`
+      # now rejects the stdin form so it cannot come back.
+      - name: Assert the resolved runtime dependencies inside the image
+        run: |
+          docker run --rm --env IMAGE_KIND="${{ matrix.image }}" \
+              "fiximg-${{ matrix.image }}:ci" \
+              python3 -c '
+          import importlib.metadata as md
+          import os
+
+          expected = "13.0.0"
+          installed = md.version("pillow")
+          assert installed == expected, (
+              f"image ships pillow {installed}, expected {expected}; a floor in "
+              "pyproject.toml is satisfied by whatever the torch stack left "
+              "behind, so the exact pin is what forces the upgrade"
+          )
+
+          # The UI framework was removed in P17 and must not return on any path.
+          # Names are normalised the way a package index normalises them, so
+          # `gradio_client`, `gradio-client` and `Gradio` are one answer.
+          names = {
+              (d.metadata["Name"] or "").lower().replace("_", "-").replace(".", "-")
+              for d in md.distributions()
+          }
+          for bad in ("gradio", "gradio-client", "hf-gradio"):
+              assert bad not in names, (
+                  f"image ships {bad}; it requires pillow<13 and would re-open "
+                  "the advisories this pin exists to clear"
+              )
+
+          kind = os.environ["IMAGE_KIND"]
+          print(f"RUNTIME-ASSERT-OK image={kind} pillow={installed} gradio=absent")
+          '
+
+      - name: Smoke-test the api image
+        if: matrix.image == 'api'
+        run: |
+          docker run --rm fiximg-api:ci python3 --version
+          docker run --rm fiximg-api:ci python3 -m pip check
+          # The web stack and the three transports the platform profile uses.
+          docker run --rm fiximg-api:ci python3 -c "import fastapi, sqlalchemy, alembic, psycopg, redis, boto3, msgpack, yaml, filelock; print('api stack OK')"
+          # The entry point this image declares, and the package itself.
+          docker run --rm fiximg-api:ci python3 -c "from fiximg.cli.api import app; print('api entry point OK')"
+          docker run --rm fiximg-api:ci python3 -c "import fiximg; print('fiximg importable')"
+
+      # The worker is the image that was silently broken: it shipped Python
+      # 3.11.0rc1, whose releaselevel is "candidate", so it belonged to a
+      # different interpreter than the other two images. Every command below
+      # fails the step on a non-zero exit; no `continue-on-error` and no
+      # swallowed tail is used anywhere in this workflow.
+      - name: Smoke-test the worker image
+        if: matrix.image == 'worker'
+        run: |
+          docker run --rm fiximg-worker:ci python3 --version
+          docker run --rm fiximg-worker:ci python3 -m pip check
+          # Transports and the web stack the worker talks to at runtime.
+          docker run --rm fiximg-worker:ci python3 -c "import redis; print('redis OK')"
+          docker run --rm fiximg-worker:ci python3 -c "import psycopg; print('psycopg OK')"
+          docker run --rm fiximg-worker:ci python3 -c "import boto3; print('boto3 OK')"
+          # The imaging/ML stack the worker cannot do its job without.
+          docker run --rm fiximg-worker:ci python3 -c "import sqlalchemy, alembic, numpy, torch, cv2, dlib, msgpack, fastapi; print('stack OK')"
+          # The entry point this image declares, and the package itself.
+          docker run --rm fiximg-worker:ci python3 -c "from fiximg.cli.worker import main; print('worker entry point OK')"
+          docker run --rm fiximg-worker:ci python3 -c "import fiximg; print('fiximg importable')"
+          # Importing redis succeeding is not the same as the queue being usable.
+          # fiximg/infrastructure/queue/redis.py imports redis inside try/except on
+          # purpose, so when the optional package is missing the module-level name
+          # stays None and get_queue() silently degrades to SQLite while
+          # FIXIMG_QUEUE_BACKEND=redis says otherwise -- which is exactly what
+          # happened under the 3.11.0rc1 interpreter (redis requires
+          # async-timeout below 3.11.3 and pip did not install it). Asserting the
+          # name is bound is the check that distinguishes the two.
+          docker run --rm fiximg-worker:ci python3 -c "import fiximg.infrastructure.queue.redis as q; assert q.redis is not None, 'redis queue module bound to None: the Redis backend would silently fall back to SQLite'; print('queue redis module OK', q.redis.__version__)"
+          # CUDA userspace smoke. This runner has no GPU, so it cannot call
+          # torch.cuda.is_available(); what it *can* prove is that the image is a
+          # CUDA build of torch and that the NVIDIA userspace libraries the cu128
+          # wheels ship actually dlopen. A CPU-only wheel, or a missing
+          # libcudart/libcublas/libcudnn, fails here. Real GPU inference is
+          # verified separately on a GPU host (see reports/).
+          docker run --rm fiximg-worker:ci python3 -c "import ctypes, torch; assert torch.version.cuda is not None, 'torch is a CPU build'; print('torch', torch.__version__, 'cuda', torch.version.cuda, 'cudnn', torch.backends.cudnn.version()); rt = ctypes.CDLL('libcudart.so.12'); v = ctypes.c_int(0); rt.cudaRuntimeGetVersion(ctypes.byref(v)); assert v.value >= 12000, v.value; ctypes.CDLL('libcublas.so.12'); ctypes.CDLL('libcudnn.so.9'); print('CUDA userspace OK', v.value)"
+
+      # The root image is what `docker-compose.yml` builds (`build: .`) and what
+      # the README tells a single-host user to run. It was never built here, so
+      # the whole file could break without CI noticing -- and it had: the image
+      # installed no transport drivers, then could not be built at all because
+      # Ubuntu 22.04's python3.11 is a pre-release that no >=3.11 wheel accepts.
+      # Neither defect could fail a job that never built it.
+      #
+      # No `--build-arg`: the defaults must be the images CI can actually pull.
+      # A build that only works with a mirror override is not reproducible.
+      - name: Smoke-test the root image
+        if: matrix.image == 'root'
+        run: |
+          docker run --rm fiximg-root:ci python3 --version
+          # The transports docker-compose.yml offers, plus the web stack.
+          docker run --rm fiximg-root:ci python3 -c "import fastapi, yaml, filelock, msgpack, sqlalchemy, alembic, psycopg, redis, boto3; print('imports OK')"
+          docker run --rm fiximg-root:ci python3 -c "import numpy, torch; print('numpy', numpy.__version__, 'torch', torch.__version__)"
+          docker run --rm fiximg-root:ci python3 -c "import fiximg; print('fiximg importable')"
+          docker run --rm fiximg-root:ci python3 -m pip check
+          # The entry points the image declares.
+          docker run --rm fiximg-root:ci python3 -c "from fiximg.cli.api import app; from fiximg.cli.worker import main; print('entry points load')"
+
+      # Booting the service needs weights, which the image deliberately does not
+      # ship (see the FIXIMG_BAKE_WEIGHTS ARG), so liveness is checked against
+      # the ASGI app instead of a listening socket.
+      - name: Boot the ASGI app and probe liveness
+        if: matrix.image == 'root'
+        run: |
+          set -u
+          # The container must outlive its own exit so its final state and logs can
+          # still be read: `--rm` would delete it the moment the app stops, and the
+          # assertions below would then fail on a missing object instead of on the
+          # behaviour they are meant to check.
+          docker run -d --name fiximg-root-smoke -p 19502:9502 fiximg-root:ci
+          # Cleanup must run on every path, including the failing assertions below.
+          # `set -u` is on but `set -e` is deliberately not, so a failed assertion
+          # reports itself rather than being masked by an early exit.
+          trap 'docker rm -f fiximg-root-smoke >/dev/null 2>&1 || true' EXIT
+
+          # The app exits when weights are absent; that is by design and is
+          # asserted, so this step fails if the behaviour changes silently.
+          sleep 20
+
+          status=$(docker inspect --format '{{.State.Status}}' fiximg-root-smoke)
+          echo "container state: $status"
+          docker logs fiximg-root-smoke 2>&1 | tail -40
+
+          if [ "$status" = 'running' ]; then
+            # Still up: it must actually serve liveness.
+            curl -fsS http://127.0.0.1:19502/api/v1/health/live
+          elif [ "$status" = 'exited' ]; then
+            # Exited without weights: the expected message must be in the logs.
+            echo 'container exited: expected without weights, see FIXIMG_BAKE_WEIGHTS'
+            if ! docker logs fiximg-root-smoke 2>&1 | grep -q 'Weight verification failed'; then
+              echo '::error::the root image exited without the expected weight-verification message'
+              exit 1
+            fi
+          else
+            # Any other state is a failure: the app neither served nor exited as designed.
+            echo "::error::unexpected container state: $status"
+            exit 1
+          fi
+
+      # The scan is per shard so a finding names the image that carries it, and so
+      # the scan of the largest image gets the analysis budget it needs. `exit-code:
+      # "1"` is blocking; the timeouts differ because the api image is 1.6 GB and
+      # the other two are 17.7 GB, which is what made the default 5-minute budget
+      # fail with "semaphore acquire: context deadline exceeded".
+      - name: Scan the ${{ matrix.image }} image for known vulnerabilities
         uses: aquasecurity/trivy-action@v0.36.0
         with:
-          image-ref: fiximg-api:ci
+          image-ref: fiximg-${{ matrix.image }}:ci
           format: table
           # Blocking. A scan that cannot fail the job is a report nobody reads, and
           # `exit-code: "0"` was exactly the soft step this workflow bans elsewhere.
@@ -169,12 +477,86 @@ jobs:
           exit-code: "1"
           severity: CRITICAL,HIGH
           ignore-unfixed: true
+          timeout: ${{ matrix.trivy_timeout }}
           # `trivyignores`, not `ignore-file`: the action has no `ignore-file`
           # input, so the committed .trivyignore was never read. CI logged
           # "Unexpected input(s) 'ignore-file'" and scanned with no exemptions
           # at all, while the self-check below still saw a referenced file that
           # exists. This is the name the pinned version accepts.
           trivyignores: .trivyignore
+
+      - name: Report disk after the scan
+        if: always()
+        run: |
+          echo "== free space after =="
+          df -h / | tail -1
+          docker system df
+
+  # Compose validation is topology, not image content, so it runs once instead of
+  # three times. It keeps its own job id (`compose`) and stays out of the matrix:
+  # a failure here means the deployment files disagree, which has nothing to do
+  # with which image was built.
+  compose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate compose files
+        # Globbed, not enumerated. The list used to name four files by hand while
+        # tests/unit/test_compose_topology.py globbed `docker/compose*.yaml`, so a
+        # new topology was validated by the suite and skipped here -- or the other
+        # way round. Both now derive from the same pattern.
+        run: |
+          for f in docker-compose.yml docker/compose*.yaml; do
+            echo "== $f"
+            docker compose -f "$f" config --quiet
+          done
+
+  # The gate that proves the matrix above actually covered all three images. A
+  # matrix that silently loses a shard is the failure mode this job exists for:
+  # `include:` entries can be dropped by a typo, and a scan that never runs looks
+  # exactly like a scan that passed. It reads the workflow file, so it checks the
+  # committed matrix rather than a hand-written list.
+  images-covered:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+      - name: Assert the matrix builds, smokes and scans every image
+        run: |
+          pip install --quiet pyyaml
+          python - <<'PY'
+          import sys, yaml
+          doc = yaml.safe_load(open(".github/workflows/ci.yml", encoding="utf-8"))
+          job = doc["jobs"]["docker"]
+          include = job["strategy"]["matrix"]["include"]
+          images = [entry["image"] for entry in include]
+          expected = {"api", "worker", "root"}
+          assert set(images) == expected, f"matrix covers {sorted(images)}, not {sorted(expected)}"
+          assert len(images) == len(expected), f"duplicate matrix entries: {images}"
+          for entry in include:
+              for key in ("image", "dockerfile", "trivy_timeout"):
+                  assert entry.get(key), f"{entry} is missing {key}"
+          # Every shard must run build, smoke and scan; every image must have a
+          # smoke step guarded on its own name, or it is built and never exercised.
+          steps = job["steps"]
+          for image in images:
+              guards = [s for s in steps if f"matrix.image == '{image}'" in str(s.get("if", ""))]
+              assert guards, f"no step is guarded for image {image!r}"
+              scans = [s for s in steps if "trivy-action" in str(s.get("uses", ""))]
+              assert scans, "no trivy scan step in the docker job"
+              assert "matrix.image" in str(scans[0].get("with", {}).get("image-ref", "")), \
+                  "the trivy scan is not parameterised by the matrix image"
+          # The compose gate must exist exactly once and must not be inside the matrix.
+          compose = doc["jobs"].get("compose")
+          assert compose, "no compose job"
+          assert "strategy" not in compose, "compose validation is duplicated per shard"
+          print("matrix covers:", images)
+          print("images-covered OK")
+          PY
 
   audit:
     runs-on: ubuntu-latest

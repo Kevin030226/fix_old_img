@@ -81,12 +81,6 @@ TEST_ONLY = {
         "test seam: the API token is memoised per process, so a fixture that "
         "relocates the database has to invalidate the previous answer"
     ),
-    "ui/gradio_app.py::ADMIN_ONLY_TABS": (
-        "the assertion fixture, not a rule: production's single source for "
-        "tab visibility is ui/state.py, and "
-        "test_the_admin_only_tab_list_is_the_one_visibility_enforces compares the "
-        "two so a third copy cannot appear"
-    ),
     "infrastructure/db/engine.py::reset_thread_connection_cache": (
         "test seam: close_connections() drops every handle, but a fixture that "
         "only wants its own thread's gone needs the narrower form"
@@ -249,8 +243,8 @@ def test_names_used_only_inside_their_own_module_are_not_flagged():
     """
     sources = _sources()
     for name in ("progress_head", "eta_text", "queue_text", "switch_options"):
-        assert name in _declared(sources["ui/task_progress.py"]), name
-        assert _wired(name, "ui/task_progress.py", sources) > 1, name
+        assert name in _declared(sources["ui/progress.py"]), name
+        assert _wired(name, "ui/progress.py", sources) > 1, name
 
 
 @pytest.mark.parametrize("key,reason", sorted(TEST_ONLY.items()))

@@ -1,0 +1,82 @@
+# Single-container GPU topology for Windows + Docker Desktop (WSL2).
+#
+#   docker compose -f docker/compose.wsl.yaml up -d --build
+#   docker compose -f docker/compose.wsl.yaml logs -f
+#   open http://127.0.0.1:9502
+#
+# Differences from docker/compose.local.yaml, and why:
+#   * builds docker/local.Dockerfile, because the nvidia/cuda base image the
+#     other topologies use cannot be pulled on this host (see that file);
+#   * the weight directories are bind-mounted read-only from this checkout.
+#     All 29 files of config/weights_manifest.json are already present locally
+#     (3.3 GB) and `verify_weights()` accepts them, so the container never has
+#     to reach facevc.blob.core.windows.net -- which the project already treats
+#     as an unreliable dependency. Read-only: the app never writes a weight.
+#   * one process serves and consumes the queue (FIXIMG_INLINE_WORKER=true);
+#     compose.local.yaml's split topology needs a second GPU container for no
+#     benefit on a single-GPU laptop.
+name: fiximg-wsl
+
+services:
+  app:
+    build:
+      context: ..
+      dockerfile: docker/local.Dockerfile
+      # Pull-through mirror: registry-1.docker.io does not answer on this host,
+      # so the official `python:3.11-slim-bookworm` name cannot be resolved.
+      # A network with direct Docker Hub access can drop these three args.
+      args:
+        BASE_IMAGE: docker.m.daocloud.io/library/python:3.11-slim-bookworm
+    image: fiximg:local-wsl
+    container_name: fiximg-wsl
+    # The image's own CMD is the API; spelled out so a reader can tell a
+    # serving container from a queue consumer without opening the Dockerfile.
+    command: ["python", "-m", "fiximg.cli.api"]
+    environment:
+      FIXIMG_PROFILE: docker
+      FIXIMG_HOST: 0.0.0.0
+      FIXIMG_PORT: "9502"
+      FIXIMG_DEVICE: auto
+      # One process does everything: API, UI and the queue consumer.
+      FIXIMG_INLINE_WORKER: "true"
+      FIXIMG_HAS_EXTERNAL_WORKER: "false"
+      # Model loading is lazy; `first-use` keeps start-up short on a laptop.
+      FIXIMG_WARMUP: first-use
+    ports:
+      - "9502:9502"
+    volumes:
+      # Writable state and artifacts live in named volumes, never on the host.
+      - db:/app/admin_data
+      - storage:/app/storage
+      # Weights: the local checkout, read-only. Paths match the manifest's
+      # repo-relative keys, which is what verify_weights() hashes.
+      - type: bind
+        source: ../weights
+        target: /app/weights
+        read_only: true
+      - type: bind
+        source: ../Global/checkpoints
+        target: /app/Global/checkpoints
+        read_only: true
+      - type: bind
+        source: ../Face_Enhancement/checkpoints
+        target: /app/Face_Enhancement/checkpoints
+        read_only: true
+      - type: bind
+        source: ../Face_Detection
+        target: /app/Face_Detection
+        read_only: true
+    restart: unless-stopped
+    # Docker Compose (not Swarm) still honours this block for device requests.
+    # `--gpus all` on a plain `docker run` is equivalent.
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+volumes:
+  db:
+  storage:

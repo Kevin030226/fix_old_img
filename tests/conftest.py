@@ -36,9 +36,19 @@ def _no_deployment_database_url():
     a configured URL — `test_the_worker_opens_the_configured_database` — sets it with
     ``monkeypatch.setenv``, which pytest restores after that one test.
     """
+    import fiximg.config as config_mod
+
     os.environ.pop("FIXIMG_DATABASE_URL", None)
+    # The environment is no longer the only place the engine looks: since
+    # `engine.configured_database_url()` reads `settings.database_url` first, an
+    # operator-style export is already *in* the settings singleton by the time
+    # this fixture runs (`Settings` is built at import). Clearing only the
+    # variable would leave the suite pointed at the deployment database -- the
+    # exact contamination this fixture exists to prevent, one layer deeper.
+    config_mod.settings.database_url = ""
     yield
     os.environ.pop("FIXIMG_DATABASE_URL", None)
+    config_mod.settings.database_url = ""
 
 
 @pytest.fixture(autouse=True)

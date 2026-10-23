@@ -420,10 +420,41 @@ service runs; ship new weights under a new version.
 | `GET` | `/api/v1/health/ready` | Readiness: DB, models, worker, storage (public) |
 | `GET` | `/health`, `/health/ready` | V2 aliases, kept for existing deployments |
 
-## Gradio UI
+## Native web UI
 
-The Gradio app is mounted at `/` behind the same user accounts (form login).
-It talks to the service layer in-process, so it needs no API token.
+The interface is served by this same FastAPI application at `/` — a server-rendered
+document plus one static script (`src/fiximg/ui/web/`). There is no UI framework
+and no separate process. Sign-in is a form POST to `/ui/login`, which sets an
+HttpOnly session cookie; every mutating UI request must also echo the session's
+CSRF token in `X-CSRF-Token`. The UI talks to the service layer in-process, so
+it needs no API token.
+
+| Method | Path | Purpose |
+|---|---|---|
+| `GET` | `/` | The application, or the sign-in page when there is no session |
+| `POST` | `/ui/login`, `/ui/logout` | Sign in / sign out (form POST) |
+| `GET` | `/ui/static/ui.js` | The one static asset |
+| `GET` | `/ui/api/session` | Who is signed in, the CSRF token, and whether submission is unlocked |
+| `POST` | `/ui/api/session/logout` | Sign out (JSON, CSRF-protected) |
+| `POST` | `/ui/api/session/password` | Change your own password (section 21 unlock) |
+| `POST` | `/ui/api/analysis` | Auto Restore's analysis row for the current upload |
+| `POST` | `/ui/api/tasks` | Submit an upload (multipart; same validation as `/api/v1/tasks`) |
+| `GET` | `/ui/api/tasks/{id}` | One poll frame: progress, stages, status text, terminal flags |
+| `GET` | `/ui/api/tasks/{id}/result` | The finished image (inline; `?download=1` for an attachment) |
+| `GET` | `/ui/api/tasks/{id}/input`, `.../thumbnail` | The original upload / a cached thumbnail |
+| `GET` | `/ui/api/tasks/{id}/artifact/{kind}` | A preview by artifact kind (`mask`, `faces_dir`) |
+| `GET` | `/ui/api/history` | One page of the caller's history |
+| `GET` | `/ui/api/history/{id}` | The selected row's previews, detail and available actions |
+| `POST` | `/ui/api/history/{id}/rerun`, `.../retry` | Re-submit as a new task / re-queue the same id |
+| `GET`/`DELETE` | `/ui/api/admin/history` | Every task / clear the legacy V1 rows (admin) |
+| `GET` | `/ui/api/admin/archive[/{id}]` | The photo archive list / one record (admin) |
+| `GET`/`POST`/`PATCH`/`DELETE` | `/ui/api/admin/users[/{username}]` | User management (admin) |
+| `GET` | `/ui/api/admin/models` | The model table (admin) |
+| `POST` | `/ui/api/admin/models/{name}/{action}` | `warmup` / `unload` (admin) |
+
+Every mutating route requires a session **and** the CSRF header; every admin route
+re-reads the role from the users table on each request, so a demoted account loses
+them without signing in again.
 
 Each tab that submits a restoration pipeline shows the plan §3.9.1 layout: the input
 image, the option switches, the result column, and one progress strip that carries all

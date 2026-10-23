@@ -6,7 +6,7 @@
 
 ```
                  ┌──────────────────────────────┐
-                 │  Gradio UI  ·  JSON API      │   src/fiximg/ui, src/fiximg/api
+                 │  Web UI     ·  JSON API      │   src/fiximg/ui, src/fiximg/api
                  └──────────────┬───────────────┘
                                 │  (never talks to a model directly)
                  ┌──────────────▼───────────────┐
@@ -67,7 +67,7 @@ running the same two calls rather than two copies of the same decision.
 | `src/fiximg/infrastructure/storage/` | `ArtifactStore`: local today, S3/MinIO (P2) |
 | `src/fiximg/infrastructure/observability/` | JSON logging, metrics registry, tracing (no-op / OTel / in-memory) |
 | `src/fiximg/infrastructure/security/` | Password hashing, rate limiting |
-| `src/fiximg/ui/` | Gradio blocks, history panel, HTML pages, middleware, progress stream |
+| `src/fiximg/ui/` | native web UI (session, pages, routes, static script), HTML pages, progress/history formatting |
 | `src/fiximg/cli/` | Entry points: `api`, `worker`, `batch`, weights, migration |
 
 Vendored model code (`Global/`, `Face_Detection/`, `Face_Enhancement/`,

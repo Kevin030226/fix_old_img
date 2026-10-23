@@ -7,5 +7,3 @@
 # Install with:  pip install -r requirements/otel.txt
 opentelemetry-api==1.45.0
 opentelemetry-sdk==1.45.0
-opentelemetry-semantic-conventions==0.66b0
-typing_extensions==4.12.2
