@@ -323,18 +323,145 @@ def test_a_demoted_account_loses_the_admin_routes_without_signing_in_again(admin
 
 
 # ------------------------------------------------------------------- refusals
-def test_every_mutating_route_refuses_a_request_without_the_csrf_token(signed_in):
-    """`SameSite=Lax` does not cover a top-level form POST, so the token does."""
-    client, _csrf, _payload = signed_in
+#: The refusal the CSRF dependency itself raises, asserted verbatim so a
+#: different 403 (an admin denial, say) can never stand in for it. There is no
+#: exemption list: every mutating route on `/ui/api/*` carries the token check
+#: (P27 closed the last one, the stateless analysis preview), so a new route
+#: that forgets `require_csrf` fails here instead of shipping unprotected.
+CSRF_REFUSAL_MESSAGE = "Missing or invalid CSRF token"
+
+_MUTATING_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
+
+
+def _mutating_ui_routes():
+    """Every mutating-method route the UI router actually registers, live.
+
+    Read from `router.routes` at call time — never transcribed by hand — so a
+    route added next week is enumerated (and then covered) without anyone
+    remembering to edit this test.
+    """
+    from fastapi.routing import APIRoute
+
+    for route in ui_routes.router.routes:
+        if isinstance(route, APIRoute) and route.methods & _MUTATING_METHODS \
+                and route.path.startswith("/ui/api/"):
+            yield route
+
+
+def _dependency_names(route) -> set[str]:
+    """The dependency callables this route declares, by name."""
+    return {
+        dependency.call.__name__
+        for dependency in route.dependant.dependencies
+        if dependency.call is not None
+    }
+
+
+def _valid_request(route, image: dict) -> dict:
+    """A syntactically valid request for `route`: path filled, body well formed.
+
+    Built from the route's own signature so the CSRF refusal can be the *only*
+    thing a route finds to say: a malformed request would let a 422 masquerade
+    as the token check. Path templates get values that match no real row (so no
+    data is touched either way), and the body carries exactly the parts the
+    route declares — a required multipart image, a JSON object, or nothing.
+    """
+    params = {param.name: "no-such-" + param.name
+              for param in route.dependant.path_params}
+    path = route.path
+    for name, value in params.items():
+        path = path.replace("{" + name + "}", value)
+
+    request: dict = {"path": path, "params": params}
+    body_params = route.dependant.body_params
+    if not body_params:
+        return request
+    media_types = {getattr(param.field_info, "media_type", "") for param in body_params}
+    if "multipart/form-data" in media_types:
+        # `mode` first so the request would fail validation *after* the CSRF
+        # gate, never before it; the bytes are a real PNG for the same reason.
+        request["data"] = {"mode": "restore"}
+        request["files"] = image
+    else:
+        # A JSON-object body. Its content is irrelevant by construction: the
+        # CSRF dependency is solved before body validation ever runs, so the
+        # 403 below can only have come from the token check.
+        request["json"] = {}
+    return request
+
+
+def test_every_mutating_route_refuses_a_request_without_the_csrf_token(ui_app, signed_in):
+    """`SameSite=Lax` does not cover a top-level form POST, so the token does.
+
+    Enumerated, not transcribed: every mutating (`POST`/`PATCH`/`PUT`/`DELETE`)
+    route on `/ui/api/*` that the router *actually registers* is walked —
+    including the analysis preview, which joined the token gate in P27. Each
+    must answer a token-less request with the CSRF refusal, which proves the
+    token dependency runs ahead of every business check. A mutating route that
+    skipped `require_csrf` fails here instead of shipping uncovered.
+    """
+    client, csrf, _payload = signed_in
     image = {"image": ("photo.png", _png_bytes(), "image/png")}
-    assert client.post("/ui/api/tasks", data={"mode": "restore"},
-                       files=image).status_code == 403
-    assert client.post("/ui/api/session/logout").status_code == 403
-    assert client.post("/ui/api/session/password",
-                       json={"new_password": "x" * 10,
-                             "confirm_password": "x" * 10}).status_code == 403
+    visited: list[tuple[str, str]] = []
+
+    for route in _mutating_ui_routes():
+        method = sorted(route.methods & _MUTATING_METHODS)[0]
+        key = (method, route.path)
+        visited.append(key)
+
+        # The gate itself: the token dependency is declared on the route, and a
+        # token-less request is refused by *that* layer — before validation,
+        # ownership or any other business logic gets a say.
+        assert "require_csrf" in _dependency_names(route), key
+
+        request = _valid_request(route, image)
+        refused = client.request(
+            method, request["path"], params=request["params"],
+            data=request.get("data"), files=request.get("files"),
+            json=request.get("json"),
+        )
+        assert refused.status_code == 403, (key, refused.status_code, refused.text)
+        body = refused.json()
+        assert body["error"]["code"] == "FORBIDDEN", (key, body)
+        assert CSRF_REFUSAL_MESSAGE in body["error"]["message"], (key, body)
+        # The same request *with* the token must get past the CSRF gate — to
+        # validation, ownership or success, whatever the route answers next —
+        # proving the 403 came from the token layer, not from the path itself.
+        # Each probe carries its own fresh administrator session: one of these
+        # routes *is* sign-out and others delete users, so a shared session (or
+        # the ordinary user's) would be burned or admin-refused mid-walk.
+        probe_client, probe_csrf, _probe = _sign_in(ui_app, "admin", "admin-password")
+        cleared = probe_client.request(
+            method, request["path"], params=request["params"],
+            data=request.get("data"), files=request.get("files"),
+            json=request.get("json"), headers={"X-CSRF-Token": probe_csrf},
+        )
+        assert cleared.status_code != 403, (key, cleared.status_code, cleared.text)
+
+    assert visited, "the UI router exposed no mutating routes — enumeration broke"
+    # Every enumerated route was accounted for: no silent skips, no duplicates.
+    assert len(visited) == len(set(visited)) == sum(
+        1 for _ in _mutating_ui_routes()
+    )
+    # The whole point of P26/P27: the count itself is asserted, so silently
+    # losing a route (or gaining a second analysis-shaped gap) cannot pass.
+    assert len(visited) == 11, (
+        f"expected the router's 11 mutating /ui/api/* routes, saw {sorted(visited)}"
+    )
 
 
+def test_every_mutating_ui_route_declares_the_csrf_dependency():
+    """The static half: no `/ui/api/*` mutating route may lack `require_csrf`.
+
+    Runs against the live router independently of request handling, so a route
+    registered without the token dependency fails on its declaration alone —
+    even if some other quirk would have masked the runtime refusal above.
+    """
+    for route in _mutating_ui_routes():
+        key = (sorted(route.methods & _MUTATING_METHODS)[0], route.path)
+        assert "require_csrf" in _dependency_names(route), (
+            f"{key[0]} {key[1]} is a mutating UI route without require_csrf"
+        )
 def test_every_read_route_refuses_an_anonymous_request(app_client):
     for path in ("/ui/api/session", "/ui/api/tasks/anything", "/ui/api/history",
                  "/ui/api/admin/users", "/ui/api/admin/history"):
@@ -464,6 +591,9 @@ def test_the_auto_tab_submits_and_reports_its_analysis(signed_in):
     client, csrf, _payload = signed_in
     analysed = client.post(
         "/ui/api/analysis",
+        # The Auto tab's own call: ui.js's api() helper stamps the token on every
+        # non-GET request, so the analysis POST carries it like any other write.
+        headers={"X-CSRF-Token": csrf},
         data={"mode": "auto", "options": "{}"},
         files={"image": ("photo.png", _png_bytes(), "image/png")},
     )
