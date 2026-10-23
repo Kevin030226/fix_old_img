@@ -320,7 +320,7 @@ async def analysis(
     mode: str = Form("auto"),
     image: UploadFile = File(...),
     options: str = Form("{}"),
-    session: Session = Depends(require_session),
+    session: Session = Depends(require_csrf),
 ):
     """§3.9.1's analysis row: what Auto Restore would do with *this* picture.
 
