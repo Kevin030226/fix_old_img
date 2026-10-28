@@ -13,6 +13,7 @@ import os
 import threading
 import time
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 
 import numpy as np
@@ -59,28 +60,124 @@ _EVALUATED_TYPES = {"restore", "restore_scratch", "auto_restore"}
 #: Single-worker pool for deferred evaluation (plan §3.16). Metrics are
 #: CPU-bound, so serialising them keeps them from competing with the next
 #: inference for cores — and bounds the thread count.
-_eval_pool = None
-_eval_pool_lock = threading.Lock()
+_eval_pool: ThreadPoolExecutor | None = None
+#: Pools detached from `_eval_pool` that may still be running work.
+#:
+#: A non-blocking shutdown used to drop the only reference to its pool, so a
+#: later `shutdown_eval_pool(wait=True)` saw `None` and returned at once. The
+#: evaluation then outlived the teardown that had just declared itself finished,
+#: and the next test fixture repointed the process-wide database underneath it
+#: (Python 3.12 CI: "no such table: users"). Remembering every detached pool is
+#: what lets a later `wait=True` wait for a pool an earlier `wait=False` only
+#: signalled.
+_draining_eval_pools: list[ThreadPoolExecutor] = []
+#: Reentrant because admission methods take it themselves while a submission
+#: already holds it; the linearisation point is this lock, not the flags.
+_eval_pool_lock = threading.RLock()
+#: Serialises the blocking drain: worker teardown and a fixture teardown may both
+#: ask to wait, and they must join the same pool without racing each other.
+_eval_pool_drain_lock = threading.Lock()
 
 
-def _get_eval_pool():
-    """Lazily create the background evaluation pool."""
+class _DeferredEvalAdmission:
+    """One orchestrator's permission to schedule deferred evaluation.
+
+    `close()` is called by its worker before the worker joins its thread; from
+    then on `_submit_eval_job` refuses a job instead of creating a pool. The flag
+    is read and written under `_eval_pool_lock`, which a submission already holds
+    while queueing, so every job is either in a pool the teardown drains or is
+    refused — never queued after the drain.
+    """
+
+    __slots__ = ("_open",)
+
+    def __init__(self) -> None:
+        self._open = True
+
+    def open(self) -> None:
+        with _eval_pool_lock:
+            self._open = True
+
+    def close(self) -> None:
+        with _eval_pool_lock:
+            self._open = False
+
+    def is_open(self) -> bool:
+        with _eval_pool_lock:
+            return self._open
+
+
+def _new_eval_pool() -> ThreadPoolExecutor:
+    return ThreadPoolExecutor(max_workers=1, thread_name_prefix="fiximg-eval")
+
+
+def _submit_eval_job(job, admission: _DeferredEvalAdmission | None = None) -> bool:
+    """Queue *job*, or refuse it when its owner's admission has been closed.
+
+    The admission check, the pool creation and `submit()` all happen under one
+    lock, so there is no check-then-act window and no way for a stopping worker to
+    create a pool after teardown: a submission observes admission either open (its
+    future is in the pool that `shutdown_eval_pool(wait=True)` drains) or closed
+    (it returns False and creates nothing).
+    """
     global _eval_pool
     with _eval_pool_lock:
+        if admission is not None and not admission.is_open():
+            return False
         if _eval_pool is None:
-            from concurrent.futures import ThreadPoolExecutor
-
-            _eval_pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="fiximg-eval")
-        return _eval_pool
+            _eval_pool = _new_eval_pool()
+        _eval_pool.submit(job)
+        return True
 
 
 def shutdown_eval_pool(wait: bool = False) -> None:
-    """Stop the background evaluation pool (worker shutdown / tests)."""
-    global _eval_pool
+    """Stop the background evaluation pool (worker shutdown / tests).
+
+    ``wait=False`` detaches the current pool and signals it to stop, then
+    returns. The pool is remembered until it is drained, so a later
+    ``wait=True`` waits for every generation detached earlier — a non-blocking
+    shutdown must not turn a later blocking one into a no-op.
+
+    ``wait=True`` blocks until every detached pool has finished the work it was
+    given. Worker/app teardown uses it before the database is closed or
+    repointed, so an in-flight evaluation cannot write into a database its
+    teardown already declared finished.
+    """
+    global _eval_pool, _draining_eval_pools
     with _eval_pool_lock:
         pool, _eval_pool = _eval_pool, None
-    if pool is not None:
-        pool.shutdown(wait=wait, cancel_futures=False)
+        if pool is not None:
+            _draining_eval_pools.append(pool)
+        pending = list(_draining_eval_pools)
+
+    if not pending:
+        return
+
+    if not wait:
+        for retired in pending:
+            retired.shutdown(wait=False, cancel_futures=False)
+        return
+
+    # Blocking work happens outside the state lock. A test releases a job by
+    # setting an event from another thread, and holding `_eval_pool_lock` while
+    # joining would keep that thread's teardown path out of the module.
+    with _eval_pool_drain_lock:
+        while True:
+            with _eval_pool_lock:
+                pending = list(_draining_eval_pools)
+            if not pending:
+                return
+            for retired in pending:
+                try:
+                    retired.shutdown(wait=True, cancel_futures=False)
+                except Exception as exc:  # noqa: BLE001 — reported, then re-raised
+                    log_event(logger, "ERROR", "evaluation pool did not drain",
+                              error=str(exc))
+                    raise
+                with _eval_pool_lock:
+                    _draining_eval_pools = [
+                        p for p in _draining_eval_pools if p is not retired
+                    ]
 
 
 def _attempt_count(task_id: str):
@@ -245,6 +342,9 @@ class PipelineOrchestrator:
     #: harnesses) still resolves a device; ``__init__`` replaces it with the
     #: configured topology.
     topology: GpuTopology = GpuTopology.single_device()
+    #: ``__new__``-built instances keep the pre-existing "accept" behaviour: there
+    #: is no owning worker that could close this gate.
+    _deferred_eval_admission: _DeferredEvalAdmission | None = None
 
     def __init__(self, planner: PipelinePlanner | None = None,
                  topology: GpuTopology | None = None) -> None:
@@ -252,6 +352,28 @@ class PipelineOrchestrator:
         self.model_manager = model_manager
         #: §4.3 Step 4: which device serves which capability.
         self.topology = topology or GpuTopology.from_settings()
+        #: Deferred evaluation (plan §3.16) is accepted until the owning worker is
+        #: stopped; see `close_deferred_evaluation`.
+        self._deferred_eval_admission = _DeferredEvalAdmission()
+
+    # ------------------------------------------- deferred-evaluation lifecycle
+    def open_deferred_evaluation(self) -> None:
+        """Allow deferred evaluation again (a restarted worker / new lifecycle)."""
+        admission = getattr(self, "_deferred_eval_admission", None)
+        if admission is not None:
+            admission.open()
+
+    def close_deferred_evaluation(self) -> None:
+        """Refuse new deferred evaluation from this orchestrator.
+
+        Called by `PipelineWorker.stop` *before* it joins its thread. Already
+        queued jobs stay queued and are drained by `shutdown_eval_pool(wait=True)`;
+        a job offered after this point is refused instead of creating a pool, so a
+        worker thread that outlives the join timeout cannot become a writer.
+        """
+        admission = getattr(self, "_deferred_eval_admission", None)
+        if admission is not None:
+            admission.close()
 
     # ---------------------------------------------------------------- sync API
     def run(self, input_image, user_state, task_type: str, options: dict | None = None):
@@ -427,7 +549,7 @@ class PipelineOrchestrator:
 
     # ----------------------------------------------------------- evaluation
     def _evaluate_in_background(self, task_id, task_type, input_path, result_path,
-                                stage_meta, gt_path, user_id) -> None:
+                                stage_meta, gt_path, user_id) -> bool:
         """Run §16/§17 evaluation off the critical path (plan §3.16).
 
         The plan is explicit that evaluation must not delay the result: the task
@@ -436,6 +558,11 @@ class PipelineOrchestrator:
 
         A single-worker pool serialises evaluation: the metrics are CPU-bound
         and would otherwise compete with the next inference for cores.
+
+        Returns True when the job was queued, False when this orchestrator's
+        worker has been stopped: the work is then refused rather than queued, so
+        a task that finishes after ``PipelineWorker.stop()`` cannot leave a
+        database writer behind. The refusal is logged with the task id.
         """
         def _job():
             try:
@@ -454,7 +581,13 @@ class PipelineOrchestrator:
                 log_event(logger, "ERROR", "async evaluation failed",
                           task_id=task_id, error=str(exc))
 
-        _get_eval_pool().submit(_job)
+        admission = getattr(self, "_deferred_eval_admission", None)
+        if not _submit_eval_job(_job, admission=admission):
+            log_event(logger, "WARNING", "async evaluation skipped",
+                      task_id=task_id,
+                      reason="worker stopped before evaluation was scheduled")
+            return False
+        return True
 
     # -------------------------------------------------------------- internals
     def _execute_core(self, task_id, image, task_type, context, input_path, run_dir,

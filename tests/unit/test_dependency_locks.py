@@ -385,3 +385,51 @@ def test_regenerating_the_groups_never_touches_the_working_tree(tmp_path):
     if result.returncode != 0:
         assert "frozen from" in result.stdout + result.stderr, result.stdout + result.stderr
     assert _group_hashes() == before
+
+
+#: ``filelock`` 4.2.1 is the fix version for CVE-2026-112940. The worker image
+#: installs the torch stack first and ``torch`` declares ``filelock`` with no upper
+#: bound, so a floor below the fix version silently lets a vulnerable version in.
+FILELOCK_FIX = (4, 2, 1)
+
+
+def _declared_pin(path: str, name: str) -> str:
+    """Return the version text a requirement line declares for ``name``.
+
+    Handles both a plain requirement line (``filelock==4.2.1``) and the quoted form
+    used inside a ``pyproject.toml`` array (``"filelock>=4.2.1",``).
+    """
+    with open(path, encoding="utf-8") as handle:
+        for line in handle:
+            stripped = line.strip().strip("\"'").rstrip(",").strip("\"'").strip()
+            if not stripped or stripped.startswith("#"):
+                continue
+            lowered = stripped.lower()
+            if lowered.startswith(name.lower() + "==") or lowered.startswith(
+                name.lower() + ">="
+            ):
+                return stripped[len(name):]
+    raise AssertionError(f"{name} is not declared in {os.path.basename(path)}")
+
+
+def test_filelock_is_pinned_to_the_advisory_fix_version():
+    """Every declared surface must reach the fix for CVE-2026-112940."""
+    expected = "==" + ".".join(str(part) for part in FILELOCK_FIX)
+
+    # The three requirement files must pin the fix exactly: a floor is what let the
+    # worker image drift onto 3.32.3 while the files said 3.20.3.
+    for relative in ("requirements.txt", "requirements/runtime.txt", "requirements/gpu.txt"):
+        declared = _declared_pin(os.path.join(PROJECT_ROOT, relative), "filelock")
+        assert declared == expected, (
+            f"{relative} declares filelock{declared}; the fix for CVE-2026-112940 is "
+            f"filelock{expected}"
+        )
+
+    # pyproject is a floor, so it must not accept anything below the fix.
+    floor = _declared_pin(os.path.join(PROJECT_ROOT, "pyproject.toml"), "filelock")
+    assert floor.startswith(">="), f"pyproject declares filelock{floor}; a floor was expected"
+    parts = tuple(int(part) for part in floor[2:].split("."))
+    assert parts >= FILELOCK_FIX, (
+        f"pyproject allows filelock{floor}, which is below the CVE-2026-112940 fix "
+        f"{'.'.join(str(p) for p in FILELOCK_FIX)}"
+    )

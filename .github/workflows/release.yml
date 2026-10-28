@@ -2,24 +2,32 @@ name: Release
 
 # Plan §3.11: CI proves the code, this workflow ships it.
 #
-# Pushing a tag `vX.Y.Z` builds the Python distribution and both container
-# images, verifies they actually run, then publishes to GitHub Releases + GHCR.
-# A manual run defaults to dry-run, so rehearsing the pipeline cannot publish
-# anything by accident.
+# Publishing order (everything before the first registry/Release write is a gate):
+#
+#   preflight ──┬─ tests (3.11 + 3.12, the ci.yml matrix)
+#               ├─ artifacts (sdist/wheel + checksums + clean-env smoke)
+#               ├─ image-preflight (api)     — non-publishing build + run
+#               └─ image-preflight (worker)  — non-publishing build + run
+#                        │
+#                        ├─ stage-images   (push by digest only; needs both preflights)
+#                        ├─ publish-images (version tags, then latest; needs stage-images)
+#                        └─ release        (draft first, published only after images)
+#
+# A manual dispatch (workflow_dispatch) is ALWAYS a dry run: it runs every gate
+# and build, and none of the write steps are reachable. Only a tag push whose tag
+# is v<pyproject version>, annotated, and pointing at the exact commit of
+# origin/main publishes anything.
+#
+# Least privilege: read-only at the top; write scopes are attached only to the
+# jobs that write (stage/publish images: packages; release: contents).
 
 on:
   push:
     tags: ["v*"]
   workflow_dispatch:
-    inputs:
-      publish:
-        description: "Actually push artifacts and images (a tag push always publishes)"
-        type: boolean
-        default: false
 
 permissions:
-  contents: write # GitHub Release + build artifacts
-  packages: write # GHCR images
+  contents: read
 
 concurrency:
   group: release-${{ github.ref }}
@@ -30,35 +38,118 @@ env:
   IMAGE_NAMESPACE: ${{ github.repository_owner }}
 
 jobs:
-  # One job decides two things every later step consumes: the version, and
-  # whether this run is allowed to publish. Keeping the decision here means no
-  # individual step can guess its own way into pushing something.
-  version:
+  # One job decides every fact later steps consume: the version, whether this run
+  # may publish, and the exact commit it must be publishing. Keeping the decision
+  # here means no individual step can guess its own way into pushing something.
+  preflight:
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.verify.outputs.version }}
       publish: ${{ steps.decide.outputs.publish }}
     steps:
       - uses: actions/checkout@v5
+        with:
+          # The annotated-tag and main-SHA checks need the commit graph and the
+          # tag object; a shallow checkout has neither.
+          fetch-depth: 0
+          fetch-tags: true
       - uses: actions/setup-python@v6
         with:
           python-version: "3.11"
-      - name: Verify the tag and the packaged version agree
+      - name: Verify the release inputs, and the tag when this is a tag push
         id: verify
         run: |
+          set -eu
           declared=$(python -c 'import tomllib;print(tomllib.load(open("pyproject.toml","rb"))["project"]["version"])')
-          if [ "${GITHUB_EVENT_NAME}" = push ] && [ "$GITHUB_REF_NAME" != "v$declared" ]; then
-            echo "::error::tag '$GITHUB_REF_NAME' does not match pyproject version 'v$declared'"
+          echo "version=$declared" >> "$GITHUB_OUTPUT"
+
+          # Release *material* is validated on both paths. A manual dry run must
+          # fail for a missing or mismatched notes file: otherwise it rehearses a
+          # release whose reviewed notes do not exist, and the first tag push is
+          # the first time anyone finds out.
+          expected="v$declared"
+          notes="docs/releases/$expected.md"
+          if [ ! -f "$notes" ]; then
+            echo "::error::release notes $notes are missing"
             exit 1
           fi
-          echo "version=$declared" >> "$GITHUB_OUTPUT"
+          if ! grep -qF "$declared" "$notes"; then
+            echo "::error::release notes $notes do not name version $declared"
+            exit 1
+          fi
+
+          # Only the tag-specific checks are skipped on a manual run: a dry run
+          # has no tag to verify, and must not fail for lacking one.
+          if [ "$GITHUB_EVENT_NAME" != "push" ]; then
+            echo "manual dispatch: dry run; release material verified, tag checks skipped"
+            exit 0
+          fi
+
+          if [ "$GITHUB_REF_NAME" != "$expected" ]; then
+            echo "::error::tag '$GITHUB_REF_NAME' does not match pyproject version '$expected'"
+            exit 1
+          fi
+          if [ "$GITHUB_REF_TYPE" != "tag" ]; then
+            echo "::error::expected a tag ref, got '$GITHUB_REF_TYPE'"
+            exit 1
+          fi
+          # The release title is read from the tag annotation, so a lightweight
+          # tag would title the release after the commit it points at.
+          if [ "$(git cat-file -t "$GITHUB_REF_NAME")" != "tag" ]; then
+            echo "::error::$GITHUB_REF_NAME is not an annotated tag; the release title comes from its annotation"
+            exit 1
+          fi
+          # Exact commit, not merely an ancestor: a tag on an older commit would
+          # publish code that main no longer builds.
+          git fetch --no-tags origin main
+          main_sha=$(git rev-parse origin/main)
+          tag_sha=$(git rev-parse "$GITHUB_REF_NAME^{commit}")
+          if [ "$tag_sha" != "$main_sha" ]; then
+            echo "::error::$GITHUB_REF_NAME points at $tag_sha, but origin/main is $main_sha"
+            exit 1
+          fi
+          echo "publishable tag $expected at $tag_sha"
+
       - name: Decide whether to publish
         id: decide
-        # A tag push publishes; a manual run only when explicitly asked to.
-        run: echo "publish=${{ github.event_name == 'push' || inputs.publish }}" >> "$GITHUB_OUTPUT"
+        run: |
+          # A tag push publishes; a manual dispatch never does, whatever inputs
+          # it has. There is deliberately no input that can turn this on.
+          if [ "$GITHUB_EVENT_NAME" = "push" ]; then
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  # The same matrix ci.yml runs, executed again here so a release cannot ship a
+  # commit that the gate would reject. It is a required dependency of every job
+  # that writes.
+  tests:
+    needs: preflight
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    strategy:
+      fail-fast: true
+      matrix:
+        python-version: ["3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+      - name: Install CPU torch
+        run: pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
+      - name: Install project (editable, test extras)
+        run: pip install -e ".[test]"
+      - name: Run tests (unit + api + inference + integration + e2e)
+        env:
+          FIXIMG_SKIP_WEIGHT_CHECK: "1"
+          KMP_DUPLICATE_LIB_OK: "True"
+        run: python -m pytest -m "not gpu"
 
   artifacts:
-    needs: version
+    needs: [preflight, tests]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -90,163 +181,430 @@ jobs:
           "
       - uses: actions/upload-artifact@v4
         with:
-          name: fiximg-${{ needs.version.outputs.version }}
+          name: fiximg-${{ needs.preflight.outputs.version }}
           path: |
             dist/*.whl
             dist/*.tar.gz
             dist/sha256sums.txt
           if-no-files-found: error
 
-  images:
-    needs: version
+  # Both images are built and exercised without publishing first. This is the
+  # topology the old workflow lacked: a failed package build used to leave the
+  # images already pushed.
+  image-preflight:
+    needs: [preflight, tests]
     strategy:
       fail-fast: false
       matrix:
         image: [api, worker]
     runs-on: ubuntu-latest
+    timeout-minutes: 90
     steps:
+      # Files only: this job pushes to the registry, never to Git.
       - uses: actions/checkout@v5
-      - uses: docker/setup-buildx-action@v4
-      - name: Log in to GHCR
-        if: needs.version.outputs.publish == 'true'
-        uses: docker/login-action@v4
         with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-      - name: Compute tags
-        id: tags
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@v4
+      - name: Report and reclaim disk (heavy images only)
+        if: matrix.image != 'api'
         run: |
-          # A GHCR repository path must be lowercase and this account is not
-          # (`Kevin030226`), so every tag read
-          #   invalid tag "ghcr.io/Kevin030226/fiximg-api:3.0.0":
-          #   repository name must be lowercase
-          # and both images failed before buildx read a Dockerfile. Folding the
-          # case here is what makes the reference legal.
-          namespace="$(printf '%s' "${IMAGE_NAMESPACE}" | tr '[:upper:]' '[:lower:]')"
-          name="${namespace}/fiximg-${{ matrix.image }}"
-          echo "name=$name" >> "$GITHUB_OUTPUT"
-          echo "tags=${REGISTRY}/$name:${{ needs.version.outputs.version }},${REGISTRY}/$name:latest" >> "$GITHUB_OUTPUT"
-      - name: Build the image
+          echo "== before =="
+          df -h / | tail -1
+          sudo rm -rf \
+            /usr/share/dotnet /usr/share/swift /usr/local/lib/android \
+            /usr/local/share/boost /opt/ghc /opt/google/chrome \
+            /opt/microsoft/msedge /usr/local/share/chromium /opt/hostedtoolcache \
+            /usr/local/graalvm /usr/local/share/powershell /usr/local/share/miniconda \
+            /usr/local/share/chromedriver-linux64 /usr/local/share/gecko_driver \
+            /usr/lib/jvm /usr/local/aws-cli /usr/local/aws-sam-cli /usr/local/go \
+            /usr/local/n /usr/local/php /usr/local/share/nvm /usr/local/rustup \
+            /usr/local/cargo /opt/az /opt/pipx /usr/lib/firefox /usr/lib/R /usr/lib/mono
+          sudo apt-get clean
+          echo "== after =="
+          df -h / | tail -1
+      - name: Assert enough disk for this image
+        run: |
+          available_kb=$(df -Pk / | awk 'NR==2 {print $4}')
+          available_gb=$((available_kb / 1024 / 1024))
+          minimum_gb=20
+          if [ "${{ matrix.image }}" = "api" ]; then minimum_gb=6; fi
+          echo "available on /: $available_gb GiB (need $minimum_gb GiB)"
+          if [ "$available_gb" -lt "$minimum_gb" ]; then
+            echo "::error::only $available_gb GiB free, but the ${{ matrix.image }} image needs at least $minimum_gb GiB"
+            exit 1
+          fi
+      # `load: true` is required: build-push-action keeps the result in the
+      # buildx cache by default, so a following `docker run` would find no image.
+      # `provenance`/`sbom` are deliberately absent here: attestations are OCI
+      # index manifests, and the docker exporter used by `load` cannot carry
+      # them. Attestation belongs to the registry staging job, which pushes.
+      - name: Build the image (no push, loadable)
         id: build
         uses: docker/build-push-action@v7
         with:
           context: .
           file: docker/${{ matrix.image }}.Dockerfile
-          push: ${{ needs.version.outputs.publish == 'true' }}
-          tags: ${{ steps.tags.outputs.tags }}
-          # `mode=max`, not `mode-max`: buildx reads this as `mode=<level>`.
-          # The dashed spelling failed both image jobs with "buildx failed
-          # with: invalid value mode-max" before a Dockerfile was read, and the
-          # message was taken for a complaint about the GHA cache exporter --
-          # which was then removed. The next tagged run failed with the same
-          # message and no exporter in the file, which is what disproved that.
+          push: false
+          load: true
+          tags: fiximg-${{ matrix.image }}:release-candidate
+      - name: Verify the image runs
+        run: |
+          docker run --rm "fiximg-${{ matrix.image }}:release-candidate" python3 -c "
+          import sys
+          assert sys.version_info[:2] == (3, 11), sys.version
+          assert sys.version_info.releaselevel == 'final', sys.version
+          import importlib.metadata as md
+          assert md.version('Pillow') == '13.0.0', md.version('Pillow')
+          names = {d.metadata['Name'].lower().replace('_', '-') for d in md.distributions() if d.metadata['Name']}
+          assert not ({'gradio', 'gradio-client'} & names), names
+          print('preflight ok', sys.version, 'pillow', md.version('Pillow'))
+          "
+
+  # First registry write. By digest only: no mutable tag is created here, so a
+  # failure later cannot leave a version tag pointing at a half-validated build.
+  # Needs BOTH preflights, so one broken image cannot be staged.
+  stage-images:
+    needs: [preflight, tests, artifacts, image-preflight]
+    if: needs.preflight.outputs.publish == 'true'
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: true
+      matrix:
+        image: [api, worker]
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      # Files only: this job pushes to the registry, never to Git.
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@v4
+      - name: Log in to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Compute the lowercase repository
+        id: repo
+        run: |
+          namespace="$(printf '%s' "$IMAGE_NAMESPACE" | tr '[:upper:]' '[:lower:]')"
+          echo "name=$namespace/fiximg-${{ matrix.image }}" >> "$GITHUB_OUTPUT"
+      - name: Build and push by digest (no tag yet)
+        id: build
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: docker/${{ matrix.image }}.Dockerfile
+          # The by-digest `outputs` is the single publishing declaration: the
+          # action gives `outputs` precedence over `push`, and keeping both was a
+          # redundant statement that could silently diverge on a future edit.
+          outputs: type=image,name=${{ env.REGISTRY }}/${{ steps.repo.outputs.name }},push-by-digest=true,name-canonical=true,push=true
           provenance: mode=max
           sbom: true
-          # The GHA cache exporter stays off until a build has published both
-          # images without it, so a further failure cannot be blamed on it.
-          # Re-add `cache-from: type=gha,scope=...` and
-          # `cache-to: type=gha,mode=max,scope=...` after that.
-      # A dry run has no registry digest to report, and writing an empty one next
-      # to a green check is exactly the sort of "passed, proved nothing" this
-      # project keeps having to unlearn.
-      - name: Record what was produced
+      - name: Record the digest
         run: |
-          {
-            echo "### fiximg-${{ matrix.image }}"
-            echo ""
-            echo '```'
-            echo "repository: ${REGISTRY}/${{ steps.tags.outputs.name }}"
-            echo "version:    ${{ needs.version.outputs.version }}"
-            if [ "${{ needs.version.outputs.publish }}" = "true" ]; then
-              echo "digest:     ${{ steps.build.outputs.digest }}"
-            else
-              echo "digest:     (not pushed — dry run)"
-            fi
-            echo '```'
-          } >> "$DIGEST_FILE"
-        env:
-          DIGEST_FILE: ${{ runner.temp }}/image-${{ matrix.image }}.md
+          set -eu
+          # Validate here, where the value is produced: a malformed digest must
+          # fail next to its cause, not three jobs later during promotion.
+          . scripts/ci/image_digest.sh
+          digest="${{ steps.build.outputs.digest }}"
+          if [ -z "$digest" ]; then
+            echo "::error::no digest was produced for ${{ matrix.image }}"
+            exit 1
+          fi
+          assert_sha256_digest "$digest" "digest produced for ${{ matrix.image }}"
+          echo "$digest" > "digest-${{ matrix.image }}.txt"
       - uses: actions/upload-artifact@v4
         with:
-          name: image-notes-${{ matrix.image }}
-          path: ${{ runner.temp }}/image-*.md
+          name: digest-${{ matrix.image }}
+          path: digest-${{ matrix.image }}.txt
+          if-no-files-found: error
 
+  # Promotion of the immutable digests to the stable version tags. This job is a
+  # matrix, and a matrix shard is an independent job: `needs` on a matrix job
+  # waits for *every* shard, which is exactly the barrier `promote-latest` uses.
+  # latest is therefore a separate job, never a later step of this matrix.
+  publish-version-tags:
+    needs: [preflight, tests, artifacts, stage-images]
+    if: needs.preflight.outputs.publish == 'true'
+    permissions:
+      contents: read
+      packages: write
+      # `download-artifact` reads this run's artifacts. Whether the implicit
+      # default already grants it is not something this repository can prove
+      # offline, so it is requested explicitly: read-only, minimal scope.
+      actions: read
+    strategy:
+      fail-fast: true
+      matrix:
+        image: [api, worker]
+    runs-on: ubuntu-latest
+    steps:
+      # The promotion step sources `scripts/ci/image_digest.sh`, so this job
+      # needs the repository on disk. Without a checkout the workspace is empty
+      # and `set -eu` aborts the step at the source line.
+      - uses: actions/checkout@v5
+        with:
+          # This job only needs files; it never pushes a commit.
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: digest-${{ matrix.image }}
+      # `imagetools create` is a buildx subcommand; the builder must exist even
+      # though this job builds nothing.
+      - uses: docker/setup-buildx-action@v4
+      - name: Log in to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Promote the digest to the version tag and verify it
+        run: |
+          set -eu
+          . scripts/ci/image_digest.sh
+          require_buildx
+          digest=$(cat "digest-${{ matrix.image }}.txt")
+          assert_sha256_digest "$digest" "staged digest for ${{ matrix.image }}"
+          namespace="$(printf '%s' "$IMAGE_NAMESPACE" | tr '[:upper:]' '[:lower:]')"
+          image="$REGISTRY/$namespace/fiximg-${{ matrix.image }}"
+          tag="$image:${{ needs.preflight.outputs.version }}"
+          docker buildx imagetools create --tag "$tag" "$image@$digest"
+          # Verify by reading the raw manifest the registry serves for the tag and
+          # hashing those bytes: that is how the registry derives the digest, so
+          # this compares the tag's own top-level digest with the staged one
+          # without parsing any pretty-printed JSON.
+          verify_promoted_digest "$tag" "$digest"
+
+  # The global barrier for `latest`. This job is deliberately NOT part of the
+  # version-tag matrix: `needs` on a matrix job only waits for all of its shards,
+  # so a later step inside that matrix would still run per-shard and could
+  # promote api:latest before worker:3.1.1 existed. Depending on the whole
+  # matrix job from a separate job is what makes "both version tags first" true.
+  #
+  # Residual, stated rather than hidden: GHCR has no cross-repository
+  # transaction, so the two latest tags are still two writes. Both version tags
+  # are guaranteed to exist before either happens, so a failure here leaves a
+  # complete version and a stale latest — safely retryable by re-running this job.
+  promote-latest:
+    needs: [preflight, publish-version-tags]
+    if: needs.preflight.outputs.publish == 'true'
+    permissions:
+      contents: read
+      packages: write
+      actions: read
+    strategy:
+      fail-fast: true
+      matrix:
+        image: [api, worker]
+    runs-on: ubuntu-latest
+    steps:
+      # Same reason as publish-version-tags: the step sources the repository
+      # helper, so the workspace must contain the checkout.
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: digest-${{ matrix.image }}
+      - uses: docker/setup-buildx-action@v4
+      - name: Log in to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Promote latest and verify it points at the staged digest
+        run: |
+          set -eu
+          . scripts/ci/image_digest.sh
+          require_buildx
+          digest=$(cat "digest-${{ matrix.image }}.txt")
+          assert_sha256_digest "$digest" "staged digest for ${{ matrix.image }}"
+          namespace="$(printf '%s' "$IMAGE_NAMESPACE" | tr '[:upper:]' '[:lower:]')"
+          image="$REGISTRY/$namespace/fiximg-${{ matrix.image }}"
+          docker buildx imagetools create --tag "$image:latest" "$image@$digest"
+          verify_promoted_digest "$image:latest" "$digest"
+
+  # GitHub Release. A draft is created first (invisible to the public), receives
+  # the package assets, and is published only after both images and latest have
+  # been promoted. A dry run never creates even a draft.
   release:
-    needs: [version, artifacts, images]
+    needs: [preflight, tests, artifacts, promote-latest]
+    if: needs.preflight.outputs.publish == 'true'
+    permissions:
+      contents: write
+      # Downloads this run's package and digest artifacts; see the note on
+      # publish-version-tags for why this is explicit rather than assumed.
+      actions: read
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
         with:
           fetch-depth: 0
-          # `fetch-depth: 0` brings the history but NOT the tags, and the title
-          # below is read from this tag's annotation. Without this the tag is
-          # absent in the runner, `git tag -l` prints nothing, and the release
-          # falls back to the bare version number -- which is how v3.1.0 came out
-          # titled "v3.1.0" while every earlier release carried a description.
           fetch-tags: true
+          # The Release is created with GH_TOKEN; no commit is pushed.
+          persist-credentials: false
       - uses: actions/download-artifact@v4
         with:
-          name: fiximg-${{ needs.version.outputs.version }}
+          name: fiximg-${{ needs.preflight.outputs.version }}
           path: dist
       - uses: actions/download-artifact@v4
         with:
-          pattern: image-notes-*
-          merge-multiple: true
-          path: image-notes
-      - name: Image summary
-        run: cat image-notes/*.md >> "$GITHUB_STEP_SUMMARY"
-      - name: Release notes
+          name: digest-api
+          path: digests
+      - uses: actions/download-artifact@v4
+        with:
+          name: digest-worker
+          path: digests
+      - name: Compose the release body with checksums and immutable image digests
         run: |
-          # The notes quote the same lowercase path the images are tagged with;
-          # ${IMAGE_NAMESPACE} is the account name, capitals included.
-          namespace="$(printf '%s' "${IMAGE_NAMESPACE}" | tr '[:upper:]' '[:lower:]')"
+          set -eu
+          . scripts/ci/image_digest.sh
+          version="${{ needs.preflight.outputs.version }}"
+          notes="docs/releases/v$version.md"
+          # A digest is the only immutable identifier a reader can verify against
+          # the registry, so the body must carry it; a tag alone can be moved.
+          api_digest=$(cat digests/digest-api.txt)
+          worker_digest=$(cat digests/digest-worker.txt)
+          assert_sha256_digest "$api_digest" "digest for api"
+          assert_sha256_digest "$worker_digest" "digest for worker"
           {
-            echo "### Changes"
+            cat "$notes"
             echo ""
-            prev=$(git describe --tags --abbrev=0 "${GITHUB_REF_NAME}^" 2>/dev/null || true)
-            if [ -n "$prev" ]; then
-              git log --no-merges --pretty='- %s (%h)' "$prev..${GITHUB_REF_NAME}"
-            else
-              echo '- First tagged release.'
-            fi
-            echo ""
-            echo '### Artifact checksums'
+            echo "### Artifact checksums"
             echo ""
             echo '```'
             cat dist/sha256sums.txt
             echo '```'
             echo ""
-            echo "Images: \`ghcr.io/${namespace}/fiximg-api:${{ needs.version.outputs.version }}\`"
-            echo "and \`ghcr.io/${namespace}/fiximg-worker:${{ needs.version.outputs.version }}\`."
+            echo "### Container images"
             echo ""
-            echo "Run one worker process per legacy tree (\`FIXIMG_NATIVE_TREE\`); see docs/deployment.md."
-          } > notes.md
-      - name: Create the GitHub release
-        if: needs.version.outputs.publish == 'true'
+            namespace="$(printf '%s' "$IMAGE_NAMESPACE" | tr '[:upper:]' '[:lower:]')"
+            echo "- \`$REGISTRY/$namespace/fiximg-api:$version\`"
+            echo "  \`$REGISTRY/$namespace/fiximg-api@$api_digest\`"
+            echo "- \`$REGISTRY/$namespace/fiximg-worker:$version\`"
+            echo "  \`$REGISTRY/$namespace/fiximg-worker@$worker_digest\`"
+            echo ""
+            echo "Both version tags and \`latest\` were promoted from these digests."
+          } > release-body.md
+      - name: Create or refresh the draft release (never public)
+        id: draft
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          # Every release before v3.0.0 was titled after its own tag, with the
-          # description carried in the tag annotation; v3.0.0 was the first to be
-          # created here and came out as "fiximg vX.Y.Z", which matched neither.
-          # Deriving the title from the annotation keeps the two in step without
-          # anyone having to remember the format.
-          #
-          # `%(contents:subject)` is only the tag message for an ANNOTATED tag;
-          # on a lightweight one it reports the commit subject, which would title
-          # the release after whatever commit the tag happens to point at.
+          set -eu
+          # The title comes from the annotated tag, as every release before v3.0.0.
           if [ "$(git cat-file -t "$GITHUB_REF_NAME")" = tag ]; then
             title=$(git tag -l --format='%(contents:subject)' "$GITHUB_REF_NAME")
           else
             title=$GITHUB_REF_NAME
           fi
-          title=${title:-$GITHUB_REF_NAME}
-          gh release create "$GITHUB_REF_NAME" \
-            --target "$GITHUB_SHA" \
-            --title "$title" \
-            --notes-file notes.md \
-            dist/*.whl dist/*.tar.gz dist/sha256sums.txt
+          if [ -z "$title" ]; then title=$GITHUB_REF_NAME; fi
+
+          # Re-running a failed release must not fail on "release already exists",
+          # and must never overwrite a release that is already public.
+          #
+          # `gh release view` exits non-zero for a missing release AND for network,
+          # auth or server errors, so its exit code alone cannot distinguish them.
+          # `gh api --include` prints the HTTP status line(s) followed by the body,
+          # which gives a machine-readable status instead of matching human text.
+          probe_file=$(mktemp "${TMPDIR:-/tmp}/fiximg-release-probe.XXXXXXXX")
+          trap 'rm -f -- "$probe_file"' EXIT
+          probe_rc=0
+          gh api --include "repos/$GITHUB_REPOSITORY/releases/tags/$GITHUB_REF_NAME" > "$probe_file" 2>&1 || probe_rc=$?
+          # The status line(s) come first; with redirects or HTTP/2 there may be
+          # several, so take the last one that looks like an HTTP status line.
+          http_status=$(grep -aE '^HTTP/[0-9]+(\.[0-9]+)? [0-9]{3}' "$probe_file" | tail -n 1 | awk '{print $2}')
+          if [ -z "$http_status" ]; then
+            echo "::error::could not determine an HTTP status for release $GITHUB_REF_NAME; probe output:"
+            cat "$probe_file"
+            exit 1
+          fi
+          case "$http_status" in
+            2*)
+              release_exists=true
+              ;;
+            404)
+              release_exists=false
+              ;;
+            *)
+              echo "::error::probe for release $GITHUB_REF_NAME returned HTTP $http_status; refusing to guess whether it exists"
+              cat "$probe_file"
+              exit 1
+              ;;
+          esac
+          if [ "$probe_rc" -ne 0 ] && [ "$http_status" != 404 ]; then
+            echo "::error::gh api failed (rc=$probe_rc, HTTP $http_status) probing release $GITHUB_REF_NAME"
+            exit 1
+          fi
+
+          if [ "$release_exists" = true ]; then
+            existing=$(gh release view "$GITHUB_REF_NAME" --json isDraft --jq '.isDraft')
+            if [ "$existing" != "true" ]; then
+              echo "::error::$GITHUB_REF_NAME already exists and is public; refusing to overwrite it"
+              exit 1
+            fi
+            # A draft must belong to this tag and this commit; silently reusing a
+            # draft pointing at another target would publish the wrong tree.
+            draft_tag=$(gh release view "$GITHUB_REF_NAME" --json tagName --jq '.tagName')
+            draft_target=$(gh release view "$GITHUB_REF_NAME" --json targetCommitish --jq '.targetCommitish')
+            if [ "$draft_tag" != "$GITHUB_REF_NAME" ]; then
+              echo "::error::existing draft is for tag $draft_tag, expected $GITHUB_REF_NAME"
+              exit 1
+            fi
+            if [ "$draft_target" != "$GITHUB_SHA" ] && [ "$draft_target" != "$GITHUB_REF_NAME" ]; then
+              echo "::error::existing draft targets $draft_target, expected $GITHUB_SHA"
+              exit 1
+            fi
+            echo "draft already exists for $draft_tag at $draft_target; refreshing body/title and assets"
+            gh release edit "$GITHUB_REF_NAME" --title "$title" --notes-file release-body.md
+            gh release upload "$GITHUB_REF_NAME" \
+              dist/*.whl dist/*.tar.gz dist/sha256sums.txt --clobber
+          else
+            gh release create "$GITHUB_REF_NAME" \
+              --target "$GITHUB_SHA" \
+              --title "$title" \
+              --notes-file release-body.md \
+              --draft \
+              dist/*.whl dist/*.tar.gz dist/sha256sums.txt
+          fi
+
+          # Assert, do not print: the only acceptable state here is "still draft".
+          state=$(gh release view "$GITHUB_REF_NAME" --json isDraft --jq '.isDraft')
+          if [ "$state" != "true" ]; then
+            echo "::error::expected a draft release, got isDraft=$state"
+            exit 1
+          fi
+          echo "draft verified (isDraft=$state)"
+      - name: Publish the release only after every image promotion succeeded
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      - name: Dry-run banner
-        if: needs.version.outputs.publish != 'true'
-        run: echo "::notice::dry run — nothing published (wheel + both images built and verified)"
+        run: |
+          set -eu
+          state=$(gh release view "$GITHUB_REF_NAME" --json isDraft --jq '.isDraft')
+          if [ "$state" != "true" ]; then
+            echo "::error::refusing to publish: release is not a draft (isDraft=$state)"
+            exit 1
+          fi
+          gh release edit "$GITHUB_REF_NAME" --draft=false
+          state=$(gh release view "$GITHUB_REF_NAME" --json isDraft --jq '.isDraft')
+          if [ "$state" != "false" ]; then
+            echo "::error::release did not become public (isDraft=$state)"
+            exit 1
+          fi
+          echo "published (isDraft=$state)"
+
+  # A manual run must prove it did not write anything: this job only runs on a
+  # manual dispatch, after every gate passed, and states the dry-run invariant.
+  dry-run-summary:
+    needs: [preflight, tests, artifacts, image-preflight]
+    if: needs.preflight.outputs.publish != 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: State what a dry run did and did not do
+        run: |
+          echo "::notice::dry run — tests, sdist/wheel, clean-env smoke and both image preflights passed; nothing was logged in to, pushed, staged, promoted or released"
