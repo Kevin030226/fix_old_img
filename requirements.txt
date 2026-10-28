@@ -52,7 +52,7 @@ einops==0.8.1
 
 # ---- Basics ----
 PyYAML==6.0.3
-filelock==3.20.3
+filelock==4.2.1
 
 # ---- Testing / tooling ----
 pytest>=8.0
