@@ -687,3 +687,769 @@ def test_the_readme_version_tables_match_the_pinned_pillow():
                 f"{name} advertises Pillow {mention}, expected "
                 f"{PILLOW_PIN.rsplit('.', 1)[0]} to match the pin {PILLOW_PIN}"
             )
+
+
+# ------------------------------------------------------ release workflow (P39)
+#: The workflow's write jobs. P41 split the old `publish-images` matrix into
+#: `publish-version-tags` and `promote-latest`, because a matrix shard is an
+#: independent job and a later step in the same matrix is not a global barrier.
+PUBLISH_JOBS = ("stage-images", "publish-version-tags", "promote-latest", "release")
+
+
+def _release():
+    import yaml
+
+    with open(os.path.join(WORKFLOWS, "release.yml"), encoding="utf-8") as handle:
+        return yaml.safe_load(handle)
+
+
+def _release_steps(job_id: str) -> list[dict]:
+    return (_release().get("jobs") or {}).get(job_id, {}).get("steps") or []
+
+
+def _release_script(job_id: str) -> str:
+    return "\n".join(str(step.get("run") or "") for step in _release_steps(job_id))
+
+
+def test_release_declares_read_only_permissions_at_the_top():
+    """P39: the workflow default must not be able to write anything."""
+    permissions = _release().get("permissions") or {}
+    assert permissions == {"contents": "read"}, (
+        f"release.yml top-level permissions are {permissions!r}; they must be exactly "
+        "contents: read so only the publishing jobs can write"
+    )
+
+
+def test_only_publishing_jobs_hold_write_permissions():
+    """Write scopes belong to the two image jobs and the Release job, nowhere else."""
+    jobs = _release().get("jobs") or {}
+    for job_id, job in jobs.items():
+        granted = {k: v for k, v in (job.get("permissions") or {}).items() if v == "write"}
+        if job_id in PUBLISH_JOBS:
+            assert granted, f"{job_id} publishes but declares no write permission"
+            assert set(granted) <= {"contents", "packages"}, (
+                f"{job_id} requests an unexpected write scope: {granted}"
+            )
+        else:
+            assert not granted, f"non-publishing job {job_id} holds write access: {granted}"
+
+
+def test_release_manual_dispatch_is_always_a_dry_run():
+    """No input may turn a manual run into a publish."""
+    document = _release()
+    trigger = document.get(True) or document.get("on") or {}
+    assert "workflow_dispatch" in trigger, "workflow_dispatch was removed"
+    # A bare `workflow_dispatch:` parses as None; any mapping would mean inputs.
+    dispatch = trigger.get("workflow_dispatch") or {}
+    assert not dispatch.get("inputs"), (
+        "workflow_dispatch declares inputs; P39 removed the publish switch so a manual "
+        f"run can never publish, found: {sorted(dispatch.get('inputs') or {})}"
+    )
+
+    decide = next(
+        (step for step in _release_steps("preflight") if step.get("id") == "decide"), None
+    )
+    assert decide is not None, "the publish decision step is gone"
+    script = str(decide.get("run") or "")
+    assert 'GITHUB_EVENT_NAME" = "push"' in script, (
+        "the publish decision no longer keys on the event being a tag push"
+    )
+    assert "publish=true" in script and "publish=false" in script
+
+
+def test_release_preflight_checks_tag_version_main_sha_and_annotation():
+    """All four checks must exist, and all must run before any write step."""
+    script = _release_script("preflight")
+    required = {
+        "tag matches pyproject": "does not match pyproject version",
+        "annotated tag": "is not an annotated tag",
+        "exact main commit": "but origin/main is",
+        "release notes present": "release notes",
+    }
+    for what, needle in required.items():
+        assert needle in script, f"the preflight no longer checks {what}: {needle!r}"
+    assert "^{commit}" in script, (
+        "the tag is compared as a commit; comparing only tag names would accept a "
+        "lightweight or moved tag"
+    )
+    assert "git fetch --no-tags origin main" in script, (
+        "the preflight must compare against origin/main fetched at run time"
+    )
+
+
+def test_release_writes_are_all_gated_by_the_publish_decision():
+    """Every job that touches a registry or a Release must be behind publish == true."""
+    jobs = _release().get("jobs") or {}
+    for job_id in PUBLISH_JOBS:
+        condition = str((jobs.get(job_id) or {}).get("if") or "")
+        assert "publish == 'true'" in condition, (
+            f"{job_id} is not guarded by the publish decision: {condition!r}"
+        )
+
+
+def test_release_test_and_artifact_gates_run_before_any_registry_write():
+    """The package must build and the suite pass before an image is even staged."""
+    jobs = _release().get("jobs") or {}
+    stage_needs = set((jobs.get("stage-images") or {}).get("needs") or [])
+    assert {"tests", "artifacts", "image-preflight"} <= stage_needs, (
+        f"stage-images needs {sorted(stage_needs)}; it must depend on the test matrix, "
+        "the package build and both image preflights"
+    )
+
+
+def test_release_requires_both_image_preflights_before_staging():
+    """One broken image must not be staged because the other succeeded."""
+    jobs = _release().get("jobs") or {}
+    preflight = jobs.get("image-preflight") or {}
+    matrix = (preflight.get("strategy") or {}).get("matrix") or {}
+    assert set(matrix.get("image") or []) == {"api", "worker"}, (
+        f"image-preflight covers {matrix.get('image')}; both images are required"
+    )
+    for step in preflight.get("steps") or []:
+        if step.get("id") == "build":
+            with_block = step.get("with") or {}
+            assert with_block.get("push") is False, (
+                "the preflight image build must not push"
+            )
+            # build-push-action keeps the result in the buildx cache unless it is
+            # loaded; without this the following `docker run` verifies nothing.
+            assert with_block.get("load") is True, (
+                "the preflight build must set load: true, otherwise the image it "
+                "is supposed to run and verify never reaches the local docker store"
+            )
+
+
+def test_release_stages_by_digest_and_promotes_version_tags_before_latest():
+    """Two-stage images: digest-only staging, then version tags, then latest."""
+    stage_script = _release_script("stage-images")
+    stage_build = next(
+        (step for step in _release_steps("stage-images") if step.get("id") == "build"), None
+    )
+    assert stage_build is not None, "the staging job has no build step"
+    outputs = str((stage_build.get("with") or {}).get("outputs") or "")
+    assert "push-by-digest=true" in outputs, (
+        "staging must push by digest; a mutable tag here would leave a version tag "
+        f"pointing at a half-validated build if a later job fails (outputs={outputs!r})"
+    )
+    # The by-digest `outputs` is the single publishing declaration; a top-level
+    # `push: true` beside it is redundant and can drift on a later edit.
+    assert "push" not in (stage_build.get("with") or {}), (
+        "stage-images declares both push and a by-digest outputs; outputs alone is "
+        "the publishing declaration"
+    )
+    assert "imagetools create --tag" not in stage_script, (
+        "staging must not create tags; promotion belongs to the publishing jobs"
+    )
+
+    # --- P41: the version-tag/latest split must be a *job* barrier, not a step
+    # order. A matrix shard is an independent job, so `version -> latest` as two
+    # steps of one matrix would let api:latest finish before worker:3.1.1 exists.
+    version_scripts = [str(step.get("run") or "") for step in _release_steps("publish-version-tags")]
+    version_job = (_release().get("jobs") or {}).get("publish-version-tags") or {}
+    assert (version_job.get("strategy") or {}).get("matrix"), (
+        "publish-version-tags is no longer a matrix; both images must get a version tag"
+    )
+    assert any("imagetools create" in s and ":latest" not in s for s in version_scripts), (
+        "no step promotes the version tag"
+    )
+    assert not any(":latest" in s for s in version_scripts), (
+        "latest is promoted inside the version-tag matrix; that is per-shard and "
+        "cannot wait for the other image's version tag"
+    )
+
+    latest_job = (_release().get("jobs") or {}).get("promote-latest") or {}
+    latest_needs = set(latest_job.get("needs") or [])
+    assert "publish-version-tags" in latest_needs, (
+        f"promote-latest needs {sorted(latest_needs)}; it must depend on the whole "
+        "version-tag matrix so latest can only start after both tags exist"
+    )
+    latest_scripts = [str(step.get("run") or "") for step in _release_steps("promote-latest")]
+    assert any(":latest" in s and "imagetools create" in s for s in latest_scripts), (
+        "promote-latest does not promote latest"
+    )
+
+    # `imagetools` is a buildx subcommand, so the promotion jobs need a builder
+    # even though they build nothing.
+    for job_id in ("publish-version-tags", "promote-latest"):
+        uses = [str(step.get("uses") or "") for step in _release_steps(job_id)]
+        assert any("docker/setup-buildx-action" in u for u in uses), (
+            f"{job_id} never initialises buildx, so imagetools create cannot run"
+        )
+
+
+def test_release_creates_a_draft_then_publishes_it():
+    """The Release must exist as a draft before anything becomes public."""
+    scripts = [str(step.get("run") or "") for step in _release_steps("release")]
+    draft_at = next((i for i, s in enumerate(scripts) if "gh release create" in s), None)
+    publish_at = next(
+        (i for i, s in enumerate(scripts) if "--draft=false" in s), None
+    )
+    assert draft_at is not None, "no step creates the GitHub Release"
+    assert "--draft" in scripts[draft_at], (
+        "the Release is created without --draft, so it becomes public before the "
+        "image promotion is known to have succeeded"
+    )
+    assert publish_at is not None and publish_at > draft_at, (
+        "the Release is never published after the draft (or published first)"
+    )
+
+
+def test_release_notes_are_versioned_and_exist_for_the_packaged_version():
+    """The Release body comes from a reviewed file, not from commit subjects."""
+    import tomllib
+
+    with open(os.path.join(PROJECT_ROOT, "pyproject.toml"), "rb") as handle:
+        version = tomllib.load(handle)["project"]["version"]
+    notes = os.path.join(PROJECT_ROOT, "docs", "releases", f"v{version}.md")
+    assert os.path.exists(notes), (
+        f"docs/releases/v{version}.md is missing; the release job consumes it"
+    )
+    with open(notes, encoding="utf-8") as handle:
+        body = handle.read()
+    assert body.strip(), f"docs/releases/v{version}.md is empty"
+    assert version in body, f"docs/releases/v{version}.md does not name its version"
+
+    scripts = _release_script("release")
+    assert "docs/releases/v$version.md" in scripts, (
+        "the release body is no longer composed from the versioned notes file"
+    )
+    assert "git log" not in scripts, (
+        "the release body still derives its content from commit subjects"
+    )
+
+
+def test_release_dry_run_jobs_never_write():
+    """The dry-run summary must not log in, push, stage, promote or release."""
+    script = _release_script("dry-run-summary")
+    for forbidden in ("docker login", "imagetools create", "gh release", "push: true"):
+        assert forbidden not in script, f"the dry-run path contains {forbidden!r}"
+
+
+def test_release_has_no_swallowed_failures_in_publish_steps():
+    """No publish/build step may end in a way that cannot fail the job."""
+    for job_id in PUBLISH_JOBS + ("preflight", "tests", "artifacts", "image-preflight"):
+        script = _release_script(job_id)
+        lines = [ln.strip() for ln in script.splitlines() if ln.strip() and not ln.strip().startswith("#")]
+        assert lines, f"{job_id} has no runnable steps"
+        assert not SWALLOW.search(lines[-1]), (
+            f"{job_id} ends with a swallowed failure: {lines[-1]}"
+        )
+        for step in _release_steps(job_id):
+            assert step.get("continue-on-error") is not True, (
+                f"{job_id}/{step.get('name')} has continue-on-error"
+            )
+
+
+def test_release_preflight_failure_happens_before_any_write():
+    """Structurally: no write step precedes the preflight job's checks."""
+    jobs = _release().get("jobs") or {}
+    for job_id in PUBLISH_JOBS:
+        needs = set((jobs.get(job_id) or {}).get("needs") or [])
+        assert "preflight" in needs, (
+            f"{job_id} does not depend on preflight, so its tag/version checks are "
+            "not ordered before this write"
+        )
+    # The write jobs also transitively require the test matrix and artifacts.
+    for job_id in ("stage-images", "publish-version-tags", "promote-latest", "release"):
+        script = _release_script(job_id)
+        assert "::error::" not in script or "digest" in script, (
+            f"{job_id} contains an error path unrelated to its own write"
+        )
+
+
+# ------------------------------------------------ release workflow (P41 fixes)
+def _jobs_map() -> dict:
+    return _release().get("jobs") or {}
+
+
+def test_release_latest_is_a_separate_job_behind_the_whole_version_matrix():
+    """P40/P41 G1: a matrix shard is an independent job.
+
+    `version -> latest` as two steps of one matrix job looks ordered but is not:
+    the api shard can promote `api:latest` while the worker shard has not yet
+    created `worker:3.1.1`. Only a separate job whose `needs` names the matrix
+    waits for every shard.
+    """
+    jobs = _jobs_map()
+    assert "promote-latest" in jobs, "latest promotion is not its own job"
+    assert "publish-version-tags" in jobs, "version promotion is not its own job"
+
+    version_scripts = _release_script("publish-version-tags")
+    assert ":latest" not in version_scripts, (
+        "latest is still promoted inside the version-tag matrix job"
+    )
+
+    needs = set(jobs["promote-latest"].get("needs") or [])
+    assert "publish-version-tags" in needs, (
+        f"promote-latest needs {sorted(needs)}; it must wait for the entire "
+        "version-tag matrix, not just its own shard"
+    )
+    release_needs = set(jobs["release"].get("needs") or [])
+    assert "promote-latest" in release_needs, (
+        f"release needs {sorted(release_needs)}; it must wait for latest promotion"
+    )
+    assert "publish-version-tags" not in release_needs or "promote-latest" in release_needs
+
+
+def test_release_manual_dry_run_still_validates_release_material():
+    """P40/P41 G3: a dry run must fail for missing/mismatched notes too.
+
+    The tag-specific checks legitimately move behind the manual early-exit; the
+    notes check must not, or a dry run rehearses a release whose reviewed notes
+    do not exist.
+    """
+    script = _release_script("preflight")
+    early_exit = script.find('GITHUB_EVENT_NAME" != "push"')
+    assert early_exit != -1, "the manual early-exit disappeared"
+    notes_check = script.find("release notes $notes are missing")
+    version_check = script.find('grep -qF "$declared"')
+    assert notes_check != -1, "the notes existence check is gone"
+    assert version_check != -1, "the notes version check is gone"
+    assert notes_check < early_exit, (
+        "the notes existence check runs after the manual early-exit, so a dry run "
+        "passes without its reviewed release notes"
+    )
+    assert version_check < early_exit, (
+        "the notes version check runs after the manual early-exit"
+    )
+    # Tag-only checks stay behind it.
+    assert script.find("is not an annotated tag") > early_exit
+    assert script.find("but origin/main is") > early_exit
+
+
+def test_release_body_carries_both_image_digests():
+    """P40/P41 G2/G4: a tag is mutable; the body must name the digest."""
+    jobs = _jobs_map()
+    downloads = [
+        str((step.get("with") or {}).get("name") or "")
+        for step in jobs["release"].get("steps") or []
+        if "download-artifact" in str(step.get("uses") or "")
+    ]
+    assert "digest-api" in downloads, f"release does not download digest-api: {downloads}"
+    assert "digest-worker" in downloads, f"release does not download digest-worker: {downloads}"
+
+    script = _release_script("release")
+    assert "digests/digest-api.txt" in script and "digests/digest-worker.txt" in script
+    assert "@$api_digest" in script and "@$worker_digest" in script, (
+        "the release body does not pin the image digests"
+    )
+    assert "assert_sha256_digest" in script, (
+        "the body step does not validate the digest format with the strict helper"
+    )
+
+
+def _digest_helper() -> str:
+    path = os.path.join(PROJECT_ROOT, "scripts", "ci", "image_digest.sh")
+    assert os.path.exists(path), "the digest helper script is missing"
+    with open(path, encoding="utf-8") as handle:
+        return handle.read()
+
+
+#: Repository-relative paths a `run` step may need on disk. A job that references
+#: one of these must check the repository out first; a job without a checkout has
+#: an empty workspace, so `set -eu` aborts at the first missing file.
+REPO_PATH_RE = re.compile(r"(?:^|[\s\"'=<>|;&(])((?:scripts|docs)/[A-Za-z0-9_./-]+)")
+
+
+def _jobs_in_order() -> dict:
+    return _jobs_map()
+
+
+def _checkout_indices(steps: list) -> list:
+    return [i for i, s in enumerate(steps) if "actions/checkout" in str(s.get("uses") or "")]
+
+
+def test_release_jobs_that_read_repo_files_check_the_repository_out_first():
+    """P44: a job that sources a repository file must check the repo out."""
+    problems = []
+    for job_id, job in _jobs_in_order().items():
+        steps = job.get("steps") or []
+        checkouts = _checkout_indices(steps)
+        for index, step in enumerate(steps):
+            script = str(step.get("run") or "")
+            if not script:
+                continue
+            referenced = sorted({m.group(1) for m in REPO_PATH_RE.finditer(script)})
+            if not referenced:
+                continue
+            if not any(c < index for c in checkouts):
+                problems.append(
+                    f"{job_id}/{step.get('name')} reads {referenced} but no "
+                    "actions/checkout precedes it"
+                )
+    assert not problems, "jobs read repository files without a checkout:\n" + "\n".join(problems)
+
+
+def test_release_promotion_jobs_check_out_before_sourcing_the_helper():
+    """P44 P1: the exact regression, pinned for both promotion jobs."""
+    for job_id in ("publish-version-tags", "promote-latest"):
+        steps = _release_steps(job_id)
+        checkouts = _checkout_indices(steps)
+        assert checkouts, f"{job_id} never checks the repository out"
+        source_at = next(
+            (i for i, s in enumerate(steps) if "scripts/ci/image_digest.sh" in str(s.get("run") or "")),
+            None,
+        )
+        assert source_at is not None, f"{job_id} no longer sources the helper"
+        assert min(checkouts) < source_at, (
+            f"{job_id} sources the helper at step {source_at} but checks out at "
+            f"{min(checkouts)}; the helper would not exist"
+        )
+        checkout = steps[min(checkouts)]
+        assert (checkout.get("with") or {}).get("persist-credentials") is False, (
+            f"{job_id} keeps Git credentials in a job that only needs files"
+        )
+
+
+def test_release_helper_hashes_raw_bytes_from_a_file_not_a_variable():
+    """P44 P2: command substitution strips trailing newlines."""
+    helper = _digest_helper()
+    assert "mktemp" in helper, "the helper does not stage the manifest in a temp file"
+    assert not re.search(r"raw=\$\(\s*docker buildx", helper), (
+        "the helper captures the raw manifest into a shell variable, which strips "
+        "trailing newlines and can change the digest"
+    )
+    # The manifest is hashed from the file, never from a captured variable.
+    assert re.search(r'sha256sum\s+"\$tmp"', helper), (
+        "the helper does not hash the manifest file itself"
+    )
+    # P47: cleanup must be trap-driven so signals are covered too, and the
+    # scratch file must be private to the call (a subshell), not a global.
+    assert "trap 'cleanup' EXIT" in helper, (
+        "the helper does not clean up its scratch file on exit"
+    )
+    assert "trap 'cleanup; exit 130' INT" in helper, (
+        "a SIGINT leaves the scratch file behind"
+    )
+    assert "trap 'cleanup; exit 143' TERM" in helper, (
+        "a SIGTERM leaves the scratch file behind"
+    )
+    assert "_DIGEST_READ_TMP" not in helper, (
+        "the helper still keeps the scratch path in a global variable"
+    )
+
+
+def test_release_helper_is_signal_safe_and_subsheltered():
+    """P47: cleanup must cover signals, and the scratch path must be call-local.
+
+    P46 showed that a plain `_DIGEST_READ_TMP` global with only normal-path
+    cleanup leaves the file behind when a job is cancelled. The function body now
+    runs in a subshell with its own EXIT/INT/TERM traps, so a signal still
+    removes the file and the subshell still exits non-zero.
+    """
+    helper = _digest_helper()
+    body = helper[helper.index("read_top_level_digest()"):]
+    # First meaningful line after the function signature must open a subshell.
+    after_signature = body.splitlines()[1:]
+    first_code = next(
+        (line.strip() for line in after_signature if line.strip() and not line.strip().startswith("#")),
+        "",
+    )
+    assert first_code == "(", (
+        f"read_top_level_digest no longer runs in a subshell (first line is {first_code!r}), "
+        "so its traps would leak into the caller"
+    )
+    for signal_name in ("EXIT", "INT", "TERM"):
+        assert "trap 'cleanup" in body and signal_name in body, (
+            f"no {signal_name} trap in read_top_level_digest"
+        )
+    # Signal handling must terminate, not fall through to a normal return.
+    assert "exit 130" in body and "exit 143" in body, (
+        "INT/TERM are swallowed instead of terminating the read"
+    )
+    # The library must not install traps at file scope (comments aside).
+    preamble = helper[:helper.index("read_top_level_digest()")]
+    code_lines = [
+        line for line in preamble.splitlines()
+        if line.strip() and not line.strip().startswith("#")
+    ]
+    offending = [line for line in code_lines if re.search(r"(^|[;&|]\s*)trap\s+", line)]
+    assert not offending, (
+        f"sourcing the library installs a global trap on the caller: {offending}"
+    )
+
+
+def test_release_helper_does_not_rely_on_pipefail():
+    """P47: a pipeline's status must not decide whether hashing succeeded."""
+    helper = _digest_helper()
+    body = helper[helper.index("read_top_level_digest()"):]
+    assert not re.search(r"sha256sum[^\n]*\|", body), (
+        "the helper still pipes sha256sum into another tool; its failure would "
+        "depend on the caller enabling pipefail"
+    )
+    assert re.search(r'if ! sum=\$\(sha256sum\s+"\$tmp"\)', body), (
+        "the helper does not capture sha256sum's exit status explicitly"
+    )
+    assert "_digest_extract_hash" in helper, (
+        "the hash field is not extracted by an explicit helper"
+    )
+
+
+def test_release_write_jobs_do_not_persist_git_credentials():
+    """P47: a job that can write must not leave Git credentials in the workspace.
+
+    The publishing jobs write through the registry or the GitHub API, never by
+    pushing a commit, so they have no use for persisted credentials. Read-only
+    jobs that merely run the test suite are out of scope. `preflight` is
+    deliberately exempt: it runs `git fetch` against the remote to compare
+    `origin/main`, which needs the checkout's credentials.
+    """
+    problems = []
+    for job_id, job in _jobs_in_order().items():
+        if job_id == "preflight":
+            continue
+        permissions = job.get("permissions") or {}
+        can_write = any(level == "write" for level in permissions.values())
+        if not can_write:
+            continue
+        for step in job.get("steps") or []:
+            if "actions/checkout" not in str(step.get("uses") or ""):
+                continue
+            persist = (step.get("with") or {}).get("persist-credentials")
+            if persist is not False:
+                problems.append(f"{job_id} can write but persists Git credentials")
+    assert not problems, "write jobs keep Git credentials:\n" + "\n".join(problems)
+
+
+def test_release_helper_keeps_registry_diagnostics():
+    """P44 P3: `2>/dev/null` hid why a manifest could not be read."""
+    helper = _digest_helper()
+    assert re.search(r'inspect --raw\s+"\$ref"\s+>\s+"\$tmp"', helper), (
+        "the raw read no longer redirects stdout to the scratch file"
+    )
+    # Any redirection of stderr on the raw read hides why it failed.
+    raw_read = [
+        line for line in helper.splitlines()
+        if "imagetools inspect --raw" in line and not line.strip().startswith("#")
+    ]
+    assert raw_read, "the helper no longer reads a raw manifest"
+    for line in raw_read:
+        assert "2>" not in line, (
+            f"the helper discards buildx/registry stderr again: {line.strip()}"
+        )
+
+
+def test_release_stage_validates_the_digest_before_writing_it():
+    """P44 P3: fail next to the cause, not three jobs later."""
+    steps = _release_steps("stage-images")
+    record_at = next(
+        (i for i, s in enumerate(steps) if str(s.get("name") or "") == "Record the digest"),
+        None,
+    )
+    assert record_at is not None, "stage-images no longer records the digest"
+    script = str(steps[record_at].get("run") or "")
+    assert "scripts/ci/image_digest.sh" in script, (
+        "the digest is written without loading the strict validator"
+    )
+    assert "assert_sha256_digest" in script, (
+        "stage-images writes the digest artifact without validating its format"
+    )
+    assert script.index("assert_sha256_digest") < script.index("digest-$"), (
+        "the digest artifact is written before the format is validated"
+    )
+    checkouts = _checkout_indices(steps)
+    assert checkouts and min(checkouts) < record_at, (
+        "stage-images validates the digest without checking the repository out first"
+    )
+
+
+def test_release_draft_probe_uses_http_status_not_error_text():
+    """P44/P46: the status must be *parsed* from the response, not assumed.
+
+    P46 found this test survived a mutation that replaced the whole parse with
+    `http_status=404`: every assertion here was a bare `in script` check, and the
+    variable name plus the error strings all survived. The assertions below
+    therefore pin the *shape* of the assignment: its right-hand side must be a
+    command substitution that reads the probe file and matches an HTTP status
+    line, and it must take the last such line and extract the numeric code.
+    """
+    script = _release_script("release")
+    assert "--include" in script, "the probe does not request HTTP status lines"
+    assert "grep -q 'HTTP 404'" not in script, (
+        "the probe still greps the human-readable error text"
+    )
+    assert "could not determine an HTTP status" in script, (
+        "an unparseable probe does not fail the step"
+    )
+    assert "refusing to guess whether it exists" in script, (
+        "a non-2xx/non-404 status does not stop the step"
+    )
+
+    # The assignment must be a command substitution, not a constant.
+    assignment = re.search(r"^\s*http_status=(.*)$", script, re.MULTILINE)
+    assert assignment is not None, "the probe no longer assigns http_status"
+    rhs = assignment.group(1).strip()
+    assert rhs.startswith("$(") and rhs.endswith(")"), (
+        f"http_status is not derived from a command substitution: {rhs!r}"
+    )
+    pipeline = rhs[2:-1]
+
+    # It must read the probe file (not a literal).
+    assert "$probe_file" in pipeline, (
+        f"the status parse does not read the probe output: {pipeline!r}"
+    )
+    # It must match an HTTP status line, not arbitrary text.
+    assert "grep" in pipeline, f"the status parse is not a grep: {pipeline!r}"
+    assert "HTTP/" in pipeline, (
+        f"the status parse does not match an HTTP status line: {pipeline!r}"
+    )
+    # It must take the final response, not the first one seen.
+    assert "tail" in pipeline, (
+        f"the status parse does not take the last status line: {pipeline!r}"
+    )
+    # It must extract the three-digit code.
+    assert "awk" in pipeline or "cut" in pipeline or "sed" in pipeline, (
+        f"the status parse does not extract the numeric code: {pipeline!r}"
+    )
+    # And it must not be a literal status.
+    assert not re.fullmatch(r"\d{3}", rhs.strip("'\"")), (
+        f"http_status is hard-coded to {rhs!r}"
+    )
+
+
+def test_release_verifies_digest_identity_after_promotion():
+    """P40/P41 G4/G8 + P42: printing a manifest is not verification.
+
+    P42 found that the old implementation parsed `--format '{{json .Manifest}}'`
+    with sed. That output is pretty-printed JSON, so the regex matched nothing and
+    promotion could only fail. The fix reads the raw manifest bytes and hashes
+    them, which is exactly how a registry derives the digest. This test pins the
+    mechanism so the sed implementation cannot come back.
+    """
+    for job_id in ("publish-version-tags", "promote-latest"):
+        script = _release_script(job_id)
+        assert "scripts/ci/image_digest.sh" in script, (
+            f"{job_id} does not use the shared digest helper"
+        )
+        assert "verify_promoted_digest" in script, (
+            f"{job_id} never verifies the promoted tag against the staged digest"
+        )
+        # The P42 regression: no JSON template parsing, no sed extraction.
+        assert "{{json .Manifest}}" not in script, (
+            f"{job_id} parses the pretty-printed .Manifest JSON again"
+        )
+        assert "sed -n" not in script, (
+            f"{job_id} extracts the digest with sed again; that parser cannot "
+            "reliably yield one top-level digest"
+        )
+        assert "require_buildx" in script, (
+            f"{job_id} does not probe buildx before reading a manifest"
+        )
+
+    helper = _digest_helper()
+    assert "--raw" in helper, (
+        "the helper does not read the raw manifest; a template field cannot be "
+        "verified to be the top-level digest"
+    )
+    assert "sha256sum" in helper, "the helper does not hash the raw manifest bytes"
+    assert r"^sha256:[0-9a-f]{64}$" in helper, (
+        "the helper does not enforce strict lowercase-hex digest syntax"
+    )
+    assert "verify_promoted_digest" in helper and "read_top_level_digest" in helper
+    # Exactly one value: the helper prints a single digest, never a list.
+    assert "printf '%s' \"$digest\"" in helper, (
+        "the helper does not emit exactly one digest value"
+    )
+
+
+def test_release_rejects_malformed_digests_everywhere():
+    """P42: prefix+length is not a format check.
+
+    `case sha256:*` plus a length test accepts `sha256:` + 64 uppercase letters,
+    spaces or non-hex characters. Every digest check must go through the strict
+    helper instead.
+    """
+    helper = _digest_helper()
+    assert "[[:space:]]" in helper, "the helper does not reject embedded whitespace"
+    for job_id in ("publish-version-tags", "promote-latest", "release"):
+        script = _release_script(job_id)
+        assert "scripts/ci/image_digest.sh" in script, (
+            f"{job_id} does not source the strict digest helper"
+        )
+        assert "assert_sha256_digest" in script, (
+            f"{job_id} does not validate its digest with the strict helper"
+        )
+        # The weak guard must be gone.
+        assert "sha256:*)" not in script, (
+            f"{job_id} still uses the prefix-only case guard"
+        )
+        assert '"${#' not in script, (
+            f"{job_id} still checks the digest by length alone"
+        )
+
+
+def test_release_draft_probe_distinguishes_missing_from_errors():
+    """P42/P44: `gh release view` failure is not proof the release is missing."""
+    script = _release_script("release")
+    assert "http_status" in script, (
+        "the draft probe does not distinguish a missing release from an error"
+    )
+    assert "could not determine an HTTP status" in script, (
+        "an inconclusive probe does not fail the step"
+    )
+    assert "targetCommitish" in script, (
+        "an existing draft is reused without checking its target commit"
+    )
+    assert "existing draft is for tag" in script, (
+        "an existing draft is reused without checking its tag"
+    )
+
+
+def test_release_draft_state_is_asserted_both_ways():
+    """P40/P41 G2: `--jq .isDraft` printing a value proves nothing."""
+    script = _release_script("release")
+    assert 'if [ "$state" != "true" ]' in script, (
+        "the draft step does not assert isDraft == true"
+    )
+    assert 'if [ "$state" != "false" ]' in script, (
+        "the publish step does not assert isDraft == false"
+    )
+    assert "refusing to overwrite it" in script, (
+        "an existing public release would be overwritten instead of failing"
+    )
+    assert "--clobber" in script, "a re-run cannot replace the draft assets"
+    assert "gh release view" in script and "already exists" in script, (
+        "the create path is not idempotent for an existing draft"
+    )
+
+
+def test_release_preflight_build_has_no_attestations():
+    """P40/P41 G7: `load` uses the docker exporter, which cannot carry attestations."""
+    build = next(
+        (step for step in _release_steps("image-preflight") if step.get("id") == "build"),
+        None,
+    )
+    assert build is not None, "the preflight build step is gone"
+    with_block = build.get("with") or {}
+    assert with_block.get("load") is True, "the preflight image is never loaded for docker run"
+    assert "provenance" not in with_block, (
+        "provenance attestation is requested on a load-only build; the docker "
+        "exporter cannot carry an OCI index attestation"
+    )
+    assert "sbom" not in with_block, "sbom attestation is requested on a load-only build"
+    # Attestation still belongs to the registry push.
+    stage_build = next(
+        (step for step in _release_steps("stage-images") if step.get("id") == "build"), None
+    )
+    assert (stage_build.get("with") or {}).get("provenance") == "mode=max"
+
+
+def test_release_artifact_readers_request_actions_read():
+    """P40/P41 G6: downloading this run's artifacts is a read scope."""
+    for job_id in ("publish-version-tags", "promote-latest", "release"):
+        permissions = (_jobs_map()[job_id].get("permissions") or {})
+        assert permissions.get("actions") == "read", (
+            f"{job_id} downloads artifacts but does not declare actions: read"
+        )
+        assert "write" not in {k: v for k, v in permissions.items() if k == "actions"}.values()
+
+
+def test_release_publish_jobs_cannot_swallow_or_only_print_status():
+    """P40/P41 G8: a status command must be able to fail the step."""
+    for job_id in ("publish-version-tags", "promote-latest", "release"):
+        for step in _release_steps(job_id):
+            script = str(step.get("run") or "")
+            if "isDraft" in script or "imagetools inspect" in script:
+                assert "if [" in script or "test " in script, (
+                    f"{job_id}/{step.get('name')} only prints a status value"
+                )

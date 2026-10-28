@@ -84,6 +84,10 @@ class PipelineWorker:
     def start(self) -> None:
         if self._thread and self._thread.is_alive():
             return
+        # A worker may be stopped and started again in the same process (tests,
+        # embedders). `stop()` closed deferred-evaluation admission for its
+        # lifecycle; this call opens the next one.
+        self._open_deferred_evaluation()
         # §3.5.3: this process is the one that executes inference, so it is the one
         # that has to preload. The call used to live only in `create_app()`, which
         # means a standalone GPU worker booted cold and paid the weight load plus
@@ -123,19 +127,76 @@ class PipelineWorker:
             log_event(logger, "INFO", "models warmed at worker start",
                       worker_id=self._worker_id, models=warmed)
 
-    def stop(self, timeout: float = 10.0) -> None:
+    def stop(self, timeout: float = 10.0) -> bool:
+        """Stop polling and settle the deferred evaluation this worker scheduled.
+
+        Deferred-evaluation admission is closed *before* the join, so a task that
+        is still finishing on a thread which outlives ``timeout`` cannot schedule
+        new evaluation work: it is refused and logged instead of creating a pool
+        that would turn that thread into a writer after teardown. Everything
+        accepted before this call is then drained by
+        ``shutdown_eval_pool(wait=True)``.
+
+        Returns True only when all three hold: deferred-evaluation intake was
+        closed, the worker thread has exited, and the drain succeeded. When the
+        thread outlives ``timeout`` the result is False: the worker is not reported
+        as stopped, and ``is_running()`` still reflects the live thread, although
+        its deferred-evaluation intake is already closed. A close hook that raised
+        also makes the result False: the intake may still be open, so nothing about
+        this stop can be called complete.
+        """
         self._stop.set()
+        closed = self._close_deferred_evaluation()
         if self._thread:
             self._thread.join(timeout=timeout)
-        # Deferred evaluation runs off the critical path (plan §3.16); give the
-        # pool a moment to finish the metrics of the task that just completed.
+        thread_stopped = not (self._thread and self._thread.is_alive())
+
+        drained = True
         try:
             from fiximg.inference.runtime import shutdown_eval_pool
 
-            shutdown_eval_pool(wait=False)
-        except Exception:  # noqa: BLE001 — shutdown must never raise
-            pass
-        log_event(logger, "INFO", "gpu worker stopped", worker_id=self._worker_id)
+            shutdown_eval_pool(wait=True)
+        except Exception as exc:  # noqa: BLE001 — reported, not raised out of teardown
+            drained = False
+            log_event(logger, "ERROR", "deferred evaluation did not drain",
+                      worker_id=self._worker_id, error=str(exc))
+
+        # One condition decides the log line and the return value, so they cannot
+        # disagree: "stopped" means the intake is closed, the thread is gone and
+        # everything it accepted has drained.
+        stopped = closed and thread_stopped and drained
+        if stopped:
+            log_event(logger, "INFO", "gpu worker stopped", worker_id=self._worker_id)
+        else:
+            log_event(
+                logger, "ERROR", "gpu worker stop incomplete",
+                worker_id=self._worker_id,
+                thread_alive=not thread_stopped,
+                deferred_evaluation_closed=closed,
+                deferred_evaluation_drained=drained,
+            )
+        return stopped
+
+    # ------------------------------------------------- deferred eval ownership
+    def _open_deferred_evaluation(self) -> None:
+        """Let this worker's orchestrator schedule deferred evaluation again."""
+        open_eval = getattr(self._orchestrator, "open_deferred_evaluation", None)
+        if open_eval is not None:
+            open_eval()
+
+    def _close_deferred_evaluation(self) -> bool:
+        """Close deferred-evaluation intake; report whether it could be closed."""
+        close_eval = getattr(self._orchestrator, "close_deferred_evaluation", None)
+        if close_eval is None:
+            # A double that never schedules evaluation has nothing to close.
+            return True
+        try:
+            close_eval()
+        except Exception as exc:  # noqa: BLE001 — reported; stop() reports incomplete
+            log_event(logger, "ERROR", "could not close deferred-evaluation intake",
+                      worker_id=self._worker_id, error=str(exc))
+            return False
+        return True
 
     # ------------------------------------------------------------- execution
     def _loop(self) -> None:

@@ -92,6 +92,16 @@ def isolated_db(tmp_path, monkeypatch):
     task_repo.ensure_schema()
     yield tmp_path
 
+    # Deferred evaluation runs on its own thread (plan §3.16). This fixture closes
+    # the database it handed to the test, so it must not close it under a writer:
+    # `PipelineWorker.stop` drains the pool at app teardown, and this is the same
+    # guarantee for tests that schedule evaluation without an app. Without it the
+    # next test could open its database while this one's evaluation was still
+    # writing (Python 3.12 CI: "no such table: users" surfaced in the following
+    # test's app startup).
+    from fiximg.inference.runtime import shutdown_eval_pool
+
+    shutdown_eval_pool(wait=True)
     try:
         engine.close_connections()
     except Exception:  # noqa: BLE001 — teardown must never fail a test

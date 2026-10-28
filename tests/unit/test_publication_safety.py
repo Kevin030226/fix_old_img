@@ -414,18 +414,43 @@ def test_no_ci_job_escalates_its_permissions():
 def test_release_keeps_the_write_access_publishing_requires():
     """The other half of the split: publishing a Release and pushing to GHCR.
 
-    Narrowing CI to read-only must not be copied into release.yml -- that
-    workflow exists to write. Asserting it here means a later "tighten all
-    permissions" pass fails loudly instead of breaking releases silently.
+    P39 narrowed the *workflow-level* block to read-only and moved write access
+    onto the two jobs that actually publish. This asserts the capability is
+    still there, and only there: dropping it would break releases, while
+    spreading it to the read-only jobs would undo the least-privilege split.
     """
     document = _workflow('release.yml')
     permissions = document.get('permissions') or {}
-    assert permissions.get('contents') == 'write', (
-        'release.yml lost contents: write; it cannot create a GitHub Release'
+    assert permissions.get('contents') == 'read', (
+        'release.yml must declare contents: read at the top level; write access '
+        'belongs to the publishing jobs only'
     )
-    assert permissions.get('packages') == 'write', (
-        'release.yml lost packages: write; it cannot push to GHCR'
+    assert not {k: v for k, v in permissions.items() if v == 'write'}, (
+        f'release.yml grants workflow-level write access: {permissions}'
     )
+
+    jobs = document.get('jobs') or {}
+    release_job = jobs.get('release') or {}
+    assert (release_job.get('permissions') or {}).get('contents') == 'write', (
+        'the release job lost contents: write; it cannot create a GitHub Release'
+    )
+    for job_id in ('stage-images', 'publish-version-tags', 'promote-latest'):
+        job_permissions = (jobs.get(job_id) or {}).get('permissions') or {}
+        assert job_permissions.get('packages') == 'write', (
+            f'{job_id} lost packages: write; it cannot push to GHCR'
+        )
+        assert job_permissions.get('contents') == 'read', (
+            f'{job_id} should keep contents: read; it only needs the checkout'
+        )
+
+    escalating = sorted(
+        f'{job_id}:{scope}:{level}'
+        for job_id, job in jobs.items()
+        for scope, level in (job.get('permissions') or {}).items()
+        if level == 'write'
+        and job_id not in ('release', 'stage-images', 'publish-version-tags', 'promote-latest')
+    )
+    assert not escalating, f'non-publishing jobs escalate permissions: {escalating}'
 
 
 def test_release_only_uses_the_github_token():
