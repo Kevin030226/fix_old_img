@@ -757,24 +757,72 @@ def test_release_manual_dispatch_is_always_a_dry_run():
     assert "publish=true" in script and "publish=false" in script
 
 
-def test_release_preflight_checks_tag_version_main_sha_and_annotation():
-    """All four checks must exist, and all must run before any write step."""
+def test_release_preflight_checks_tag_version_and_release_material():
+    """The checks that need no tag object stay inline and stay early."""
     script = _release_script("preflight")
     required = {
         "tag matches pyproject": "does not match pyproject version",
-        "annotated tag": "is not an annotated tag",
-        "exact main commit": "but origin/main is",
         "release notes present": "release notes",
     }
     for what, needle in required.items():
         assert needle in script, f"the preflight no longer checks {what}: {needle!r}"
-    assert "^{commit}" in script, (
-        "the tag is compared as a commit; comparing only tag names would accept a "
-        "lightweight or moved tag"
-    )
     assert "git fetch --no-tags origin main" in script, (
         "the preflight must compare against origin/main fetched at run time"
     )
+
+
+def test_release_preflight_proves_the_tag_through_the_guard():
+    """The annotated-tag proof must not be read from the checkout.
+
+    actions/checkout@v5 rewrites the checkout-owned refs/tags/<tag> to the peeled
+    commit before any step runs, so a workflow that asks that ref for its object
+    type rejects every valid annotated tag. That is exactly how the v3.1.1
+    release failed, and the old assertion here -- "the error message exists" --
+    was green while the behaviour was impossible. The guard owns the proof.
+    """
+    script = _release_script("preflight")
+    assert "source scripts/ci/release_tag_guard.sh" in script, (
+        "the annotated-tag proof must come from the guard, which fetches the tag "
+        "into refs/release-tags/<tag> instead of trusting the checkout"
+    )
+    assert 'release_tag_guard "$GITHUB_REF_NAME" "$main_sha"' in script, (
+        "the guard must receive the tag from the event and the run-time origin/main"
+    )
+    assert "release_tag_write_outputs" in script, (
+        "the validated values must reach GITHUB_OUTPUT for the release job"
+    )
+    for forbidden in ("cat-file", "git tag -l", "GITHUB_REF_NAME}^{commit}"):
+        assert forbidden not in script, (
+            f"preflight still reads the checkout-owned tag ref via {forbidden!r}; "
+            "actions/checkout has already rewritten it to the peeled commit"
+        )
+
+
+def test_release_preflight_exports_the_validated_title_and_sha():
+    outputs = (_release().get("jobs") or {})["preflight"].get("outputs") or {}
+    assert outputs.get("tag_sha") == "${{ steps.verify.outputs.tag_sha }}"
+    assert outputs.get("release_title") == "${{ steps.verify.outputs.release_title }}"
+
+
+def test_release_title_comes_from_the_guard_through_the_environment():
+    """The title is data: it must arrive through env:, never as script text."""
+    draft = {step.get("id"): step for step in _release_steps("release")}["draft"]
+    env = draft.get("env") or {}
+    assert env.get("RELEASE_TITLE") == "${{ needs.preflight.outputs.release_title }}", (
+        "the release title must be passed through env: so it cannot be evaluated"
+    )
+    script = str(draft.get("run") or "")
+    assert "title=$RELEASE_TITLE" in script, (
+        "the release job no longer consumes the validated title"
+    )
+    assert "refusing to guess one" in script, (
+        "a blank title must fail closed instead of silently titling the release "
+        "after the tag name"
+    )
+    for forbidden in ("cat-file", "git tag -l", "title=$GITHUB_REF_NAME"):
+        assert forbidden not in script, (
+            f"the release job still derives its title locally via {forbidden!r}"
+        )
 
 
 def test_release_writes_are_all_gated_by_the_publish_decision():
@@ -1012,9 +1060,11 @@ def test_release_manual_dry_run_still_validates_release_material():
     assert version_check < early_exit, (
         "the notes version check runs after the manual early-exit"
     )
-    # Tag-only checks stay behind it.
-    assert script.find("is not an annotated tag") > early_exit
-    assert script.find("but origin/main is") > early_exit
+    # The tag-only proof stays behind it: a dry run must not demand a tag.
+    assert script.find("release_tag_guard ") > early_exit, (
+        "the guard runs before the manual early-exit, so a dry run would fail for "
+        "lacking the tag it is not supposed to have"
+    )
 
 
 def test_release_body_carries_both_image_digests():
