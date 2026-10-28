@@ -46,11 +46,16 @@ jobs:
     outputs:
       version: ${{ steps.verify.outputs.version }}
       publish: ${{ steps.decide.outputs.publish }}
+      # Validated by the tag guard on a tag push; empty on a manual dry run,
+      # where the release job cannot run anyway.
+      tag_sha: ${{ steps.verify.outputs.tag_sha }}
+      release_title: ${{ steps.verify.outputs.release_title }}
     steps:
       - uses: actions/checkout@v5
         with:
-          # The annotated-tag and main-SHA checks need the commit graph and the
-          # tag object; a shallow checkout has neither.
+          # The tag guard fetches the tag into its own namespace, so these are not
+          # load-bearing for correctness; the full graph keeps a tag/SHA mismatch
+          # debuggable from the run log alone.
           fetch-depth: 0
           fetch-tags: true
       - uses: actions/setup-python@v6
@@ -93,22 +98,18 @@ jobs:
             echo "::error::expected a tag ref, got '$GITHUB_REF_TYPE'"
             exit 1
           fi
-          # The release title is read from the tag annotation, so a lightweight
-          # tag would title the release after the commit it points at.
-          if [ "$(git cat-file -t "$GITHUB_REF_NAME")" != "tag" ]; then
-            echo "::error::$GITHUB_REF_NAME is not an annotated tag; the release title comes from its annotation"
-            exit 1
-          fi
-          # Exact commit, not merely an ancestor: a tag on an older commit would
-          # publish code that main no longer builds.
+          # The annotated-tag proof cannot be read from the checkout:
+          # actions/checkout@v5 rewrites the checkout-owned refs/tags/<tag> to the
+          # peeled commit, so asking that ref for its object type answers "commit"
+          # even for a perfectly good annotated tag. The guard fetches the tag into
+          # refs/release-tags/<tag> and validates that private copy instead, and it
+          # also proves the peeled commit is exactly origin/main -- fetched here,
+          # at run time, so a stale checkout cannot vouch for itself.
+          source scripts/ci/release_tag_guard.sh
           git fetch --no-tags origin main
-          main_sha=$(git rev-parse origin/main)
-          tag_sha=$(git rev-parse "$GITHUB_REF_NAME^{commit}")
-          if [ "$tag_sha" != "$main_sha" ]; then
-            echo "::error::$GITHUB_REF_NAME points at $tag_sha, but origin/main is $main_sha"
-            exit 1
-          fi
-          echo "publishable tag $expected at $tag_sha"
+          main_sha=$(git rev-parse refs/remotes/origin/main)
+          release_tag_guard "$GITHUB_REF_NAME" "$main_sha" origin
+          release_tag_write_outputs
 
       - name: Decide whether to publish
         id: decide
@@ -495,15 +496,18 @@ jobs:
         id: draft
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # The title is the annotated tag's message, validated against the remote
+          # tag object in preflight. It arrives through the environment so it stays
+          # data: it is never spliced into this script, and some other step's exit
+          # code can never turn it into a command.
+          RELEASE_TITLE: ${{ needs.preflight.outputs.release_title }}
         run: |
           set -eu
-          # The title comes from the annotated tag, as every release before v3.0.0.
-          if [ "$(git cat-file -t "$GITHUB_REF_NAME")" = tag ]; then
-            title=$(git tag -l --format='%(contents:subject)' "$GITHUB_REF_NAME")
-          else
-            title=$GITHUB_REF_NAME
+          if [ -z "${RELEASE_TITLE:-}" ]; then
+            echo "::error::preflight produced no release title; refusing to guess one"
+            exit 1
           fi
-          if [ -z "$title" ]; then title=$GITHUB_REF_NAME; fi
+          title=$RELEASE_TITLE
 
           # Re-running a failed release must not fail on "release already exists",
           # and must never overwrite a release that is already public.
