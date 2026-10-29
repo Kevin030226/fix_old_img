@@ -465,6 +465,7 @@ jobs:
         run: |
           set -eu
           . scripts/ci/image_digest.sh
+          . scripts/ci/release_notes_body.sh
           version="${{ needs.preflight.outputs.version }}"
           notes="docs/releases/v$version.md"
           # A digest is the only immutable identifier a reader can verify against
@@ -474,7 +475,7 @@ jobs:
           assert_sha256_digest "$api_digest" "digest for api"
           assert_sha256_digest "$worker_digest" "digest for worker"
           {
-            cat "$notes"
+            release_notes_body "$notes"
             echo ""
             echo "### Artifact checksums"
             echo ""
@@ -492,6 +493,10 @@ jobs:
             echo ""
             echo "Both version tags and \`latest\` were promoted from these digests."
           } > release-body.md
+          # release_notes_body drops maintainer HTML comments (and only those) while
+          # preserving code fences, inline code and visible HTML byte for byte. It
+          # fails closed, and because it buffers, a failure leaves release-body.md
+          # empty -- the step stops before any draft is created or refreshed.
       - name: Create or refresh the draft release (never public)
         id: draft
         env:
