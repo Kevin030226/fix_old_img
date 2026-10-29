@@ -1088,6 +1088,53 @@ def test_release_body_carries_both_image_digests():
     )
 
 
+def test_release_body_is_sanitised_before_it_is_appended_to():
+    """The published body must never carry maintainer HTML comments.
+
+    A notes file may hold ``<!-- ... -->`` notes for readers of the repository, but
+    GitHub stores the Release body verbatim, so a comment there stays readable in the
+    raw Markdown and the API for the life of the release. The compose step therefore
+    sanitises the notes instead of copying the file.
+    """
+    script = _release_script("release")
+    assert "scripts/ci/release_notes_body.sh" in script, (
+        "the release job does not source the notes sanitising helper"
+    )
+    assert 'release_notes_body "$notes"' in script, (
+        "the composed body is not passed through the sanitiser"
+    )
+    assert 'cat "$notes"' not in script, (
+        "the compose step still copies the notes file verbatim, so a maintainer "
+        "<!-- --> note there would be published"
+    )
+
+    sanitised_at = script.index('release_notes_body "$notes"')
+    assert script.index("### Artifact checksums") > sanitised_at, (
+        "checksums are appended before the notes are sanitised"
+    )
+    assert script.index("### Container images") > sanitised_at, (
+        "image digests are appended before the notes are sanitised"
+    )
+
+    steps = _release_steps("release")
+    compose_at = next(
+        index for index, step in enumerate(steps)
+        if 'release_notes_body "$notes"' in str(step.get("run") or "")
+    )
+    publish_at = next(
+        index for index, step in enumerate(steps)
+        if "gh release create" in str(step.get("run") or "")
+        or "gh release edit" in str(step.get("run") or "")
+    )
+    assert compose_at < publish_at, "the body is composed after the Release is written"
+
+    # The publication protections this change must not disturb.
+    assert _release().get("permissions") == {"contents": "read"}
+    with open(os.path.join(WORKFLOWS, "release.yml"), encoding="utf-8") as handle:
+        raw = handle.read()
+    assert raw.count("publish == 'true'") == 4, "the four write gates must remain"
+    assert raw.count("publish != 'true'") == 1, "the dry-run summary gate must remain"
+
 def _digest_helper() -> str:
     path = os.path.join(PROJECT_ROOT, "scripts", "ci", "image_digest.sh")
     assert os.path.exists(path), "the digest helper script is missing"
