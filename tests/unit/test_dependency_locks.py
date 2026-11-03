@@ -433,3 +433,18 @@ def test_filelock_is_pinned_to_the_advisory_fix_version():
         f"pyproject allows filelock{floor}, which is below the CVE-2026-112940 fix "
         f"{'.'.join(str(p) for p in FILELOCK_FIX)}"
     )
+
+
+def test_postgres_group_includes_the_binary_extra_the_root_declares():
+    """`postgres = [\"psycopg[binary]...\"]` must expand to psycopg-binary.
+
+    The RC2.1 Linux install proved the prior behaviour wrong: the closure skipped
+    every extra-marked line, so the group shipped `psycopg` without the binary
+    implementation and raised "no pq wrapper available" on `import psycopg`. The
+    extras a root spec asks for are deployment requirements, not optional extras.
+    """
+    with open(os.path.join(GROUP_DIR, "postgres.txt"), encoding="utf-8") as handle:
+        body = handle.read().lower()
+    assert "psycopg-binary==" in body, (
+        "the postgres group omits psycopg-binary; the psycopg[binary] root declares it and Linux import fails"
+    )
