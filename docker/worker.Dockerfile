@@ -92,6 +92,7 @@ RUN apt-get update \
 
 WORKDIR /app
 COPY pyproject.toml README.md LICENSE THIRD_PARTY_NOTICES.md ./
+COPY requirements ./requirements
 COPY src ./src
 COPY configs ./configs
 COPY models ./models
@@ -129,8 +130,7 @@ ENV PATH="/opt/venv/bin:${PATH}"
 # CMD is python -m fiximg.cli.worker), but it is present, it is reachable, and
 # a HIGH in it fails the CI gate -- correctly, since the gate is about the
 # image, not about the entry point. Upgrade it rather than excluding it.
-RUN /usr/local/bin/python3 -m pip install --upgrade --no-cache-dir \
-        "setuptools>=78.1.1" "wheel>=0.46.2"
+RUN /usr/local/bin/python3 -m pip install --no-cache-dir "setuptools==84.2.1" "wheel==0.48.0"
 
 # PyTorch cu128 (official wheel; includes Blackwell sm_120 support).
 RUN pip install torch==2.7.1 torchvision==0.22.1 torchaudio==2.7.1 \
@@ -151,8 +151,18 @@ RUN pip install torch==2.7.1 torchvision==0.22.1 torchaudio==2.7.1 \
 # False, redis does not want the package, and installing it anyway would be a
 # dependency nothing declares. Measured after this change: `import redis`
 # succeeds and `build_redis_queue_from_settings` returns a backend.
-RUN pip install --upgrade "setuptools>=78.1.1" "wheel>=0.46.2" "msgpack>=1.2.1" \
-    && pip install -e ".[gpu,postgres,redis,s3]"
+# Project + transports come from the generated deployment groups: exact pins
+# from requirements.lock, not pyproject floors. torch was installed above from
+# the cu128 index and is already at the pinned version, so the group install
+# only verifies it. dlib builds from source here (apt installed the toolchain).
+RUN python3.11 -m pip install --no-cache-dir "setuptools==84.2.1" "wheel==0.48.0" \
+    && python3.11 -m pip install --no-cache-dir \
+        -r requirements/runtime.txt \
+        -r requirements/gpu.txt \
+        -r requirements/postgres.txt \
+        -r requirements/redis.txt \
+        -r requirements/s3.txt \
+    && python3.11 -m pip install --no-cache-dir --no-deps -e .
 
 # Weights are deliberately NOT baked in by default.
 #

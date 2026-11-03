@@ -10,7 +10,7 @@
 
 [![Python 3.11](https://img.shields.io/badge/Python-3.11-blue?logo=python&logoColor=white)](https://www.python.org/)
 [![PyTorch](https://img.shields.io/badge/PyTorch-2.7.1%2Bcu128-ee4c2c?logo=pytorch&logoColor=white)](https://pytorch.org/)
-[![FastAPI](https://img.shields.io/badge/FastAPI-0.141-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.162-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
 [![Web UI](https://img.shields.io/badge/Web%20UI-native%20HTML%2FCSS%2FJS-blue)](https://github.com/Kevin030226/fix_old_img)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![CI](https://github.com/Kevin030226/fix_old_img/actions/workflows/ci.yml/badge.svg)](https://github.com/Kevin030226/fix_old_img/actions/workflows/ci.yml)
@@ -88,10 +88,10 @@ This system provides a complete pipeline to address these issues: **overall qual
 | Category | Technology |
 | --- | --- |
 | Language/Environment | Python 3.11 (conda env `fixoldimg-gpu`) |
-| Web framework | FastAPI 0.141 + Uvicorn 0.52 + native HTML/CSS/JS UI |
+| Web framework | FastAPI 0.162 + Uvicorn 0.54 + native HTML/CSS/JS UI |
 | Deep learning | PyTorch 2.7.1+cu128 (native RTX 50 series sm_120 support) |
 | Vision/Scientific computing | OpenCV 5.0, scikit-image 0.26, scipy 1.17, numpy 2.4, Pillow 13.0 |
-| Face/Colorization | dlib 20.0.1 (conda-forge), timm 0.9.2, DDColor |
+| Face/Colorization | dlib 20.0.1 (conda-forge), timm 1.0.30, DDColor |
 | Storage | SQLite (WAL mode) |
 | Models | Bringing Old Photos Back to Life + DDColor, 29 weight files in total |
 
@@ -191,28 +191,37 @@ conda activate fixoldimg-gpu
 pip install torch==2.7.1 torchvision==0.22.1 torchaudio==2.7.1 \
     --index-url https://download.pytorch.org/whl/cu128
 
-# 3. Install project dependencies (FastAPI/OpenCV/timm for DDColor, etc.)
-pip install -r requirements.txt
-
-# 3b. Make the `fiximg` package importable (needed by `python -m fiximg.*`).
-#     Editable install with the GPU/test extras instead of step 3:
-#         pip install -e ".[gpu,test]"
-pip install -e . --no-deps
-
-# 4. Install prebuilt dlib from conda-forge (no local compiler toolchain needed)
+# 3. Install prebuilt dlib from conda-forge (PyPI has no Windows wheel and the
+#    GPU group pins dlib==20.0.1; this step is the documented prerequisite)
 conda install -n fixoldimg-gpu -c https://mirrors.tuna.tsinghua.edu.cn/anaconda/cloud/conda-forge \
     --override-channels -y dlib=20.0.1
 
-# 5. Download model weights (BOB restoration chain + DDColor + dlib models, ~2.8 GB on disk)
-#    (plan §19: python entrypoints, resume support, manifest with versions)
+# 4. Install the pinned GPU deployment group (torch/dlib are already present, so
+#    the cu128 pin is satisfied; the file itself is generated from requirements.lock)
+pip install -r requirements/runtime.txt -r requirements/gpu.txt --extra-index-url https://download.pytorch.org/whl/cu128
+
+# 5. Make the `fiximg` package importable (needed by `python -m fiximg.*`)
+pip install -e . --no-deps
+
+# 6. Download model weights (BOB restoration chain + DDColor + dlib models, ~2.8 GB on disk)
 python -m fiximg.cli.download_weights download
 
-# 6. If weights differ from the repo manifest, regenerate and verify
+# 7. If weights differ from the repo manifest, regenerate and verify
 python -m fiximg.cli.download_weights generate
 python -m fiximg.cli.verify_weights
 ```
 
+> Both group files state `# Platform scope: python 3.11 / win32`: they are the
+> Windows RC freeze, and `requirements/gpu.txt` is additive to
+> `requirements/runtime.txt`. On Linux use the Dockerfiles, which install the same
+> groups and supply the two platform prerequisites (torch from the cu128 index and
+> dlib built from source).
+
+> Runtime-only deployments can use `pip install -r requirements.txt` (a generated
+> compatibility entry identical to `requirements/runtime.txt`).
+
 > Note: `config/users.yaml` is automatically migrated to SQLite (`admin_data/fixoldimg.db`). If this file is missing, the first-boot admin bootstrap (§21) creates the initial `admin` account — see the Docker section above.
+
 
 ### 4.2 Docker (Linux + NVIDIA GPU)
 

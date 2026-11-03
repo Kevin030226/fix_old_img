@@ -10,7 +10,7 @@
 
 [![Python 3.11](https://img.shields.io/badge/Python-3.11-blue?logo=python&logoColor=white)](https://www.python.org/)
 [![PyTorch](https://img.shields.io/badge/PyTorch-2.7.1%2Bcu128-ee4c2c?logo=pytorch&logoColor=white)](https://pytorch.org/)
-[![FastAPI](https://img.shields.io/badge/FastAPI-0.141-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.162-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![CI](https://github.com/Kevin030226/fix_old_img/actions/workflows/ci.yml/badge.svg)](https://github.com/Kevin030226/fix_old_img/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/Kevin030226/fix_old_img?sort=semver)](https://github.com/Kevin030226/fix_old_img/releases)
@@ -87,10 +87,10 @@
 | 类别 | 技术 |
 | --- | --- |
 | 语言/环境 | Python 3.11（conda 环境 `fixoldimg-gpu`） |
-| Web 框架 | FastAPI 0.141 + Uvicorn 0.52 + 原生 HTML/CSS/JS 界面 |
+| Web 框架 | FastAPI 0.162 + Uvicorn 0.54 + 原生 HTML/CSS/JS 界面 |
 | 深度学习 | PyTorch 2.7.1+cu128（原生支持 RTX 50 系 sm_120） |
 | 视觉/科学计算 | OpenCV 5.0、scikit-image 0.26、scipy 1.17、numpy 2.4、Pillow 13.0 |
-| 人脸/上色 | dlib 20.0.1（conda-forge）、timm 0.9.2、DDColor |
+| 人脸/上色 | dlib 20.0.1（conda-forge）、timm 1.0.30、DDColor |
 | 存储 | SQLite（WAL 模式） |
 | 模型 | Bringing Old Photos Back to Life + DDColor，共 29 个权重文件 |
 
@@ -191,27 +191,35 @@ conda activate fixoldimg-gpu
 pip install torch==2.7.1 torchvision==0.22.1 torchaudio==2.7.1 \
     --index-url https://download.pytorch.org/whl/cu128
 
-# 3. 安装项目依赖（含 FastAPI/OpenCV/DDColor 所需 timm 等）
-pip install -r requirements.txt
-
-# 3b. 让 `fiximg` 包可被导入（`python -m fiximg.*` 需要）
-#     也可用可编辑安装替代第 3 步：pip install -e ".[gpu,test]"
-pip install -e . --no-deps
-
-# 4. 安装 dlib 预编译包（conda-forge，无需本机编译工具链）
+# 3. 安装 dlib 预编译包（conda-forge；PyPI 无 Windows wheel，GPU 组固定 dlib==20.0.1，
+#    这一步是文档明确的 prerequisite）
 conda install -n fixoldimg-gpu -c https://mirrors.tuna.tsinghua.edu.cn/anaconda/cloud/conda-forge \
     --override-channels -y dlib=20.0.1
 
-# 5. 下载模型权重（BOB 修复链路 + DDColor 上色 + dlib 模型，磁盘约 2.8 GB）
-#    （方案 §19：python 入口、断点续传、带版本号的清单）
+# 4. 安装固定版本的 GPU 部署组（torch/dlib 已就绪，cu128 固定项会被满足；
+#    该文件由 requirements.lock 生成）
+pip install -r requirements/runtime.txt -r requirements/gpu.txt --extra-index-url https://download.pytorch.org/whl/cu128
+
+# 5. 让 `fiximg` 包可被导入（`python -m fiximg.*` 需要）
+pip install -e . --no-deps
+
+# 6. 下载模型权重（BOB 修复链路 + DDColor 上色 + dlib 模型，磁盘约 2.8 GB）
 python -m fiximg.cli.download_weights download
 
-# 6. 若权重来源与仓库清单不同，重新生成并校验
+# 7. 若权重来源与仓库清单不同，重新生成并校验
 python -m fiximg.cli.download_weights generate
 python -m fiximg.cli.verify_weights
 ```
 
+> 两个组文件都带有 `# Platform scope: python 3.11 / win32`：这是 Windows RC 冻结，
+> 且 `requirements/gpu.txt` 是叠加在 `requirements/runtime.txt` 之上的。Linux 请使用
+> Dockerfile，它们安装相同的组并负责两个平台前置条件（cu128 索引的 torch 与源码编译的 dlib）。
+
+> 仅需运行时（API/CLI）的部署可使用 `pip install -r requirements.txt`（生成式兼容入口，内容与 `requirements/runtime.txt` 相同）。
+
 > 注意：`config/users.yaml` 会被自动迁移到 SQLite（`admin_data/fixoldimg.db`）。若该文件缺失，首启动引导（§21）会自动创建初始 `admin` 账号——参见上方 Docker 小节。
+
+> 仅需运行时（API/CLI）的部署可使用 `pip install -r requirements.txt`（生成式兼容入口，内容与 `requirements/runtime.txt` 相同）。
 
 ### 4.2 Docker（Linux + NVIDIA GPU）
 

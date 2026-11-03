@@ -400,12 +400,10 @@ def _offered_transports(paths: list[str]) -> set[str]:
     return offered
 
 
-def _installed_extras(path: str) -> set[str]:
-    """Extras the Dockerfile asks pip to install, from every `.[a,b]` requirement."""
+def _installed_groups(path):
     with open(path, encoding="utf-8") as handle:
         text = handle.read()
-    found = re.findall(r'pip install[^\n&|;]*?"\.?\[([a-z0-9,_ -]+)\]"', text)
-    return {piece.strip() for group in found for piece in group.split(",") if piece.strip()}
+    return set(re.findall(r"-r\s+requirements/([a-z0-9]+)\.txt", text))
 
 
 def test_an_image_can_reach_every_transport_its_own_topology_offers():
@@ -420,8 +418,8 @@ def test_an_image_can_reach_every_transport_its_own_topology_offers():
     for path in DOCKERFILES:
         builders = _compose_files_building(path)
         offered = _offered_transports(builders)
-        installed = _installed_extras(path)
-        if installed & {"test", "dev"}:
+        installed = _installed_groups(path)
+        if installed & {"test", "dev", "benchmark"}:
             raise AssertionError(
                 f"{os.path.relpath(path, PROJECT_ROOT)} ships test/dev tooling "
                 f"in a runtime image: {sorted(installed & {'test', 'dev'})}"
@@ -462,7 +460,7 @@ def test_every_image_upgrades_its_own_install_tooling():
     for path in paths:
         text = open(path, encoding="utf-8", errors="replace").read()
         installs = " ".join(
-            line for line in text.splitlines() if line.strip().startswith("RUN pip install")
+            line for line in text.splitlines() if "pip install" in line
         )
         if not installs:
             continue
@@ -480,7 +478,7 @@ def test_every_image_upgrades_its_own_install_tooling():
         # serves that day and the build had a cached copy. The floor is what
         # makes the image's security properties a property of this file rather
         # than of the day it was built.
-        for specifier in ('"setuptools>=78.1.1"', '"wheel>=0.46.2"'):
+        for specifier in ('"setuptools==84.2.1"', '"wheel==0.48.0"'):
             assert specifier in installs, (
                 f"{name} does not pin {specifier}, so the build resolves whatever the "
                 "index serves that day -- an image should not change its own security "
