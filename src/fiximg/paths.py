@@ -34,10 +34,14 @@ from __future__ import annotations
 
 import os
 
-#: Directories that must exist inside a deployment tree for it to be usable.
-#: ``config/`` carries the weight manifest and example users; ``models/`` carries
-#: the declared model catalog. Both are small committed files.
-PROJECT_ROOT_MARKERS = ("config", "models")
+#: Files that identify a deployment tree. Deliberately files, not just directory
+#: names: ``config`` and ``models`` are common enough that a shared
+#: ``site-packages`` could otherwise be mistaken for a fiximg deployment. Both
+#: are small committed files that every deployment tree carries.
+PROJECT_ROOT_MARKERS = (
+    os.path.join("config", "weights_manifest.json"),
+    os.path.join("models", "manifest.yaml"),
+)
 
 
 class ProjectRootNotFoundError(RuntimeError):
@@ -45,11 +49,11 @@ class ProjectRootNotFoundError(RuntimeError):
 
 
 def _looks_like_project_root(candidate: str) -> bool:
-    """True when ``candidate`` carries the directories a deployment tree needs."""
+    """True when ``candidate`` carries the files a deployment tree needs."""
     if not candidate or not os.path.isdir(candidate):
         return False
     return all(
-        os.path.isdir(os.path.join(candidate, name)) for name in PROJECT_ROOT_MARKERS
+        os.path.isfile(os.path.join(candidate, name)) for name in PROJECT_ROOT_MARKERS
     )
 
 
@@ -108,16 +112,19 @@ def require_project_root(purpose: str = "runtime resources") -> str:
     root = PROJECT_ROOT
     missing = [
         name for name in PROJECT_ROOT_MARKERS
-        if not os.path.isdir(os.path.join(root, name))
+        if not os.path.isfile(os.path.join(root, name))
     ]
     if missing:
         detail = ", ".join(repr(name) for name in missing)
         raise ProjectRootNotFoundError(
             f"fiximg cannot find its {purpose}: {root!r} is missing "
             f"{detail}. A wheel install ships code only - set "
-            "FIXIMG_PROJECT_ROOT to the directory that contains config/, "
-            "models/, Global/ and Face_Enhancement/ (see docs/deployment.md, "
-            "section: Wheel installs and the runtime resource tree)."
+            "FIXIMG_PROJECT_ROOT to a deployment tree that contains "
+            "config/weights_manifest.json and models/manifest.yaml (inference "
+            "deployments additionally need the Global/, Face_Enhancement/ and "
+            "Face_Detection/ trees and the downloaded weights; see "
+            "docs/deployment.md, section: Wheel installs and the runtime "
+            "resource tree)."
         )
     return root
 

@@ -116,7 +116,7 @@ def verify_weights(manifest_path=None):
     if not isinstance(entries, list) or not entries:
         raise WeightsIntegrityError(
             f"Weight verification manifest {manifest_path} lists no files; "
-            "it proves nothing. Regenerate it with: python -m fiximg.cli.verify_weights generate"
+            "it proves nothing. Regenerate it with: python -m fiximg.cli.download_weights generate"
         )
     declared = manifest.get("file_count")
     if declared is not None and declared != len(entries):

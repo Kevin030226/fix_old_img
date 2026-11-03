@@ -124,8 +124,7 @@ def test_project_root_is_overridable_from_the_environment(monkeypatch, tmp_path)
     """
     from fiximg import paths
 
-    (tmp_path / "config").mkdir()
-    (tmp_path / "models").mkdir()
+    _make_tree(tmp_path)
     monkeypatch.setenv("FIXIMG_PROJECT_ROOT", str(tmp_path))
     reloaded = importlib_reload(paths)
     assert reloaded.PROJECT_ROOT == str(tmp_path), reloaded.PROJECT_ROOT
@@ -179,8 +178,7 @@ def test_a_site_packages_install_without_resources_fails_with_an_actionable_erro
 def test_require_project_root_accepts_a_complete_tree(tmp_path):
     from fiximg import paths
 
-    (tmp_path / "config").mkdir()
-    (tmp_path / "models").mkdir()
+    _make_tree(tmp_path)
     original = paths.PROJECT_ROOT
     paths.PROJECT_ROOT = str(tmp_path)
     try:
@@ -207,3 +205,65 @@ def test_the_resolver_always_returns_an_absolute_path(tmp_path):
     layout = tmp_path / "nowhere" / "fiximg"
     layout.mkdir(parents=True)
     assert os.path.isabs(paths._resolve_project_root(str(layout / "paths.py")))
+
+
+def _make_tree(root):
+    """Create the two files that identify a deployment tree."""
+    (root / "config").mkdir(parents=True, exist_ok=True)
+    (root / "models").mkdir(parents=True, exist_ok=True)
+    (root / "config" / "weights_manifest.json").write_text("{}", encoding="utf-8")
+    (root / "models" / "manifest.yaml").write_text("models: {}\n", encoding="utf-8")
+
+
+def test_require_project_root_names_the_files_it_checked(tmp_path):
+    """The gate must not promise directories it does not verify (review finding).
+
+    The error used to say the tree needs Global/ and Face_Enhancement/ while only
+    config/ and models/ were checked, so an API-only deployment passed the gate
+    and failed later inside a loader — the failure mode the gate exists to remove.
+    """
+    from fiximg import paths
+
+    _make_tree(tmp_path)
+    (tmp_path / "models" / "manifest.yaml").unlink()
+
+    original = paths.PROJECT_ROOT
+    paths.PROJECT_ROOT = str(tmp_path)
+    try:
+        with pytest.raises(paths.ProjectRootNotFoundError) as excinfo:
+            paths.require_project_root()
+    finally:
+        paths.PROJECT_ROOT = original
+
+    message = str(excinfo.value)
+    assert "models/manifest.yaml" in message or "manifest.yaml" in message, message
+    assert "FIXIMG_PROJECT_ROOT" in message
+
+
+def test_common_directory_names_are_not_a_deployment_tree(tmp_path):
+    """A shared site-packages with generic config/ and models/ dirs must not match."""
+    from fiximg import paths
+
+    (tmp_path / "config").mkdir()
+    (tmp_path / "models").mkdir()
+    assert not paths._looks_like_project_root(str(tmp_path))
+
+
+def test_the_weight_cli_reports_the_missing_tree_without_a_traceback(tmp_path, monkeypatch, capsys):
+    """`fiximg-weights verify` in a wheel install: one line, exit 1, no traceback."""
+    from fiximg import paths
+    from fiximg.cli import download_weights
+
+    (tmp_path / "config").mkdir()
+    (tmp_path / "models").mkdir()
+    original = paths.PROJECT_ROOT
+    paths.PROJECT_ROOT = str(tmp_path)
+    try:
+        rc = download_weights.main(["fiximg-weights", "verify"])
+    finally:
+        paths.PROJECT_ROOT = original
+
+    assert rc == 1
+    captured = capsys.readouterr()
+    assert "FIXIMG_PROJECT_ROOT" in captured.err, captured.err
+    assert "Traceback" not in captured.err

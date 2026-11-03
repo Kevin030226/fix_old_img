@@ -25,6 +25,9 @@ from fiximg.infrastructure.observability.logging import get_logger
 
 logger = get_logger("fiximg.ratelimit")
 
+#: `remaining()` value for a limiter that is switched off.
+_UNLIMITED_REMAINING = 2**31 - 1
+
 # Resolution happens once; tests can force a re-resolution via reset_backend().
 _BACKEND: "_MemoryBackend | _RedisBackend | None" = None
 _BACKEND_KIND: str | None = None
@@ -111,11 +114,11 @@ class _BoundedWindowStore:
         if bucket is None:
             bucket = deque()
             self._overflow[(max_count, window)] = bucket
-        # Bound the overflow table itself: one bucket per distinct limit is a
-        # handful of entries, but prune stale ones so a series of one-off
-        # limiters cannot accumulate either.
-        if len(self._overflow) > 64:
-            self._overflow.pop(next(iter(self._overflow)), None)
+        # Deliberately no eviction here. The keys are (max_count, window) pairs
+        # taken from the configured limiters — a small, fixed set that a client
+        # cannot influence — so this table is already bounded. Evicting the
+        # oldest bucket "to keep it small" would reset a live overflow counter,
+        # which is exactly the bypass this class exists to prevent.
         return bucket
 
     # -------------------------------------------------------------------- api
@@ -177,6 +180,13 @@ class _BoundedWindowStore:
                 self._overflow.clear()
             else:
                 self.hits.pop(key, None)
+                # Drop this key's expiry records too. They are already harmless
+                # (a stale record is skipped when it surfaces), but leaving them
+                # would let a caller that resets many keys keep entries around
+                # for a whole window each. reset() is rare, so the rebuild is
+                # cheaper than the bookkeeping that would avoid it.
+                self._heap = [item for item in self._heap if item[2] != key]
+                heapq.heapify(self._heap)
 
 
 class SlidingWindowLimiter:
@@ -541,7 +551,14 @@ class _DisabledLimiter:
         return True
 
     def remaining(self, key) -> int:
-        return 0
+        """Unlimited: a caller must never read "disabled" as "exhausted".
+
+        Returning 0 here meant an operator who set FIXIMG_SUBMIT_MAX=0 to turn
+        the limit *off* produced a value that any `remaining()`-based gate would
+        read as "no allowance left". The sentinel is deliberately large and
+        documented rather than magical.
+        """
+        return _UNLIMITED_REMAINING
 
     def reset(self, key=None) -> None:
         return None

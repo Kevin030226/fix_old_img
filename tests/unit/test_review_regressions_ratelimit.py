@@ -210,3 +210,43 @@ def test_concurrent_hits_on_different_keys_are_all_counted():
         thread.join(timeout=30)
     assert not errors, errors
     assert len(limiter._hits) == 16
+
+
+# ------------------------------------------------- independent-review follow-ups
+def test_the_overflow_counter_survives_many_other_limits():
+    """A live overflow counter must not be evicted by unrelated (limit, window) pairs.
+
+    The first implementation pruned the oldest overflow bucket once more than 64
+    existed, which reset an overflow allowance an attacker could then reuse.
+    """
+    backend = rlb._MemoryBackend(max_keys=1)
+    assert backend.hit("seed", 1, 600) is True          # table now full
+    assert backend.hit("overflow-a", 1, 600) is True    # overflow slot
+    assert backend.hit("overflow-b", 1, 600) is False   # exhausted
+
+    # 70 distinct (max_count, window) pairs create 70 other overflow buckets.
+    for index in range(70):
+        backend.hit(f"other-{index}", 1 + index, 600 + index)
+
+    assert backend.hit("overflow-c", 1, 600) is False, "the live overflow counter was reset"
+
+
+def test_a_disabled_limiter_never_reads_as_exhausted():
+    """FIXIMG_SUBMIT_MAX=0 means unlimited, including for remaining()."""
+    limiter = rlb._build_submit_limiter(submit_max=0, window=60)
+    assert limiter.remaining("user:alice") > 0
+    assert limiter.allowed("user:alice") is True
+
+
+def test_reset_of_one_key_drops_its_expiry_records():
+    """`reset(key)` must not leave that key's heap entries behind."""
+    limiter = rlb.SlidingWindowLimiter(5, 600, now=lambda: 0.0, max_keys=10)
+    for _ in range(5):
+        limiter.hit("k")
+    limiter.hit("other")
+    heap_size = len(limiter._store._heap)
+    assert heap_size >= 6
+
+    limiter.reset("k")
+    assert len(limiter._store._heap) < heap_size
+    assert all(item[2] != "k" for item in limiter._store._heap)

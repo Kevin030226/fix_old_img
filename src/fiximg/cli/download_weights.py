@@ -343,9 +343,15 @@ def main(argv: list | None = None) -> int:
     argv = list(sys.argv if argv is None else argv)
     cmd = argv[1] if len(argv) > 1 else "help"
     if cmd in {"download", "verify", "generate"}:
-        from fiximg.paths import require_project_root
+        from fiximg.paths import ProjectRootNotFoundError, require_project_root
 
-        require_project_root("weight manifest and model weight tree")
+        try:
+            require_project_root("weight manifest and model weight tree")
+        except ProjectRootNotFoundError as exc:
+            # The gate exists to produce one actionable line, not a traceback:
+            # this is the entry point a wheel-only install reaches first.
+            print(str(exc), file=sys.stderr)
+            return 1
     if cmd == "download":
         try:
             summary = download_all()
