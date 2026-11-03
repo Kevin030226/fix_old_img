@@ -574,13 +574,6 @@ def check(target_dir: str | None = None) -> int:
         skipped = []
     if skipped:
         print("not re-derived here (group not installed): " + "; ".join(skipped))
-    if drift:
-        print("disagrees with requirements.lock:")
-        for item in drift:
-            print(f"  {item}")
-    if stale:
-        print("out of date: " + ", ".join(stale))
-        print("run: python scripts/export_locks.py")
     # The compatibility entry is only checked where it lives; --output writes a
     # scratch tree that has no root requirements.txt.
     if os.path.abspath(out_dir) == os.path.abspath(REPO_REQUIREMENTS_DIR):
@@ -597,11 +590,21 @@ def check(target_dir: str | None = None) -> int:
                 drift.append("requirements.txt is not generated")
             if "Compatibility entry" not in head:
                 drift.append("requirements.txt does not declare itself a compatibility entry")
-            if f"# Platform scope: {env_tag()}" not in head:
-                drift.append("requirements.txt does not state its platform scope")
+            if f"# Platform scope: {tag}" not in head:
+                drift.append(
+                    "requirements.txt platform scope differs from "
+                    f"requirements.lock ({tag or '<unrecorded>'})"
+                )
             if _file_pins(compat) != _file_pins(runtime_file):
                 drift.append("requirements.txt pins differ from requirements/runtime.txt")
 
+    if drift:
+        print("disagrees with requirements.lock:")
+        for item in drift:
+            print(f"  {item}")
+    if stale:
+        print("out of date: " + ", ".join(stale))
+        print("run: python scripts/export_locks.py")
     if drift or stale:
         return 1
     print("requirements/ agrees with requirements.lock"
