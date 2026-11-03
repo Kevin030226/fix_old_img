@@ -45,6 +45,10 @@ def prepare_database() -> tuple[str, str]:
 
 
 def main() -> int:
+    from fiximg.paths import require_project_root
+
+    require_project_root("model weights and vendored model trees")
+
     from fiximg.inference.runtime import PipelineOrchestrator
     from fiximg.inference.worker import PipelineWorker
 

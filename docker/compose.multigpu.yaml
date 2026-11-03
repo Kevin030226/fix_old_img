@@ -34,7 +34,11 @@ x-worker-base: &worker-base
     FIXIMG_TASK_MAX_ATTEMPTS: "3"
     # Capability → device table, shared by every worker process. Stages whose
     # capability is not listed fall back to FIXIMG_DEVICE.
-    FIXIMG_GPU_ROUTING: "0:restore,scratch_repair,scratch_detection,face_detection,face_restore,deblur,denoise;1:colorize"
+    #
+    # Device numbers here are *in-container* indices. A service that reserves one
+    # card with `device_ids` sees only that card, numbered 0; a service that
+    # reserves none sees the host numbering. worker-color therefore uses 0.
+    FIXIMG_GPU_ROUTING: "0:restore,scratch_repair,scratch_detection,face_detection,face_restore,deblur,denoise"
   volumes:
     - db:/app/admin_data
     - storage:/app/storage
@@ -74,7 +78,7 @@ services:
       FIXIMG_WORKER_POLL: "0.5"
       FIXIMG_WORKER_LEASE: "3600"
       FIXIMG_TASK_MAX_ATTEMPTS: "3"
-      FIXIMG_GPU_ROUTING: "0:restore,scratch_repair,scratch_detection,face_detection,face_restore,deblur,denoise;1:colorize"
+      FIXIMG_GPU_ROUTING: "0:restore,scratch_repair,scratch_detection,face_detection,face_restore,deblur,denoise"
       FIXIMG_WORKER_ID: worker-gpu0
       FIXIMG_WORKER_GPU: "0"
       FIXIMG_WORKER_CAPABILITIES: "restore,scratch_repair,scratch_detection,face_detection,face_restore,deblur,denoise"
@@ -87,6 +91,13 @@ services:
               capabilities: [gpu]
 
   # GPU1 — colorization only (DDColor is the only model loaded here).
+  #
+  # `device_ids: ["1"]` below does NOT mean "cuda:1 inside the container":
+  # reserving a single device exposes only that card, and CUDA renumbers it, so
+  # the host's GPU1 is device 0 in here. Both knobs that name a device must say
+  # 0, otherwise torch raises "invalid device ordinal" on every colourisation —
+  # which is what the previous `FIXIMG_WORKER_GPU: "1"` / `...;1:colorize` pair
+  # did. The card is still the second one of the host; only the index changed.
   worker-color:
     <<: *worker-base
     container_name: fiximg-worker-color
@@ -96,9 +107,9 @@ services:
       FIXIMG_WORKER_POLL: "0.5"
       FIXIMG_WORKER_LEASE: "3600"
       FIXIMG_TASK_MAX_ATTEMPTS: "3"
-      FIXIMG_GPU_ROUTING: "0:restore,scratch_repair,scratch_detection,face_detection,face_restore,deblur,denoise;1:colorize"
+      FIXIMG_GPU_ROUTING: "0:colorize"
       FIXIMG_WORKER_ID: worker-gpu1
-      FIXIMG_WORKER_GPU: "1"
+      FIXIMG_WORKER_GPU: "0"
       FIXIMG_WORKER_CAPABILITIES: "colorize"
       # Preload only what this worker serves (plan §3.5.3 warmup strategies).
       FIXIMG_WARMUP: startup

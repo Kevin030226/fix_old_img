@@ -1,5 +1,16 @@
 """内存滑动窗口限流器（单进程演示用）。
 
+⚠️ SUPERSEDED — 本模块已不再被产品代码引用（DEPRECATED）。
+
+运行时实际使用的是 `fiximg.infrastructure.security.rate_limit`：它把同一个
+滑动窗口与可选的 Redis 共享后端合并在一个模块里，并且其 `client_ip()` 只在
+请求来自 `FIXIMG_TRUSTED_PROXIES` 中的可信代理时才采信 X-Forwarded-For。
+
+本文件保留仅为历史参考。**不要**再 `import config.ratelimit`：这里的
+`client_ip()` 无条件采信 X-Forwarded-For 的第一段，攻击者只要伪造该请求头
+就能完全绕过按 IP 的限流；`tests/unit/test_review_regressions_xff.py` 会在
+任何产品代码重新引用本模块时失败。
+
 设计目标：为公开注册等入口提供轻量、无外部依赖的限流能力。
 - 采用滑动窗口语义：窗口内请求数超过上限即拒绝，过期计数自动淘汰。
 - 时钟可注入（now=），便于单元测试，避免依赖真实时间。
@@ -81,16 +92,23 @@ class SlidingWindowLimiter:
 def client_ip(request):
     """尽力获取客户端 IP。
 
-    若部署在反向代理之后，优先取 X-Forwarded-For 的第一个跳板；
-    否则取 TCP 对端地址；都无法确定时返回 'unknown'。
+    只有请求来自 `FIXIMG_TRUSTED_PROXIES` 中的可信代理时才采信 X-Forwarded-For；
+    否则一律取 TCP 对端地址，都无法确定时返回 'unknown'。
+
+    原实现无条件采信该请求头，任何客户端都能伪造 IP 绕过按 IP 的限流。
     """
-    fwd = request.headers.get("x-forwarded-for")
-    if fwd:
-        return fwd.split(",")[0].strip()
     client = getattr(request, "client", None)
-    if client is not None:
-        return client.host
-    return "unknown"
+    peer = client.host if client is not None else "unknown"
+    trusted = {
+        item.strip()
+        for item in os.environ.get("FIXIMG_TRUSTED_PROXIES", "").split(",")
+        if item.strip()
+    }
+    if peer in trusted:
+        fwd = request.headers.get("x-forwarded-for")
+        if fwd:
+            return fwd.split(",")[0].strip()
+    return peer
 
 
 # ===================== 注册接口的限流器实例 =====================

@@ -15,7 +15,9 @@ V3 consolidates what used to live in two modules (`config/ratelimit.py` and
 Both implementations expose the same surface — ``hit()``, ``allowed()``,
 ``remaining()``, ``reset()`` — so call sites never care which one is active.
 """
+import heapq
 import os
+import threading
 import time
 from collections import deque
 
@@ -28,104 +30,218 @@ _BACKEND: "_MemoryBackend | _RedisBackend | None" = None
 _BACKEND_KIND: str | None = None
 
 
+def _validate_max_keys(value, *, name: str = "max_keys"):
+    """Validate a key cap. ``None`` means "no cap" where that is allowed."""
+    if value is None:
+        return None
+    # bool is an int subclass; True as a cap is a typo, not a policy.
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise ValueError(f"{name} must be an integer >= 1 or None, got {value!r}")
+    if value < 1:
+        raise ValueError(f"{name} must be >= 1 when set, got {value!r}")
+    return value
+
+
+class _BoundedWindowStore:
+    """Per-key sliding windows with a bounded key set and an overflow bucket.
+
+    Capacity policy (the security-relevant part):
+
+    1. expired counters are purged *first* — a min-heap of expiry times makes
+       that amortised O(log n) instead of a full dict scan per call;
+    2. a key that is already tracked always keeps its own window;
+    3. a *new* key is admitted only while the table is below ``max_keys``;
+    4. when the table is full of live keys, new keys share a single overflow
+       bucket per (limit, window) instead of evicting a live counter. Evicting
+       live counters would let an attacker reset an allowance by flooding fresh
+       keys — the exact bypass a limiter must not have. The trade-off is that a
+       legitimate newcomer can be throttled while the table is full; that is the
+       safe direction, and it is bounded by the same window as any other key.
+
+    All state is guarded by one lock: ``hit`` is a read-modify-write on deques
+    that used to be unsynchronised, so two threads could both observe the last
+    slot as free and both take it.
+    """
+
+    def __init__(self, max_keys=None) -> None:
+        self.max_keys = _validate_max_keys(max_keys)
+        self.hits: dict[str, deque] = {}          # key -> deque[float]
+        self._heap: list[tuple[float, int, str, float]] = []  # (expiry, seq, key, window)
+        self._seq = 0
+        self._overflow: dict[tuple[int, float], deque] = {}
+        self._lock = threading.Lock()
+
+    # ------------------------------------------------------------- internals
+    def _purge_key_locked(self, key: str, now: float, window: float) -> deque | None:
+        dq = self.hits.get(key)
+        if dq is None:
+            return None
+        cutoff = now - window
+        while dq and dq[0] <= cutoff:
+            dq.popleft()
+        if not dq:
+            self.hits.pop(key, None)
+            return None
+        return dq
+
+    def _remember_locked(self, key: str, now: float, window: float) -> None:
+        self._seq += 1
+        heapq.heappush(self._heap, (now + window, self._seq, key, window))
+
+    def _purge_expired_locked(self, now: float) -> None:
+        heap = self._heap
+        while heap and heap[0][0] <= now:
+            _expiry, _seq, key, window = heapq.heappop(heap)
+            dq = self.hits.get(key)
+            if dq is None:
+                continue
+            cutoff = now - window
+            while dq and dq[0] <= cutoff:
+                dq.popleft()
+            if not dq:
+                self.hits.pop(key, None)
+
+    def _at_capacity(self, key: str) -> bool:
+        return (self.max_keys is not None
+                and key not in self.hits
+                and len(self.hits) >= self.max_keys)
+
+    def _overflow_locked(self, max_count: int, window: float) -> deque:
+        bucket = self._overflow.get((max_count, window))
+        if bucket is None:
+            bucket = deque()
+            self._overflow[(max_count, window)] = bucket
+        # Bound the overflow table itself: one bucket per distinct limit is a
+        # handful of entries, but prune stale ones so a series of one-off
+        # limiters cannot accumulate either.
+        if len(self._overflow) > 64:
+            self._overflow.pop(next(iter(self._overflow)), None)
+        return bucket
+
+    # -------------------------------------------------------------------- api
+    def hit(self, key: str, max_count: int, window: float, now: float) -> bool:
+        with self._lock:
+            self._purge_expired_locked(now)
+            dq = self._purge_key_locked(key, now, window)
+            if dq is None:
+                if self._at_capacity(key):
+                    bucket = self._overflow_locked(max_count, window)
+                    cutoff = now - window
+                    while bucket and bucket[0] <= cutoff:
+                        bucket.popleft()
+                    if len(bucket) >= max_count:
+                        return False
+                    bucket.append(now)
+                    return True
+                dq = deque()
+                self.hits[key] = dq
+            if len(dq) >= max_count:
+                return False
+            dq.append(now)
+            self._remember_locked(key, now, window)
+            return True
+
+    def allowed(self, key: str, max_count: int, window: float, now: float) -> bool:
+        with self._lock:
+            self._purge_expired_locked(now)
+            dq = self._purge_key_locked(key, now, window)
+            if dq is None:
+                if self._at_capacity(key):
+                    bucket = self._overflow_locked(max_count, window)
+                    cutoff = now - window
+                    while bucket and bucket[0] <= cutoff:
+                        bucket.popleft()
+                    return len(bucket) < max_count
+                return True
+            return len(dq) < max_count
+
+    def remaining(self, key: str, max_count: int, window: float, now: float) -> int:
+        with self._lock:
+            self._purge_expired_locked(now)
+            dq = self._purge_key_locked(key, now, window)
+            if dq is None:
+                if self._at_capacity(key):
+                    bucket = self._overflow_locked(max_count, window)
+                    cutoff = now - window
+                    while bucket and bucket[0] <= cutoff:
+                        bucket.popleft()
+                    return max(0, max_count - len(bucket))
+                return max_count
+            return max(0, max_count - len(dq))
+
+    def reset(self, key: str | None = None) -> None:
+        with self._lock:
+            if key is None:
+                self.hits.clear()
+                self._heap.clear()
+                self._overflow.clear()
+            else:
+                self.hits.pop(key, None)
+
+
 class SlidingWindowLimiter:
     """In-process sliding-window limiter: one timestamp deque per key."""
 
-    def __init__(self, max_count, window_seconds, now=None):
+    def __init__(self, max_count, window_seconds, now=None, max_keys=None):
         if max_count < 1:
             raise ValueError("max_count must be >= 1")
         if window_seconds < 1:
             raise ValueError("window_seconds must be >= 1")
         self.max_count = max_count
         self.window_seconds = window_seconds
-        self._hits: dict = {}  # key -> deque[float]
         self._now = now  # injectable clock for tests
+        self._store = _BoundedWindowStore(max_keys)
+        # Public-ish handle kept for introspection/tests: len(limiter._hits).
+        self._hits = self._store.hits
+        self.max_keys = self._store.max_keys
 
     def _now_ts(self):
         return self._now() if self._now is not None else time.monotonic()
 
-    def _purge(self, key, now_ts):
-        dq = self._hits.get(key)
-        if not dq:
-            return
-        cutoff = now_ts - self.window_seconds
-        while dq and dq[0] <= cutoff:
-            dq.popleft()
-        if not dq:
-            self._hits.pop(key, None)
-
     def allowed(self, key):
         """Check whether a request would be allowed, without recording it."""
-        now_ts = self._now_ts()
-        self._purge(key, now_ts)
-        return len(self._hits.get(key, deque())) < self.max_count
+        return self._store.allowed(key, self.max_count, self.window_seconds, self._now_ts())
 
     def hit(self, key):
         """Record one request: True when allowed, False when over the limit."""
-        now_ts = self._now_ts()
-        self._purge(key, now_ts)
-        dq = self._hits.setdefault(key, deque())
-        if len(dq) >= self.max_count:
-            return False
-        dq.append(now_ts)
-        return True
+        return self._store.hit(key, self.max_count, self.window_seconds, self._now_ts())
 
     def remaining(self, key):
         """Remaining allowance inside the current window."""
-        now_ts = self._now_ts()
-        self._purge(key, now_ts)
-        return max(0, self.max_count - len(self._hits.get(key, deque())))
+        return self._store.remaining(key, self.max_count, self.window_seconds, self._now_ts())
 
     def reset(self, key=None):
-        if key is None:
-            self._hits.clear()
-        else:
-            self._hits.pop(key, None)
+        self._store.reset(key)
 
 
 class _MemoryBackend:
-    """The V1 sliding window (unchanged semantics)."""
+    """The V1 sliding window, bounded by `max_keys`."""
 
     kind = "memory"
 
-    def __init__(self) -> None:
-        self._hits: dict = {}
+    #: How many distinct keys a process tracks. Bounds the memory an unauthenticated
+    #: key source (a username form field, a spoofable address) can make this dict
+    #: grow to; the same reasoning as `SlidingWindowLimiter.max_keys`.
+    max_keys = 10_000
 
-    def _purge(self, key: str, now_ts: float, window: float) -> None:
-        dq = self._hits.get(key)
-        if not dq:
-            return
-        cutoff = now_ts - window
-        while dq and dq[0] <= cutoff:
-            dq.popleft()
-        if not dq:
-            self._hits.pop(key, None)
+    def __init__(self, max_keys: int | None = None) -> None:
+        self._store = _BoundedWindowStore(
+            self.max_keys if max_keys is None else max_keys
+        )
+        self.max_keys = self._store.max_keys
+        self._hits = self._store.hits
 
     def hit(self, key: str, max_count: int, window: float) -> bool:
-        now_ts = time.monotonic()
-        self._purge(key, now_ts, window)
-        dq = self._hits.setdefault(key, deque())
-        if len(dq) >= max_count:
-            return False
-        dq.append(now_ts)
-        return True
+        return self._store.hit(key, max_count, window, time.monotonic())
 
     def allowed(self, key: str, max_count: int, window: float) -> bool:
-        now_ts = time.monotonic()
-        self._purge(key, now_ts, window)
-        return len(self._hits.get(key, deque())) < max_count
+        return self._store.allowed(key, max_count, window, time.monotonic())
 
     def remaining(self, key: str, max_count: int, window: float) -> int:
-        now_ts = time.monotonic()
-        self._purge(key, now_ts, window)
-        return max(0, max_count - len(self._hits.get(key, deque())))
+        return self._store.remaining(key, max_count, window, time.monotonic())
 
     def reset(self, key: str | None = None) -> None:
-        if key is None:
-            self._hits.clear()
-        else:
-            self._hits.pop(key, None)
-
+        self._store.reset(key)
 
 class _RedisBackend:
     """Sliding window backed by a Redis sorted set per key.
@@ -205,11 +321,28 @@ class _RedisBackend:
         return max_count if result is None else result
 
     def reset(self, key: str | None = None) -> None:
+        """Clear allowance — only for keys this limiter owns.
+
+        `FLUSHDB` was used for "reset everything", which wipes the whole database:
+        this limiter shares Redis with the task queue and any cache a deployment
+        put there, so a rate-limit helper could destroy unrecoverable state. The
+        keys are prefixed (`fiximg:rl:`), so the narrow form is also the correct
+        one — a reset means "forget my counters", not "empty the server".
+        """
+
         def _op(client):
-            if key is None:
-                client.flushdb()
-            else:
+            if key is not None:
                 client.delete(self._key(key))
+                return True
+            prefix = f"{self._prefix}*"
+            batch: list[str] = []
+            for found in client.scan_iter(match=prefix):
+                batch.append(found)
+                if len(batch) >= 256:
+                    client.delete(*batch)
+                    batch.clear()
+            if batch:
+                client.delete(*batch)
             return True
 
         self._run(_op, self._client)
@@ -325,6 +458,35 @@ def client_ip(request) -> str:
     return peer
 
 
+#: How many keys an in-process limiter tracks before it starts evicting. The
+#: registration limiters are keyed by a username taken from an unauthenticated
+#: form, so an attacker controls the key set; this is what keeps that from being
+#: a memory-exhaustion primitive.
+def _env_positive_int(name: str, default: int) -> int:
+    """Read a positive int from the environment, falling back with a warning.
+
+    A bad knob must not abort import: `FIXIMG_RATELIMIT_MAX_KEYS=abc` used to
+    raise ValueError while the module was being imported, which surfaces as a
+    traceback from an unrelated import. Invalid values fall back to the default
+    and say so.
+    """
+    raw = os.environ.get(name)
+    if raw is None or not raw.strip():
+        return default
+    try:
+        value = int(raw)
+    except ValueError:
+        logger.warning("%s=%r is not an integer; using %d", name, raw, default)
+        return default
+    if value < 1:
+        logger.warning("%s=%r must be >= 1; using %d", name, raw, default)
+        return default
+    return value
+
+
+MAX_MEMORY_KEYS = _env_positive_int("FIXIMG_RATELIMIT_MAX_KEYS", 10_000)
+
+
 #: Registration rate-limit window (seconds); tunable for calibration.
 REGISTER_WINDOW = int(os.environ.get("FIXIMG_REGISTER_WINDOW", 600))
 
@@ -335,7 +497,7 @@ def _make_limiter(max_count: int, window_seconds: int = REGISTER_WINDOW):
 
     if (getattr(settings, "redis_url", "") or "").strip():
         return SharedSlidingWindowLimiter(max_count, window_seconds)
-    return SlidingWindowLimiter(max_count, window_seconds)
+    return SlidingWindowLimiter(max_count, window_seconds, max_keys=MAX_MEMORY_KEYS)
 
 
 register_ip_limiter = _make_limiter(int(os.environ.get("FIXIMG_REGISTER_MAX", 5)))
@@ -353,9 +515,53 @@ register_username_limiter = _make_limiter(int(os.environ.get("FIXIMG_REGISTER_US
 SUBMIT_WINDOW = int(os.environ.get("FIXIMG_SUBMIT_WINDOW", 60))
 SUBMIT_MAX = int(os.environ.get("FIXIMG_SUBMIT_MAX", 60))
 
+#: A limiter that never refuses: what `FIXIMG_SUBMIT_MAX=0` selects.
+#: `docs/deployment.md` documents 0 as "disables", and `max(1, ...)` turned that
+#: into "one per window" — stricter than the default 60 and the opposite of the
+#: instruction. `None` is the disabled state, so call sites can skip the check.
+
+
+class _DisabledLimiter:
+    """Stand-in used when a limit is switched off: always allows, never counts."""
+
+    kind = "disabled"
+
+    def __init__(self, window_seconds: int) -> None:
+        self.max_count = 0
+        self.window_seconds = window_seconds
+
+    @property
+    def backend_kind(self) -> str:
+        return "disabled"
+
+    def hit(self, key) -> bool:
+        return True
+
+    def allowed(self, key) -> bool:
+        return True
+
+    def remaining(self, key) -> int:
+        return 0
+
+    def reset(self, key=None) -> None:
+        return None
+
+
+def _build_submit_limiter(submit_max: int, window: int = SUBMIT_WINDOW):
+    """The submission limiter for a configured maximum; 0 means disabled.
+
+    Split out of the module-level construction so the documented meaning of 0
+    is testable without reloading the module (the env var is read once, at
+    import, like every other knob here).
+    """
+    if int(submit_max) <= 0:
+        return _DisabledLimiter(window)
+    return _make_limiter(int(submit_max), window)
+
+
 #: Rebuilt by whoever needs a clean allowance (test fixtures); read through the
 #: module attribute so a replacement is seen by the call sites.
-submit_limiter = _make_limiter(max(1, SUBMIT_MAX), SUBMIT_WINDOW)
+submit_limiter = _build_submit_limiter(SUBMIT_MAX, SUBMIT_WINDOW)
 
 
 def submission_key(principal, request) -> tuple[str, str]:

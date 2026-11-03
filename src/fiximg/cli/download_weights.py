@@ -330,8 +330,22 @@ def verify(manifest_path: str | None = None) -> int:
     return len(manifest.get("files", []))
 
 
-def main(argv: list) -> int:
+def main(argv: list | None = None) -> int:
+    """Entry point for both `python -m fiximg.cli.download_weights` and the
+    `fiximg-weights` console script.
+
+    `argv` defaults to `sys.argv`. pip generates `sys.exit(main())` — the target
+    is called with no arguments at all — so a required positional made the
+    installed command die with `TypeError: main() missing 1 required positional
+    argument: 'argv'` before it could read the command name. Keeping the
+    parameter optional preserves the `main(sys.argv)` call in `__main__`.
+    """
+    argv = list(sys.argv if argv is None else argv)
     cmd = argv[1] if len(argv) > 1 else "help"
+    if cmd in {"download", "verify", "generate"}:
+        from fiximg.paths import require_project_root
+
+        require_project_root("weight manifest and model weight tree")
     if cmd == "download":
         try:
             summary = download_all()

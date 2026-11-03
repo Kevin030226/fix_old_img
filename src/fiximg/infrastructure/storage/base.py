@@ -67,10 +67,25 @@ class BaseArtifactStore:
 
     @staticmethod
     def _normalise(key: str) -> str:
-        """Reject traversal and absolute keys before they reach the backend."""
-        key = (key or "").replace("\\", "/").lstrip("/")
-        if not key:
+        """Reject traversal and absolute keys before they reach the backend.
+
+        A leading "/" is stripped because callers legitimately pass one; anything
+        that would still resolve outside the store root is refused. On Windows
+        that includes a drive-qualified key (`C:/Windows/x.png`): `lstrip("/")`
+        left it intact and `os.path.join(root, key)` then discarded `root`, so
+        the key — not the store — chose the absolute path.
+        """
+        key = (key or "").replace("\\", "/")
+        stripped = key.lstrip("/")
+        if not stripped:
             raise ValueError("Artifact key must not be empty")
+        # A drive letter (`C:`) or a UNC host (`//server/share`) still names an
+        # absolute location after the leading slashes are removed.
+        if len(stripped) >= 2 and stripped[1] == ":" and stripped[0].isalpha():
+            raise ValueError(f"Artifact key must not be an absolute path: {key!r}")
+        if key.startswith("//"):
+            raise ValueError(f"Artifact key must not be a UNC path: {key!r}")
+        key = stripped
         parts = [p for p in key.split("/") if p not in ("", ".")]
         if any(p == ".." for p in parts):
             raise ValueError(f"Artifact key must not traverse upwards: {key!r}")

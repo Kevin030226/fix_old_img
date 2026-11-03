@@ -357,6 +357,9 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
+    from fiximg.paths import require_project_root
+
+    require_project_root("model weights and vendored model trees")
     opts = build_parser().parse_args(argv)
     stages = parse_stages(opts.stages)
 
