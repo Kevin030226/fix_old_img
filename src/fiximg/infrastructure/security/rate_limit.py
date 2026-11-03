@@ -56,6 +56,27 @@ def _env_positive_int(name: str, default: int) -> int:
 #: unauthenticated form, so an attacker controls the key set; this is what keeps
 #: that from being a memory-exhaustion primitive. It applies to *every* memory
 #: backend, including the one a Redis outage falls back to.
+def _env_non_negative_int(name: str, default: int) -> int:
+    """Read an int >= 0 from the environment; 0 has a meaning of its own.
+
+    `FIXIMG_SUBMIT_MAX=0` disables the submission limit, so it cannot go through
+    `_env_positive_int`; a negative or unparsable value is still a mistake and
+    falls back to the default with a warning rather than aborting the import.
+    """
+    raw = os.environ.get(name)
+    if raw is None or not raw.strip():
+        return default
+    try:
+        value = int(raw)
+    except ValueError:
+        logger.warning("%s=%r is not an integer; using %d", name, raw, default)
+        return default
+    if value < 0:
+        logger.warning("%s=%r must be >= 0; using %d", name, raw, default)
+        return default
+    return value
+
+
 MAX_MEMORY_KEYS = _env_positive_int("FIXIMG_RATELIMIT_MAX_KEYS", 10_000)
 
 # Resolution happens once; tests can force a re-resolution via reset_backend().
@@ -202,21 +223,30 @@ class _BoundedWindowStore:
                 return max_count
             return max(0, max_count - len(dq))
 
-    def reset(self, key: str | None = None) -> None:
+    def reset(self, key: str | None = None, prefix: str | None = None) -> None:
+        """Clear one key, one namespace prefix, or everything.
+
+        `prefix` exists so a namespaced limiter can clear its own counters without
+        wiping the other limiters that share this store. The overflow bucket is a
+        shared pressure valve keyed by (limit, window) rather than by key, so it is
+        only cleared by a full reset — documented rather than silently global.
+        """
         with self._lock:
-            if key is None:
+            if key is not None:
+                self.hits.pop(key, None)
+                self._heap = [item for item in self._heap if item[2] != key]
+                heapq.heapify(self._heap)
+            elif prefix:
+                for victim in [name for name in self.hits if name.startswith(prefix)]:
+                    self.hits.pop(victim, None)
+                self._heap = [
+                    item for item in self._heap if not item[2].startswith(prefix)
+                ]
+                heapq.heapify(self._heap)
+            else:
                 self.hits.clear()
                 self._heap.clear()
                 self._overflow.clear()
-            else:
-                self.hits.pop(key, None)
-                # Drop this key's expiry records too. They are already harmless
-                # (a stale record is skipped when it surfaces), but leaving them
-                # would let a caller that resets many keys keep entries around
-                # for a whole window each. reset() is rare, so the rebuild is
-                # cheaper than the bookkeeping that would avoid it.
-                self._heap = [item for item in self._heap if item[2] != key]
-                heapq.heapify(self._heap)
 
 
 class SlidingWindowLimiter:
@@ -250,8 +280,8 @@ class SlidingWindowLimiter:
         """Remaining allowance inside the current window."""
         return self._store.remaining(key, self.max_count, self.window_seconds, self._now_ts())
 
-    def reset(self, key=None):
-        self._store.reset(key)
+    def reset(self, key=None, prefix=None):
+        self._store.reset(key, prefix)
 
 
 class _MemoryBackend:
@@ -280,8 +310,8 @@ class _MemoryBackend:
     def remaining(self, key: str, max_count: int, window: float) -> int:
         return self._store.remaining(key, max_count, window, time.monotonic())
 
-    def reset(self, key: str | None = None) -> None:
-        self._store.reset(key)
+    def reset(self, key: str | None = None, prefix: str | None = None) -> None:
+        self._store.reset(key, prefix)
 
 class _RedisBackend:
     """Sliding window backed by a Redis sorted set per key.
@@ -360,7 +390,7 @@ class _RedisBackend:
         result = self._run(_op, self._client)
         return max_count if result is None else result
 
-    def reset(self, key: str | None = None) -> None:
+    def reset(self, key: str | None = None, prefix: str | None = None) -> None:
         """Clear allowance — only for keys this limiter owns.
 
         `FLUSHDB` was used for "reset everything", which wipes the whole database:
@@ -374,9 +404,9 @@ class _RedisBackend:
             if key is not None:
                 client.delete(self._key(key))
                 return True
-            prefix = f"{self._prefix}*"
+            match = f"{self._prefix}{prefix}*" if prefix else f"{self._prefix}*"
             batch: list[str] = []
-            for found in client.scan_iter(match=prefix):
+            for found in client.scan_iter(match=match):
                 batch.append(found)
                 if len(batch) >= 256:
                     client.delete(*batch)
@@ -458,22 +488,27 @@ class SharedSlidingWindowLimiter:
     def remaining(self, key: str) -> int:
         return get_backend().remaining(key, self.max_count, self.window_seconds)
 
-    def reset(self, key: str | None = None) -> None:
-        get_backend().reset(key)
+    def reset(self, key: str | None = None, prefix: str | None = None) -> None:
+        get_backend().reset(key, prefix)
 
 
-def make_limiter(max_count: int, window_seconds: int, namespace: str = "") -> SharedSlidingWindowLimiter:
+def make_limiter(
+    max_count: int, window_seconds: int, namespace: str = ""
+) -> "SharedSlidingWindowLimiter | _NamespacedLimiter":
     """Create a limiter that always reads the shared backend.
 
     The factory to use for any scope beyond the three module-level
-    registration/submission limiters. It returns :class:`SharedSlidingWindowLimiter`,
-    which resolves ``get_backend()`` on *every* call: correct on the Redis
-    backend, correct on the memory fallback, and still correct after a runtime
-    backend switch (which is what a Redis outage triggers). Instantiating
-    :class:`SlidingWindowLimiter` directly would instead pin a per-process window
-    and silently multiply the quota by the number of replicas — the failure is
-    invisible in a single-process test, which is why this is the documented path
-    rather than a comment.
+    registration/submission limiters. It resolves ``get_backend()`` on *every*
+    call: correct on the Redis backend, correct on the memory fallback, and still
+    correct after a runtime backend switch (which is what a Redis outage
+    triggers). Instantiating :class:`SlidingWindowLimiter` directly would instead
+    pin a per-process window and silently multiply the quota by the number of
+    replicas — the failure is invisible in a single-process test, which is why this
+    is the documented path rather than a comment.
+
+    With a ``namespace`` the result is a :class:`_NamespacedLimiter` wrapper (same
+    API) whose counters cannot collide with another limiter sharing the backend;
+    without one it is a :class:`SharedSlidingWindowLimiter`.
     """
     limiter = SharedSlidingWindowLimiter(max_count, window_seconds)
     # `namespace` scopes the keys inside the shared backend. Two limiters with the
@@ -507,7 +542,7 @@ def client_ip(request) -> str:
 
 
 #: Registration rate-limit window (seconds); tunable for calibration.
-REGISTER_WINDOW = int(os.environ.get("FIXIMG_REGISTER_WINDOW", 600))
+REGISTER_WINDOW = _env_positive_int("FIXIMG_REGISTER_WINDOW", 600)
 
 
 class _NamespacedLimiter:
@@ -554,7 +589,13 @@ class _NamespacedLimiter:
         return self._inner.remaining(self._scoped(key))
 
     def reset(self, key=None) -> None:
-        self._inner.reset(None if key is None else self._scoped(key))
+        # A no-argument reset on a namespaced limiter means "clear my scope", not
+        # "clear every limiter that happens to share this backend". The inner
+        # limiter receives the namespace as a prefix.
+        if key is None:
+            self._inner.reset(None, prefix=self._namespace)
+        else:
+            self._inner.reset(self._scoped(key))
 
 
 def _make_limiter(max_count: int, window_seconds: int = REGISTER_WINDOW, namespace: str = ""):
@@ -573,13 +614,13 @@ def _make_limiter(max_count: int, window_seconds: int = REGISTER_WINDOW, namespa
 
 
 register_ip_limiter = _make_limiter(
-    int(os.environ.get("FIXIMG_REGISTER_MAX", 5)), namespace="register-ip:"
+    _env_positive_int("FIXIMG_REGISTER_MAX", 5), namespace="register-ip:"
 )
 register_global_limiter = _make_limiter(
-    int(os.environ.get("FIXIMG_REGISTER_GLOBAL_MAX", 20)), namespace="register-global:"
+    _env_positive_int("FIXIMG_REGISTER_GLOBAL_MAX", 20), namespace="register-global:"
 )
 register_username_limiter = _make_limiter(
-    int(os.environ.get("FIXIMG_REGISTER_USERNAME_MAX", 3)), namespace="register-username:"
+    _env_positive_int("FIXIMG_REGISTER_USERNAME_MAX", 3), namespace="register-username:"
 )
 
 # ---------------------------------------------------------------- submissions
@@ -590,8 +631,8 @@ register_username_limiter = _make_limiter(
 #: address. Queue *capacity* is a different protection and is already handled by
 #: `QUEUE_FULL` at enqueue time, so this one is only about one caller flooding the
 #: planner and the GPU queue. `FIXIMG_SUBMIT_MAX=0` disables it.
-SUBMIT_WINDOW = int(os.environ.get("FIXIMG_SUBMIT_WINDOW", 60))
-SUBMIT_MAX = int(os.environ.get("FIXIMG_SUBMIT_MAX", 60))
+SUBMIT_WINDOW = _env_positive_int("FIXIMG_SUBMIT_WINDOW", 60)
+SUBMIT_MAX = _env_non_negative_int("FIXIMG_SUBMIT_MAX", 60)
 
 #: A limiter that never refuses: what `FIXIMG_SUBMIT_MAX=0` selects.
 #: `docs/deployment.md` documents 0 as "disables", and `max(1, ...)` turned that

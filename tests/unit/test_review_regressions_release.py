@@ -275,6 +275,8 @@ def test_the_migrations_cli_reports_a_missing_tree(tmp_path, monkeypatch, capsys
     from fiximg.infrastructure.db.migrations import runner
 
     monkeypatch.setattr(paths, "PROJECT_ROOT", str(tmp_path))
+    monkeypatch.setattr(runner, "INI_PATH", str(tmp_path / "alembic.ini"))
+    monkeypatch.setattr(runner, "SCRIPT_LOCATION", str(tmp_path / "migrations"))
     assert runner._main(["status"]) == 1
     assert "FIXIMG_PROJECT_ROOT" in capsys.readouterr().err
 
@@ -285,5 +287,53 @@ def test_the_legacy_migration_cli_reports_a_missing_tree(tmp_path, monkeypatch, 
     from fiximg.cli import migrate_v1
 
     monkeypatch.setattr(paths, "PROJECT_ROOT", str(tmp_path))
+    monkeypatch.setattr("sys.argv", ["fiximg-migrate"])
     assert migrate_v1.main() == 1
     assert "FIXIMG_PROJECT_ROOT" in capsys.readouterr().err
+
+
+def test_the_migrations_cli_prints_help_without_a_deployment_tree(tmp_path, monkeypatch, capsys):
+    """--help must not require resources (same rule as fiximg-weights help)."""
+    from fiximg import paths
+    from fiximg.infrastructure.db.migrations import runner
+
+    monkeypatch.setattr(paths, "PROJECT_ROOT", str(tmp_path))
+    with pytest.raises(SystemExit) as excinfo:
+        runner._main(["--help"])
+    assert excinfo.value.code == 0
+    assert "usage" in capsys.readouterr().out.lower()
+
+
+def test_the_legacy_migration_cli_prints_help_without_a_deployment_tree(tmp_path, monkeypatch, capsys):
+    from fiximg import paths
+    from fiximg.cli import migrate_v1
+
+    monkeypatch.setattr(paths, "PROJECT_ROOT", str(tmp_path))
+    monkeypatch.setattr("sys.argv", ["fiximg-migrate", "--help"])
+    with pytest.raises(SystemExit) as excinfo:
+        migrate_v1.main()
+    assert excinfo.value.code == 0
+    assert "usage" in capsys.readouterr().out.lower()
+
+
+def test_the_migrations_cli_checks_alembic_files_not_model_markers(tmp_path, monkeypatch, capsys):
+    """A tree with config/ and models/ but no alembic.ini must fail actionably.
+
+    The generic require_project_root gate checks the model markers; the runner
+    actually reads alembic.ini and migrations/. Checking the wrong thing made a
+    model-only tree pass and fail later inside Alembic, which is the failure mode
+    the gate exists to remove.
+    """
+    from fiximg import paths
+    from fiximg.infrastructure.db.migrations import runner
+
+    (tmp_path / "config").mkdir()
+    (tmp_path / "models").mkdir()
+    (tmp_path / "config" / "weights_manifest.json").write_text("{}", encoding="utf-8")
+    (tmp_path / "models" / "manifest.yaml").write_text("models: {}\n", encoding="utf-8")
+    monkeypatch.setattr(paths, "PROJECT_ROOT", str(tmp_path))
+    monkeypatch.setattr(runner, "INI_PATH", str(tmp_path / "alembic.ini"))
+    monkeypatch.setattr(runner, "SCRIPT_LOCATION", str(tmp_path / "migrations"))
+    assert runner._main(["status"]) == 1
+    err = capsys.readouterr().err
+    assert "alembic.ini" in err and "FIXIMG_PROJECT_ROOT" in err

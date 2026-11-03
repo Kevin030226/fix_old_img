@@ -333,3 +333,63 @@ def test_the_same_namespace_still_shares_a_counter(monkeypatch):
         assert second.remaining("k") == 58
     finally:
         rlb.reset_backend()
+
+
+# ------------------------------------------- namespace-scoped reset (review finding)
+def test_reset_of_a_namespaced_limiter_does_not_clear_other_scopes(monkeypatch):
+    """limiter.reset() on a namespaced limiter clears only its own namespace."""
+    from fiximg.config import settings
+
+    monkeypatch.setattr(settings, "redis_url", "redis://127.0.0.1:1/0", raising=False)
+    rlb.reset_backend()
+    try:
+        first = rlb._make_limiter(5, 60, namespace="alpha:")
+        second = rlb._make_limiter(5, 60, namespace="beta:")
+        assert first.hit("k") is True
+        assert second.hit("k") is True
+        assert first.remaining("k") == 4
+        assert second.remaining("k") == 4
+
+        first.reset()
+
+        assert first.remaining("k") == 5, "the limiter own scope was not cleared"
+        assert second.remaining("k") == 4, "another scope was cleared by reset()"
+    finally:
+        rlb.reset_backend()
+
+
+class _ScanRedis:
+    def __init__(self):
+        self.deleted: list[str] = []
+        self.matches: list[str] = []
+        self.keys = ["fiximg:rl:alpha:user", "fiximg:rl:beta:user", "queue:tasks"]
+
+    def scan_iter(self, match=None):
+        self.matches.append(match)
+        prefix = (match or "").rstrip("*")
+        return (k for k in self.keys if k.startswith(prefix))
+
+    def delete(self, *keys):
+        self.deleted.extend(keys)
+        return len(keys)
+
+    def pipeline(self):
+        raise AssertionError("not used")
+
+
+def test_redis_reset_with_prefix_only_deletes_that_namespace():
+    client = _ScanRedis()
+    rlb._RedisBackend(client).reset(None, prefix="alpha:")
+    assert client.matches == ["fiximg:rl:alpha:*"], client.matches
+    assert client.deleted == ["fiximg:rl:alpha:user"], client.deleted
+
+
+def test_env_non_negative_allows_zero_for_submit_max(monkeypatch):
+    monkeypatch.setenv("FIXIMG_TEST_SUBMIT", "0")
+    assert rlb._env_non_negative_int("FIXIMG_TEST_SUBMIT", 60) == 0
+    monkeypatch.setenv("FIXIMG_TEST_SUBMIT", "-1")
+    assert rlb._env_non_negative_int("FIXIMG_TEST_SUBMIT", 60) == 60
+    monkeypatch.setenv("FIXIMG_TEST_SUBMIT", "abc")
+    assert rlb._env_non_negative_int("FIXIMG_TEST_SUBMIT", 60) == 60
+    monkeypatch.setenv("FIXIMG_TEST_SUBMIT", "7")
+    assert rlb._env_non_negative_int("FIXIMG_TEST_SUBMIT", 60) == 7
