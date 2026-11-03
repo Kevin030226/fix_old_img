@@ -267,3 +267,23 @@ def test_the_weight_cli_reports_the_missing_tree_without_a_traceback(tmp_path, m
     captured = capsys.readouterr()
     assert "FIXIMG_PROJECT_ROOT" in captured.err, captured.err
     assert "Traceback" not in captured.err
+
+
+def test_the_migrations_cli_reports_a_missing_tree(tmp_path, monkeypatch, capsys):
+    """`fiximg-db` needs alembic.ini + migrations/; a wheel install has neither."""
+    from fiximg import paths
+    from fiximg.infrastructure.db.migrations import runner
+
+    monkeypatch.setattr(paths, "PROJECT_ROOT", str(tmp_path))
+    assert runner._main(["status"]) == 1
+    assert "FIXIMG_PROJECT_ROOT" in capsys.readouterr().err
+
+
+def test_the_legacy_migration_cli_reports_a_missing_tree(tmp_path, monkeypatch, capsys):
+    """`fiximg-migrate` reads the vendored tree; fail early without one."""
+    from fiximg import paths
+    from fiximg.cli import migrate_v1
+
+    monkeypatch.setattr(paths, "PROJECT_ROOT", str(tmp_path))
+    assert migrate_v1.main() == 1
+    assert "FIXIMG_PROJECT_ROOT" in capsys.readouterr().err

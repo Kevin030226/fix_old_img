@@ -276,6 +276,17 @@ def _print(text: str) -> None:
 
 
 def _main(argv: list[str] | None = None) -> int:
+    # The runner reads alembic.ini and the migrations/ directory from the
+    # deployment tree. A wheel install has neither, so refuse here with one line
+    # instead of an Alembic stack trace about a missing config file.
+    from fiximg.paths import ProjectRootNotFoundError, require_project_root
+
+    try:
+        require_project_root("alembic configuration and migration scripts")
+    except ProjectRootNotFoundError as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
+
     parser = argparse.ArgumentParser(description="Database migrations (Alembic)")
     parser.add_argument(
         "action",

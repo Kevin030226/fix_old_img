@@ -148,14 +148,83 @@ def test_a_truncated_file_is_replaced(token_path):
     assert open(token_path, encoding="utf-8").read().strip() == token
 
 
-def test_a_file_whose_digest_does_not_match_is_replaced(token_path):
-    open(token_path, "w", encoding="utf-8").write("a" * 32 + "\n")
+def test_a_rotated_token_with_a_stale_digest_is_accepted(token_path):
+    """The file is the operator secret; a leftover sidecar must not override it.
+
+    A manual rotation (write a new token, keep the old .meta) used to be read as
+    corruption: the file was renamed to .corrupt and replaced with a generated
+    token, and in production the boot refused entirely.
+    """
+    rotated = "rotated-" + "a" * 24
+    open(token_path, "w", encoding="utf-8").write(rotated + "\n")
     open(token_path + ".meta", "w", encoding="utf-8").write(
         json.dumps({"version": 1, "length": 32, "sha256": "0" * 64})
     )
+
+    assert security.get_api_token() == rotated
+    assert open(token_path, encoding="utf-8").read().strip() == rotated
+    # The stale sidecar is rewritten to describe the accepted token.
+    meta = json.loads(open(token_path + ".meta", encoding="utf-8").read())
+    assert meta["length"] == len(rotated)
+    assert meta["sha256"] == hashlib.sha256(rotated.encode("utf-8")).hexdigest()
+
+
+def test_production_boots_with_a_manually_rotated_token(token_path, monkeypatch):
+    """The same rotation must not trip the production fail-closed gate."""
+    rotated = "production-rotated-token"
+    open(token_path, "w", encoding="utf-8").write(rotated + "\n")
+    open(token_path + ".meta", "w", encoding="utf-8").write(
+        json.dumps({"version": 1, "length": 32, "sha256": "f" * 64})
+    )
+    monkeypatch.setattr(security.settings, "app_env", "production", raising=False)
+
+    assert security.get_api_token() == rotated
+
+
+def test_a_legacy_token_without_a_sidecar_is_accepted_and_recorded(token_path):
+    legacy = "legacy-" + "b" * 24
+    open(token_path, "w", encoding="utf-8").write(legacy + "\n")
+
+    assert security.get_api_token() == legacy
+    meta = json.loads(open(token_path + ".meta", encoding="utf-8").read())
+    assert meta["sha256"] == hashlib.sha256(legacy.encode("utf-8")).hexdigest()
+
+
+def test_a_stale_sidecar_over_an_implausible_file_is_still_repaired(token_path):
+    """Rotation tolerance must not turn a torn/empty file into a token."""
+    open(token_path, "w", encoding="utf-8").write("abc")
+    open(token_path + ".meta", "w", encoding="utf-8").write(
+        json.dumps({"version": 1, "length": 3, "sha256": hashlib.sha256(b"abc").hexdigest()})
+    )
+
     token = security.get_api_token()
-    assert token != "a" * 32
+    assert token != "abc"
+    assert len(token) == 32
     assert open(token_path, encoding="utf-8").read().strip() == token
+
+
+def test_a_leftover_sidecar_without_a_token_is_replaced(token_path):
+    open(token_path + ".meta", "w", encoding="utf-8").write(
+        json.dumps({"version": 1, "length": 32, "sha256": "e" * 64})
+    )
+
+    token = security.get_api_token()
+    assert len(token) == 32
+    assert open(token_path, encoding="utf-8").read().strip() == token
+    meta = json.loads(open(token_path + ".meta", encoding="utf-8").read())
+    assert meta["sha256"] == hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
+def test_a_read_only_secret_mount_is_used_without_writing(token_path, monkeypatch):
+    """A mounted secret is read-only; the resolver must not need to write."""
+    mounted = "mounted-secret-value"
+    open(token_path, "w", encoding="utf-8").write(mounted + "\n")
+
+    def refuse(*_args, **_kwargs):
+        raise OSError("read-only file system")
+
+    monkeypatch.setattr(security, "_atomic_write", refuse)
+    assert security.get_api_token() == mounted
 
 
 def test_an_existing_valid_token_is_reused_untouched(token_path):
@@ -204,3 +273,38 @@ def test_production_still_fails_closed_without_a_token(token_path, monkeypatch):
     with pytest.raises(ValueError, match="Production configuration has no API token"):
         security.get_api_token()
     assert not os.path.exists(token_path)
+
+
+def _lock_holder(token_path: str, ready, release) -> None:
+    """Hold the token lock until told to let go (a real second process)."""
+    from filelock import FileLock
+
+    lock = FileLock(token_path + ".lock", timeout=30)
+    with lock:
+        ready.put("locked")
+        release.wait(timeout=60)
+
+
+def test_a_short_lock_timeout_fails_closed_then_recovers(token_path, monkeypatch):
+    """Another process holds the lock: fail closed, then succeed on retry."""
+    ctx = multiprocessing.get_context("spawn")
+    ready = ctx.Queue()
+    release = ctx.Event()
+    holder = ctx.Process(target=_lock_holder, args=(token_path, ready, release))
+    holder.start()
+    try:
+        assert ready.get(timeout=60) == "locked"
+        monkeypatch.setattr(security, "_TOKEN_LOCK_TIMEOUT", 0.5)
+        with pytest.raises(security.TokenResolutionError) as excinfo:
+            security.get_api_token()
+        assert "Timed out" in str(excinfo.value)
+        assert not os.path.exists(token_path), "a timed-out process wrote a token"
+    finally:
+        release.set()
+        holder.join(timeout=60)
+    assert holder.exitcode == 0, holder.exitcode
+
+    monkeypatch.setattr(security, "_TOKEN_LOCK_TIMEOUT", 30)
+    token = security.get_api_token()
+    assert token
+    assert open(token_path, encoding="utf-8").read().strip() == token

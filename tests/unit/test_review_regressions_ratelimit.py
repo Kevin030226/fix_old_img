@@ -250,3 +250,86 @@ def test_reset_of_one_key_drops_its_expiry_records():
     limiter.reset("k")
     assert len(limiter._store._heap) < heap_size
     assert all(item[2] != "k" for item in limiter._store._heap)
+
+
+# --------------------------------------- Redis outage / shared-backend isolation
+def test_the_memory_fallback_honours_the_configured_key_cap(monkeypatch):
+    """A Redis outage must not lift FIXIMG_RATELIMIT_MAX_KEYS."""
+    from fiximg.config import settings
+
+    monkeypatch.setattr(rlb, "MAX_MEMORY_KEYS", 7)
+    monkeypatch.setattr(settings, "redis_url", "", raising=False)
+    rlb.reset_backend()
+    try:
+        backend = rlb.get_backend()
+        assert backend.kind == "memory"
+        assert backend.max_keys == 7, backend.max_keys
+    finally:
+        rlb.reset_backend()
+
+
+def test_a_runtime_redis_downgrade_keeps_the_configured_key_cap(monkeypatch):
+    """The fail-open path after repeated Redis errors must keep the same bound."""
+    class _Broken:
+        def ping(self):
+            return True
+
+        def pipeline(self):
+            raise ConnectionError("down")
+
+    monkeypatch.setattr(rlb, "MAX_MEMORY_KEYS", 5)
+    rlb._BACKEND = rlb._RedisBackend(_Broken())
+    rlb._BACKEND_KIND = "redis"
+    try:
+        for _ in range(3):
+            rlb.get_backend().hit("k", 1, 60)
+        backend = rlb.get_backend()
+        assert backend.kind == "memory"
+        assert backend.max_keys == 5, backend.max_keys
+    finally:
+        rlb.reset_backend()
+
+
+def test_limiters_sharing_a_backend_do_not_share_keys(monkeypatch):
+    """Registration and submission must not consume each other's allowance.
+
+    With FIXIMG_REDIS_URL configured every limiter reads one shared backend, and
+    the registration username is a caller-controlled string. Without a per-limiter
+    namespace, a username like `user:alice` collided with the submission key for
+    that user: hits from one counter consumed the other's allowance, and the
+    shorter window could purge the longer one's history.
+    """
+    from fiximg.config import settings
+
+    monkeypatch.setattr(settings, "redis_url", "redis://127.0.0.1:1/0", raising=False)
+    rlb.reset_backend()          # connection fails -> shared memory backend
+    try:
+        registration = rlb._make_limiter(2, 600, namespace="register-username:")
+        submission = rlb._make_limiter(60, 60, namespace="submit:")
+        key = "user:alice"
+
+        assert registration.hit(key) is True
+        assert registration.hit(key) is True
+        assert registration.hit(key) is False
+
+        assert submission.hit(key) is True, "submission inherited the registration hits"
+        assert submission.remaining(key) == 59
+    finally:
+        rlb.reset_backend()
+
+
+def test_the_same_namespace_still_shares_a_counter(monkeypatch):
+    """The namespace must scope, not disable, sharing (sanity check on the fix)."""
+    from fiximg.config import settings
+
+    monkeypatch.setattr(settings, "redis_url", "redis://127.0.0.1:1/0", raising=False)
+    rlb.reset_backend()
+    try:
+        first = rlb._make_limiter(2, 600, namespace="shared:")
+        second = rlb._make_limiter(60, 60, namespace="shared:")
+        assert first.hit("k") is True
+        assert first.hit("k") is True
+        assert first.hit("k") is False
+        assert second.remaining("k") == 58
+    finally:
+        rlb.reset_backend()

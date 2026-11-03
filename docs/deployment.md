@@ -116,8 +116,11 @@ installed package (and its parent, `site-packages`).
 
 A wheel install that cannot see `config/` or `models/` stops at startup with one
 actionable error naming both the missing directories and this variable —
-`fiximg.paths.require_project_root()` is called by `create_app()`, the API and
-worker entry points, the batch CLI and the weight commands. That is deliberate:
+`fiximg.paths.require_project_root()` is called by `create_app()` (and therefore
+`fiximg-api`), `fiximg-worker`, `fiximg-batch`, `fiximg-migrate`, `fiximg-db`, and
+the weight commands (`fiximg-weights`, `fiximg-verify-weights`) — every entry
+point that reads the resource tree. `fiximg-weights help` needs no resources and
+still works without the variable. That is deliberate:
 a missing manifest deep inside a loader produces a traceback that tells an
 operator nothing they can act on.
 

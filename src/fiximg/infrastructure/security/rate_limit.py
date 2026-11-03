@@ -28,6 +28,36 @@ logger = get_logger("fiximg.ratelimit")
 #: `remaining()` value for a limiter that is switched off.
 _UNLIMITED_REMAINING = 2**31 - 1
 
+
+def _env_positive_int(name: str, default: int) -> int:
+    """Read a positive int from the environment, falling back with a warning.
+
+    A bad knob must not abort import: `FIXIMG_RATELIMIT_MAX_KEYS=abc` used to
+    raise ValueError while the module was being imported, which surfaces as a
+    traceback from an unrelated import. Invalid values fall back to the default
+    and say so.
+    """
+    raw = os.environ.get(name)
+    if raw is None or not raw.strip():
+        return default
+    try:
+        value = int(raw)
+    except ValueError:
+        logger.warning("%s=%r is not an integer; using %d", name, raw, default)
+        return default
+    if value < 1:
+        logger.warning("%s=%r must be >= 1; using %d", name, raw, default)
+        return default
+    return value
+
+
+#: How many keys an in-process limiter tracks before it starts using its overflow
+#: bucket. The registration limiters are keyed by a username taken from an
+#: unauthenticated form, so an attacker controls the key set; this is what keeps
+#: that from being a memory-exhaustion primitive. It applies to *every* memory
+#: backend, including the one a Redis outage falls back to.
+MAX_MEMORY_KEYS = _env_positive_int("FIXIMG_RATELIMIT_MAX_KEYS", 10_000)
+
 # Resolution happens once; tests can force a re-resolution via reset_backend().
 _BACKEND: "_MemoryBackend | _RedisBackend | None" = None
 _BACKEND_KIND: str | None = None
@@ -360,7 +390,9 @@ class _RedisBackend:
 
 def _switch_to_memory() -> None:
     global _BACKEND, _BACKEND_KIND
-    _BACKEND = _MemoryBackend()
+    # The fallback must keep the configured memory bound: a Redis outage is not a
+    # reason to let the in-process key table grow without the operator's limit.
+    _BACKEND = _MemoryBackend(max_keys=MAX_MEMORY_KEYS)
     _BACKEND_KIND = "memory"
 
 
@@ -430,7 +462,7 @@ class SharedSlidingWindowLimiter:
         get_backend().reset(key)
 
 
-def make_limiter(max_count: int, window_seconds: int) -> SharedSlidingWindowLimiter:
+def make_limiter(max_count: int, window_seconds: int, namespace: str = "") -> SharedSlidingWindowLimiter:
     """Create a limiter that always reads the shared backend.
 
     The factory to use for any scope beyond the three module-level
@@ -443,7 +475,12 @@ def make_limiter(max_count: int, window_seconds: int) -> SharedSlidingWindowLimi
     invisible in a single-process test, which is why this is the documented path
     rather than a comment.
     """
-    return SharedSlidingWindowLimiter(max_count, window_seconds)
+    limiter = SharedSlidingWindowLimiter(max_count, window_seconds)
+    # `namespace` scopes the keys inside the shared backend. Two limiters with the
+    # same key string but different scopes (registration vs submission, two
+    # different callers) must not consume each other's allowance; without it the
+    # backend cannot tell them apart.
+    return _NamespacedLimiter(limiter, namespace) if namespace else limiter
 
 
 # --------------------------------------------------------------- registration
@@ -468,51 +505,82 @@ def client_ip(request) -> str:
     return peer
 
 
-#: How many keys an in-process limiter tracks before it starts evicting. The
-#: registration limiters are keyed by a username taken from an unauthenticated
-#: form, so an attacker controls the key set; this is what keeps that from being
-#: a memory-exhaustion primitive.
-def _env_positive_int(name: str, default: int) -> int:
-    """Read a positive int from the environment, falling back with a warning.
-
-    A bad knob must not abort import: `FIXIMG_RATELIMIT_MAX_KEYS=abc` used to
-    raise ValueError while the module was being imported, which surfaces as a
-    traceback from an unrelated import. Invalid values fall back to the default
-    and say so.
-    """
-    raw = os.environ.get(name)
-    if raw is None or not raw.strip():
-        return default
-    try:
-        value = int(raw)
-    except ValueError:
-        logger.warning("%s=%r is not an integer; using %d", name, raw, default)
-        return default
-    if value < 1:
-        logger.warning("%s=%r must be >= 1; using %d", name, raw, default)
-        return default
-    return value
-
-
-MAX_MEMORY_KEYS = _env_positive_int("FIXIMG_RATELIMIT_MAX_KEYS", 10_000)
-
 
 #: Registration rate-limit window (seconds); tunable for calibration.
 REGISTER_WINDOW = int(os.environ.get("FIXIMG_REGISTER_WINDOW", 600))
 
 
-def _make_limiter(max_count: int, window_seconds: int = REGISTER_WINDOW):
-    """Redis-backed limiter when configured, otherwise the in-process window."""
+class _NamespacedLimiter:
+    """Prefixes every key with a scope, so limiters cannot share an allowance.
+
+    The shared backend stores counters by the bare key string. Registration uses
+    the submitted username and submission uses `user:<name>`: without a scope, a
+    caller could make one limiter count against another (and a shorter window
+    would purge a longer one's history), which is both a quota bypass and a way
+    to exhaust somebody else's allowance. Each limiter therefore owns a prefix.
+
+    Keys are internal to this module: `submission_key()` and the registration
+    keys stay what callers and tests see; only the backend sees the prefix.
+    """
+
+    def __init__(self, inner, namespace: str) -> None:
+        if not namespace:
+            raise ValueError("a namespaced limiter needs a non-empty namespace")
+        self._inner = inner
+        self._namespace = namespace
+
+    @property
+    def max_count(self):
+        return self._inner.max_count
+
+    @property
+    def window_seconds(self):
+        return self._inner.window_seconds
+
+    @property
+    def backend_kind(self):
+        return self._inner.backend_kind
+
+    def _scoped(self, key) -> str:
+        return f"{self._namespace}{key}"
+
+    def hit(self, key) -> bool:
+        return self._inner.hit(self._scoped(key))
+
+    def allowed(self, key) -> bool:
+        return self._inner.allowed(self._scoped(key))
+
+    def remaining(self, key) -> int:
+        return self._inner.remaining(self._scoped(key))
+
+    def reset(self, key=None) -> None:
+        self._inner.reset(None if key is None else self._scoped(key))
+
+
+def _make_limiter(max_count: int, window_seconds: int = REGISTER_WINDOW, namespace: str = ""):
+    """Redis-backed limiter when configured, otherwise the in-process window.
+
+    `namespace` scopes the keys inside the backend; the module-level limiters
+    below each pass one so a shared backend cannot merge their counters.
+    """
     from fiximg.config import settings
 
     if (getattr(settings, "redis_url", "") or "").strip():
-        return SharedSlidingWindowLimiter(max_count, window_seconds)
-    return SlidingWindowLimiter(max_count, window_seconds, max_keys=MAX_MEMORY_KEYS)
+        limiter = SharedSlidingWindowLimiter(max_count, window_seconds)
+    else:
+        limiter = SlidingWindowLimiter(max_count, window_seconds, max_keys=MAX_MEMORY_KEYS)
+    return _NamespacedLimiter(limiter, namespace) if namespace else limiter
 
 
-register_ip_limiter = _make_limiter(int(os.environ.get("FIXIMG_REGISTER_MAX", 5)))
-register_global_limiter = _make_limiter(int(os.environ.get("FIXIMG_REGISTER_GLOBAL_MAX", 20)))
-register_username_limiter = _make_limiter(int(os.environ.get("FIXIMG_REGISTER_USERNAME_MAX", 3)))
+register_ip_limiter = _make_limiter(
+    int(os.environ.get("FIXIMG_REGISTER_MAX", 5)), namespace="register-ip:"
+)
+register_global_limiter = _make_limiter(
+    int(os.environ.get("FIXIMG_REGISTER_GLOBAL_MAX", 20)), namespace="register-global:"
+)
+register_username_limiter = _make_limiter(
+    int(os.environ.get("FIXIMG_REGISTER_USERNAME_MAX", 3)), namespace="register-username:"
+)
 
 # ---------------------------------------------------------------- submissions
 #: Task-submission rate limit (plan §2.5's `RATE_LIMITED` code, which the API
@@ -573,7 +641,7 @@ def _build_submit_limiter(submit_max: int, window: int = SUBMIT_WINDOW):
     """
     if int(submit_max) <= 0:
         return _DisabledLimiter(window)
-    return _make_limiter(int(submit_max), window)
+    return _make_limiter(int(submit_max), window, namespace="submit:")
 
 
 #: Rebuilt by whoever needs a clean allowance (test fixtures); read through the

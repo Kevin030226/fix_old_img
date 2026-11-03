@@ -176,6 +176,14 @@ def _report(stats: dict, mode: str) -> None:
 
 
 def main() -> int:
+    from fiximg.paths import ProjectRootNotFoundError, require_project_root
+
+    try:
+        require_project_root("legacy import paths")
+    except ProjectRootNotFoundError as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
+
     parser = argparse.ArgumentParser(description="Migrate V1 history rows to V2 tasks")
     parser.add_argument(
         "--apply", action="store_true",

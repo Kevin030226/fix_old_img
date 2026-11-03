@@ -147,37 +147,55 @@ def _plausible_token(token: str) -> bool:
     return all(32 <= ord(ch) < 127 and not ch.isspace() for ch in token)
 
 
+def _meta_matches(path: str, token: str) -> bool:
+    """True when the sibling digest describes `token` exactly."""
+    meta_raw = _read_text(_meta_path(path))
+    if not meta_raw:
+        return False
+    try:
+        meta = json.loads(meta_raw)
+    except (ValueError, TypeError):
+        return False
+    if not isinstance(meta, dict) or meta.get("version") != _TOKEN_META_VERSION:
+        return False
+    expected = meta.get("sha256")
+    length = meta.get("length")
+    if not isinstance(expected, str) or len(expected) != 64:
+        return False
+    if length != len(token):
+        return False
+    actual = hashlib.sha256(token.encode("utf-8")).hexdigest()
+    return hmac.compare_digest(actual, expected)
+
+
 def _read_token(path: str) -> str:
     """The complete, verified token stored at `path`, or "" when unusable.
 
-    A sibling ``.meta`` file is written next to every token this module mints.
-    When it is present its digest must match the token byte-for-byte, so a
-    truncated or partially-overwritten file is reported as unusable instead of
-    being adopted. When it is absent the file predates the meta protocol (or was
-    placed by an operator): it is accepted when it looks like a secret.
+    The file is the source of truth: a deployment-managed secret is a token an
+    operator may place or rotate by hand (`docs/api.md` documents that a token
+    *file* counts as configured). The sibling ``.meta`` is this module's own
+    integrity record, and it is only authoritative for files this module wrote.
+
+    So a digest mismatch is *not* treated as corruption when the file still looks
+    like a secret: that is exactly what a manual rotation looks like (new value,
+    old sidecar). Rejecting it would silently replace an operator's token with a
+    generated one — and in production it refused to boot. A file that does not
+    look like a secret (empty, truncated below the minimum length, containing
+    whitespace) is still unusable, and the caller repairs it.
     """
     token = _read_text(path)
     if not token:
         return ""
-    meta_raw = _read_text(_meta_path(path))
-    if meta_raw:
-        try:
-            meta = json.loads(meta_raw)
-        except (ValueError, TypeError):
-            return ""
-        if not isinstance(meta, dict) or meta.get("version") != _TOKEN_META_VERSION:
-            return ""
-        expected = meta.get("sha256")
-        length = meta.get("length")
-        if not isinstance(expected, str) or len(expected) != 64:
-            return ""
-        if length != len(token):
-            return ""
-        actual = hashlib.sha256(token.encode("utf-8")).hexdigest()
-        if not hmac.compare_digest(actual, expected):
-            return ""
+    if not _plausible_token(token):
+        return ""
+    if _meta_matches(path, token):
         return token
-    return token if _plausible_token(token) else ""
+    if _read_text(_meta_path(path)):
+        print(
+            "[API] Warning: " + _meta_path(path) + " does not match " + path +
+            "; treating the token file as authoritative (manual rotation?)."
+        )
+    return token
 
 
 def _generate() -> str:
@@ -210,6 +228,26 @@ def _atomic_write(path: str, body: str) -> None:
             pass
         raise
 
+
+def _refresh_meta(path: str, token: str) -> None:
+    """Bring the digest sidecar in line with an accepted token, best effort.
+
+    Runs after a token was accepted but its sidecar was missing or stale — a
+    manual rotation, or a file written before the sidecar existed. A read-only
+    secret mount must keep working, so a failure here is ignored: the token is
+    already the authoritative value and the next writable boot will retry.
+    """
+    if _meta_matches(path, token):
+        return
+    try:
+        meta = {
+            "version": _TOKEN_META_VERSION,
+            "length": len(token),
+            "sha256": hashlib.sha256(token.encode("utf-8")).hexdigest(),
+        }
+        _atomic_write(_meta_path(path), json.dumps(meta, sort_keys=True) + "\n")
+    except OSError:
+        pass
 
 def _persist(path: str, token: str) -> None:
     """Persist `token` and its digest, atomically and in that order.
@@ -358,6 +396,9 @@ def get_api_token() -> str:
         path = token_file()
         token = _read_token(path)
 
+        if token:
+            _refresh_meta(path, token)
+
         if not token:
             if settings.is_production:
                 # Plan §3.3 lists "API secret missing → do not boot" for the
@@ -367,9 +408,17 @@ def get_api_token() -> str:
                 # the rule exists to prevent: the service comes up healthy, its
                 # token is not the one the operator set, and a second replica
                 # generates a different one.
+                detail = ""
+                if os.path.exists(path):
+                    detail = (
+                        f" The file at {path} exists but is not a usable token "
+                        f"(minimum {_MIN_TOKEN_LENGTH} characters, no whitespace); "
+                        "replace it with the secret, or delete it and set "
+                        "FIXIMG_API_TOKEN."
+                    )
                 raise ValueError(
                     "Production configuration has no API token: set FIXIMG_API_TOKEN "
-                    "or place the secret at " + path
+                    "or place the secret at " + path + "." + detail
                 )
             token = _resolve_persisted_token(path)
 
