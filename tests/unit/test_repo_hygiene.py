@@ -5,15 +5,19 @@ blank line at EOF in a test file. The lint job runs ruff and compileall, not
 git whitespace checks, so nothing would have caught a repeat. These tests make
 the manual command a gate and keep it wired into CI.
 """
+import os
 import subprocess
 
 import pytest
 
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 BASE = "v3.1.2"
 
 
 def _git(*args: str) -> subprocess.CompletedProcess:
-    return subprocess.run(["git", *args], capture_output=True, text=True, timeout=120)
+    return subprocess.run(
+        ["git", "-C", PROJECT_ROOT, *args], capture_output=True, text=True, timeout=120
+    )
 
 
 def test_the_branch_diff_has_no_whitespace_errors():
@@ -35,7 +39,7 @@ def test_the_branch_diff_has_no_whitespace_errors():
 
 def test_ci_lint_runs_the_whitespace_gate():
     """The gate must run in CI, not only on the machine that remembered it."""
-    with open(".github/workflows/ci.yml", encoding="utf-8") as handle:
+    with open(os.path.join(PROJECT_ROOT, ".github", "workflows", "ci.yml"), encoding="utf-8") as handle:
         ci = handle.read()
     assert "git diff --check v3.1.2..HEAD" in ci, (
         "the lint job no longer runs the whitespace gate; a new blank line at EOF"
