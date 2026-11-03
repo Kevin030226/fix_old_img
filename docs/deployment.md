@@ -89,8 +89,42 @@ Useful commands:
 | `make migrate` | V1 history → task tables (dry run) |
 | `make verify-weights` | verify weights against the manifest |
 
-## Containers
+## Wheel installs and the runtime resource tree
 
+`python -m build` produces a **code-only wheel**: it contains the `fiximg/`
+package and its metadata and nothing else. The runtime resource tree —
+`config/` (weight manifest, example users), `models/manifest.yaml`, the
+`Global/` and `Face_Enhancement/` model code and the weight files themselves —
+is **not** packaged. Those assets are large, partly licensed for research use
+only, and are deployed as a separate tree. A bare wheel is therefore not a
+standalone installation, and this project does not claim it is.
+
+A non-editable install must name the tree explicitly:
+
+```bash
+pip install fiximg-3.1.2-py3-none-any.whl
+export FIXIMG_PROJECT_ROOT=/opt/fiximg        # or C:\fiximg on Windows
+fiximg-verify-weights verify                  # reads config/weights_manifest.json
+fiximg-api                                    # constructs the app
+```
+
+`FIXIMG_PROJECT_ROOT` must point at a directory containing at least `config/`
+and `models/`; the production tree also carries `Global/`, `Face_Enhancement/`
+and the downloaded weights. Resolution order is: `FIXIMG_PROJECT_ROOT`, then the
+source checkout the module was imported from, then the directory containing the
+installed package (and its parent, `site-packages`).
+
+A wheel install that cannot see `config/` or `models/` stops at startup with one
+actionable error naming both the missing directories and this variable —
+`fiximg.paths.require_project_root()` is called by `create_app()`, the API and
+worker entry points, the batch CLI and the weight commands. That is deliberate:
+a missing manifest deep inside a loader produces a traceback that tells an
+operator nothing they can act on.
+
+An editable install (`pip install -e .`) and a source checkout need no variable:
+the checkout root already carries the tree.
+
+## Containers
 | File | Topology | Use when |
 |---|---|---|
 | `Dockerfile` | All-in-one (API + UI + inline worker) | Personal machine, demo |
