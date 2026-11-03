@@ -28,8 +28,23 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: "3.11"
-      - name: Install ruff
-        run: pip install ruff
+      # The whitespace gate the RC2.1 audit asked for: git rejects a new blank line
+      # at EOF / trailing whitespace, but nothing in CI ran it before. The release
+      # base is fetched shallowly so the diff stays cheap; if the tag cannot be
+      # fetched the step says so instead of passing silently.
+      - name: Whitespace check against the release base
+        run: |
+          git fetch --no-tags --depth=1 origin refs/tags/v3.1.2:refs/tags/v3.1.2 2>/dev/null || true
+          if git rev-parse -q --verify refs/tags/v3.1.2 >/dev/null; then
+            git diff --check v3.1.2..HEAD
+          else
+            echo "::warning::v3.1.2 tag unavailable; whitespace check skipped"
+          fi
+      # Pinned through the generated dev group (ruff==0.17.3, mypy==2.4.1); a bare
+      # `pip install ruff` made the lint gate change with the index.
+      - name: Install ruff + mypy from the locked dev group
+        run: |
+          python -m pip install -r requirements/dev.txt
       - name: Ruff lint (src/, tests/, benchmark/, scripts/, entry points)
         run: ruff check src tests benchmark scripts main.py worker.py run.py
       - name: Parse every file with the target interpreter's grammar
@@ -140,8 +155,10 @@ jobs:
         with:
           python-version: "3.11"
           cache: pip
+      # Same pins as the tests job; an unpinned CPU torch let the benchmark run on
+      # a different torch than the audited 2.7.1.
       - name: Install CPU torch
-        run: pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
+        run: pip install torch==2.7.1 torchvision==0.22.1 --index-url https://download.pytorch.org/whl/cpu
       - name: Install project
         run: |
           pip install -r requirements/runtime.txt -r requirements/test.txt
@@ -536,7 +553,9 @@ jobs:
           python-version: "3.11"
       - name: Assert the matrix builds, smokes and scans every image
         run: |
-          pip install --quiet pyyaml
+          # PyYAML is a deployment pin; install it from the generated runtime group
+          # instead of resolving a floating version in this small gate job.
+          python -m pip install --quiet -r requirements/runtime.txt
           python - <<'PY'
           import sys, yaml
           doc = yaml.safe_load(open(".github/workflows/ci.yml", encoding="utf-8"))
@@ -580,6 +599,7 @@ jobs:
       # which is why this job installs `.[test]`.
       - name: Verify the locked requirement groups are current
         run: |
+          # pip itself is the bootstrap installer, intentionally latest on the runner.
           python -m pip install --upgrade pip
           python -m pip install -r requirements/runtime.txt -r requirements/test.txt --quiet
           python -m pip install --no-deps -e . --quiet
@@ -591,6 +611,10 @@ jobs:
       # could ever read its result — the audit equivalent of `continue-on-error`.
       - name: Audit dependencies
         run: |
+          # Intentional float, and the only other one: pip-audit must track the
+          # current advisory database/CLI, and pip is the bootstrap installer.
+          # tests/unit/test_dependency_surfaces.py pins this allowlist so a
+          # project dependency cannot join it silently.
           python -m pip install --upgrade pip pip-audit
           ignores=""
           while read -r id; do

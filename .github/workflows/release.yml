@@ -163,7 +163,10 @@ jobs:
           python-version: "3.11"
       - name: Build sdist + wheel
         run: |
-          pip install --upgrade pip build
+          # `pip` is the bootstrap installer and is intentionally the latest on the
+          # runner; `build` is pinned because it produces the published artifacts.
+          python -m pip install --upgrade pip
+          python -m pip install "build==1.6.1"
           python -m build
       - name: Checksums
         run: cd dist && sha256sum * > sha256sums.txt && cat sha256sums.txt

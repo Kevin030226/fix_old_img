@@ -184,3 +184,124 @@ def test_readme_version_tables_match_the_lock():
                 assert mention == major_minor or mention == version, (
                     f"{name} advertises {package} {mention}, but requirements.lock pins {version}"
                 )
+
+
+# ---------------------------------------------- workflow install reproducibility
+
+#: The only packages allowed to float in a workflow. `pip` is the bootstrap
+#: installer; `pip-audit` is the security tool that must track the current
+#: advisory database. Both are deliberate, reviewed exceptions (the workflow
+#: comments say why). Everything else must be an exact pin or a generated group.
+ALLOWED_FLOATS = {("pip",), ("pip", "pip-audit")}
+
+
+def _pip_install_commands(text: str) -> list[str]:
+    """pip install commands in a workflow, with shell continuations joined."""
+    commands: list[str] = []
+    pending = None
+    for raw in text.splitlines():
+        line = raw.strip()
+        if pending is None:
+            # Prose/comments may mention pip install without being a command.
+            if line.startswith("#") or line.startswith("echo "):
+                continue
+            if "pip install" in line:
+                pending = line
+            else:
+                continue
+        else:
+            pending = pending + " " + line
+        if not pending.endswith("\\"):
+            commands.append(pending)
+            pending = None
+    if pending is not None:
+        commands.append(pending)
+    return commands
+
+
+def _package_tokens(command: str) -> list[str]:
+    """Package arguments of one pip install, ignoring flags and -r targets."""
+    rest = command.split("pip install", 1)[1]
+    tokens = rest.replace("\\", " ").split()
+    if "--no-deps" in tokens:
+        return []
+    packages: list[str] = []
+    skip_next = False
+    value_flags = {
+        "-r", "--requirement", "-c", "--constraint", "-i", "--index-url",
+        "--extra-index-url", "-f", "--find-links", "--platform",
+        "--python-version", "--implementation", "--abi", "--progress-bar",
+        "-t", "--target",
+    }
+    for token in tokens:
+        if skip_next:
+            skip_next = False
+            continue
+        if token in value_flags:
+            skip_next = True
+            continue
+        if token.startswith("-"):
+            continue
+        packages.append(token)
+    return packages
+
+
+def test_workflows_do_not_install_unpinned_project_dependencies():
+    """A workflow must install pins or generated groups; only two floats exist.
+
+    The RC2.1 audit found `pip install ruff`, an unpinned benchmark torch and a
+    floating `pip install pyyaml` in CI, and `pip install --upgrade pip build` in
+    release. Project dependencies now come from generated groups or exact pins;
+    the two exceptions above stay explicit and are asserted here so a new float
+    cannot be added silently.
+    """
+    for relative in (os.path.join(".github", "workflows", "ci.yml"),
+                     os.path.join(".github", "workflows", "release.yml")):
+        text = _read(relative)
+        for command in _pip_install_commands(text):
+            packages = _package_tokens(command)
+            if not packages:
+                continue
+            if all("==" in package for package in packages):
+                continue
+            if tuple(packages) in ALLOWED_FLOATS and "--upgrade" in command:
+                continue
+            raise AssertionError(
+                f"{relative} runs a floating install: {command!r} "
+                f"(packages without exact pins: {packages}); install a generated "
+                "group or an exact pin, or add a reviewed entry to ALLOWED_FLOATS"
+            )
+
+
+def test_the_lint_job_uses_the_locked_ruff():
+    """`pip install ruff` made the lint gate follow the index; dev.txt pins it."""
+    ci = _read(os.path.join(".github", "workflows", "ci.yml"))
+    assert re.search(r"(?m)^\s*(?:run:\s*)?pip install ruff\s*$", ci) is None
+    assert "-r requirements/dev.txt" in ci
+
+
+def test_make_install_targets_use_locked_groups_not_pyproject_floors():
+    """`make install*` is a deployment entry too; floors would drift from the lock."""
+    makefile = _read("Makefile")
+    lines = makefile.splitlines()
+    blocks: dict[str, list[str]] = {}
+    current = None
+    for line in lines:
+        if line and not line.startswith(("\t", " ")) and line.rstrip().endswith(":") is False:
+            pass
+        if line.startswith(("install:", "install-gpu:", "install-all:")):
+            current = line.split(":", 1)[0]
+            blocks[current] = []
+            continue
+        if current and line and not line.startswith(("\t", " ")):
+            if ":" in line:
+                current = None
+                continue
+        if current:
+            blocks[current].append(line)
+    for target in ("install", "install-gpu", "install-all"):
+        body = "\n".join(blocks.get(target, []))
+        assert "-r requirements/" in body, f"{target} does not install a generated group"
+        assert 'pip install -e ".[' not in body, (
+            f"{target} installs pyproject floors; use the generated groups then --no-deps"
+        )

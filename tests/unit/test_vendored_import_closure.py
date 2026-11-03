@@ -351,8 +351,10 @@ def test_the_flat_requirements_file_is_a_generated_runtime_compatibility_entry()
         return [line.strip() for line in body.splitlines()
                 if line.strip() and not line.strip().startswith("#")]
 
+    # Not byte-identical: the headers differ (the compatibility file declares its
+    # role). The property is an identical effective pin list.
     assert pins(text) == pins(runtime), (
-        "requirements.txt and requirements/runtime.txt no longer carry the same pins"
+        "requirements.txt and requirements/runtime.txt no longer share the same effective pins"
     )
     lock_names = {line.split("==", 1)[0].strip().lower().replace("_", "-").replace(".", "-")
                   for line in _read(os.path.join(ROOT, "requirements.lock")).splitlines()
@@ -360,5 +362,3 @@ def test_the_flat_requirements_file_is_a_generated_runtime_compatibility_entry()
     for line in pins(text):
         name = line.split("==", 1)[0].strip().lower().replace("_", "-").replace(".", "-")
         assert name in lock_names, f"requirements.txt pins {name}, which is absent from requirements.lock"
-
-
