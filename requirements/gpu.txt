@@ -3,8 +3,12 @@
 # Group: gpu
 # Source: requirements.lock + the `gpu` extra in pyproject.toml
 # Versions: the freeze named by requirements.lock's `# Frozen-environment:` line
+# Platform scope: python 3.11 / win32
 #
 # Install with:  pip install -r requirements/gpu.txt
+# Groups are additive: install every group the deployment needs (docs/deployment.md).
+# Prerequisites: the runtime group, torch from the cu128 index, and dlib from a
+# conda/prebuilt artifact (see docs/deployment.md section Platform scope and prerequisites).
 anyio==4.16.0
 click==8.5.0
 colorama==0.4.6

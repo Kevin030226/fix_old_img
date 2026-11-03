@@ -3,8 +3,10 @@
 # Group: postgres
 # Source: requirements.lock + the `postgres` extra in pyproject.toml
 # Versions: the freeze named by requirements.lock's `# Frozen-environment:` line
+# Platform scope: python 3.11 / win32
 #
 # Install with:  pip install -r requirements/postgres.txt
+# Groups are additive: install every group the deployment needs (docs/deployment.md).
 alembic==1.20.1
 Mako==1.4.3
 MarkupSafe==3.0.3

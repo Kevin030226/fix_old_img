@@ -6,6 +6,7 @@
 # source below and are pinned as plain `name==version` above, so this file stays
 # installable on a machine that does not have those paths.
 # Frozen-environment: python 3.11 / win32
+# Platform scope: python 3.11 / win32
 #
 #   dlib==20.0.1 came from file:///<local>/dlib-split_1774832457722/work
 alembic==1.20.1

@@ -3,8 +3,10 @@
 # Group: runtime
 # Source: requirements.lock + the `runtime` extra in pyproject.toml
 # Versions: the freeze named by requirements.lock's `# Frozen-environment:` line
+# Platform scope: python 3.11 / win32
 #
 # Install with:  pip install -r requirements/runtime.txt
+# Groups are additive: install every group the deployment needs (docs/deployment.md).
 annotated-doc==0.0.5
 annotated-types==0.8.0
 anyio==4.16.0

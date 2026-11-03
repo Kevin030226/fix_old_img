@@ -3,6 +3,8 @@
 # Group: redis
 # Source: requirements.lock + the `redis` extra in pyproject.toml
 # Versions: the freeze named by requirements.lock's `# Frozen-environment:` line
+# Platform scope: python 3.11 / win32
 #
 # Install with:  pip install -r requirements/redis.txt
+# Groups are additive: install every group the deployment needs (docs/deployment.md).
 redis==8.1.0
