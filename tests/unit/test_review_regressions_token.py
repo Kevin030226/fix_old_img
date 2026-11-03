@@ -308,3 +308,27 @@ def test_a_short_lock_timeout_fails_closed_then_recovers(token_path, monkeypatch
     token = security.get_api_token()
     assert token
     assert open(token_path, encoding="utf-8").read().strip() == token
+
+
+def test_a_running_process_keeps_its_cached_token_until_restart(monkeypatch, tmp_path):
+    """Rotating the file is not a hot reload; processes must be restarted."""
+    token_path = tmp_path / "api_token.txt"
+    token_path.write_text("first-token-value-1234", encoding="utf-8")
+    monkeypatch.setattr(security, "token_file", lambda: str(token_path))
+    security.reset_cache()
+    try:
+        first = security.get_api_token()
+        assert first == "first-token-value-1234"
+
+        replacement = tmp_path / ".api_token.new"
+        replacement.write_text("second-token-value-5678", encoding="utf-8")
+        os.replace(replacement, token_path)
+
+        assert security.get_api_token() == first, (
+            "a running process picked up the rotated file; there is no hot reload"
+        )
+
+        security.reset_cache()  # what a restart does
+        assert security.get_api_token() == "second-token-value-5678"
+    finally:
+        security.reset_cache()
