@@ -82,6 +82,8 @@ else
   echo "    already exists, skipping"
 fi
 
-echo "==> Done. If this is a first deployment, re-generate the weights manifest:"
-echo "    python -m fiximg.cli.download_weights generate"
+echo "==> Done. Verify the downloaded files against the committed manifest:"
+echo "    python -m fiximg.cli.download_weights verify"
+echo "    (a normal download never rewrites the manifest; maintainers only:"
+echo "     python -m fiximg.cli.download_weights generate)"
 

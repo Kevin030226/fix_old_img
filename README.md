@@ -203,11 +203,13 @@ pip install -r requirements/runtime.txt -r requirements/gpu.txt --extra-index-ur
 # 5. Make the `fiximg` package importable (needed by `python -m fiximg.*`)
 pip install -e . --no-deps
 
-# 6. Download model weights (BOB restoration chain + DDColor + dlib models, ~2.8 GB on disk)
+# 6. Download model weights (BOB restoration chain + DDColor + dlib models, ~3.3 GB on disk)
+#    The committed config/weights_manifest.json is the baseline: `download` verifies
+#    every declared path, size and sha256 against it, exits non-zero on any mismatch,
+#    and never rewrites the manifest. `generate` is maintainer-only and explicit.
 python -m fiximg.cli.download_weights download
 
-# 7. If weights differ from the repo manifest, regenerate and verify
-python -m fiximg.cli.download_weights generate
+# 7. Re-run the integrity check at any time
 python -m fiximg.cli.verify_weights
 ```
 
@@ -519,7 +521,7 @@ Evaluation outputs include the plan §16 families: input-output difference (PSNR
 ## 8. FAQ
 
 **Q1: "Weight integrity check failed" at startup**
-Weights are missing or hashes mismatch. Run `python -m fiximg.cli.download_weights download` to fetch them, then run `python -m fiximg.cli.download_weights generate` to regenerate the manifest (also needed when local weights differ from the repo manifest).
+Weights are missing or hashes mismatch. Run `python -m fiximg.cli.download_weights download` to fetch them: it verifies the result against the committed `config/weights_manifest.json` and exits non-zero (listing every missing/size/hash mismatch) without rewriting that file. If the downloaded payload is wrong, fix the source or restore the manifest from version control — do not regenerate the baseline to silence the check. Maintainers can rebuild the baseline explicitly with `python -m fiximg.cli.download_weights generate`.
 
 **Q2: CUDA unavailable / sm_120 incompatible**
 Make sure torch 2.7.1+cu128 or newer is installed (RTX 50 series requires the cu128 build); older cu121 builds do not support Blackwell.

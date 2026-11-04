@@ -70,6 +70,8 @@ Two of plan §3.3's four gates are **not** enforced here, on purpose:
 python -m venv .venv && . .venv/bin/activate
 # make install-gpu installs the locked runtime/gpu/test/dev groups and then the
 # package with --no-deps (make install is the CPU-only variant)
+# verifies every declared path/size/sha256 against the committed manifest and
+# never rewrites it (generate is the explicit maintainer-only baseline rebuild)
 python -m fiximg.cli.download_weights download
 python main.py                        # http://127.0.0.1:9502
 ```

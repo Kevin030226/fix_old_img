@@ -203,11 +203,12 @@ pip install -r requirements/runtime.txt -r requirements/gpu.txt --extra-index-ur
 # 5. 让 `fiximg` 包可被导入（`python -m fiximg.*` 需要）
 pip install -e . --no-deps
 
-# 6. 下载模型权重（BOB 修复链路 + DDColor 上色 + dlib 模型，磁盘约 2.8 GB）
+# 6. 下载模型权重（BOB 修复链路 + DDColor 上色 + dlib 模型，磁盘约 3.3 GB）
+#    仓库内 config/weights_manifest.json 是基线：download 按清单逐项校验 path/size/sha256，
+#    任一不符即非零退出，且不会改写清单；generate 仅限维护者显式执行。
 python -m fiximg.cli.download_weights download
 
-# 7. 若权重来源与仓库清单不同，重新生成并校验
-python -m fiximg.cli.download_weights generate
+# 7. 随时可复跑完整性校验
 python -m fiximg.cli.verify_weights
 ```
 
@@ -490,8 +491,8 @@ ruff check src tests benchmark main.py worker.py run.py
 评估输出覆盖方案 §16 的各指标族：输入-输出差异（PSNR/SSIM/MAE）、无参考指标（清晰度/对比度/亮度/噪声）、可选自然场景统计（NIQE、BRISQUE 风格特征、色彩统计）、人脸身份保持（§17），以及附参考照片时的 Ground-Truth LPIPS（§16）。
 ## 8. 常见问题
 
-**Q1：启动提示"权重完整性校验失败"**
-权重缺失或哈希不符。运行 `python -m fiximg.cli.download_weights download` 补齐，然后执行 `python -m fiximg.cli.download_weights generate` 重新生成清单（本地权重与仓库清单不一致时同样处理）。
+**Q1：启动提示「权重完整性校验失败」**
+权重缺失或哈希不符。运行 `python -m fiximg.cli.download_weights download` 补齐：该命令会按已提交的 `config/weights_manifest.json` 逐项校验，任一项缺失、尺寸或哈希不符即非零退出并列出明细，且不会改写清单。若下载到的 payload 本身有误，应修复来源或从版本库恢复清单，不要重生成基线来消掉告警。维护者可显式执行 `python -m fiximg.cli.download_weights generate` 重建基线。
 
 **Q2：CUDA 不可用 / 提示 sm_120 不兼容**
 请确认安装的是 torch 2.7.1+cu128 及以上（RTX 50 系需要 cu128 构建）；老版本 cu121 不支持 Blackwell 架构。

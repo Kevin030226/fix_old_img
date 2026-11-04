@@ -4,7 +4,7 @@ One detector resolution for the whole app so the analyzer's `face_count` and
 the identity module's face boxes agree. Backend order (configurable):
 
   1. OpenCV YuNet ONNX (`weights/yunet/face_detection_yunet_2023mar.onnx`,
-     downloadable via `python -m scripts.download_weights download`) —
+     downloadable via `python -m fiximg.cli.download_weights download`) —
      accurate and dependency-light
   2. OpenCV Haar cascades (removed in OpenCV 5.x, kept for 4.x installs)
   3. dlib frontal detector (needs `import dlib`, no extra files)

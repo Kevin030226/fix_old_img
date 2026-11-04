@@ -2,8 +2,11 @@
 
 Replaces scripts/download_weights.sh with a Python implementation that supports:
 
-  - python -m scripts.download_weights   idempotent downloads + manifest rebuild
-  - python -m scripts.verify_weights     manifest verification (fail-fast)
+  - python -m fiximg.cli.download_weights download  idempotent downloads, followed
+    by verification against the committed manifest (which is never rewritten)
+  - python -m fiximg.cli.download_weights verify     manifest verification (fail-fast)
+  - python -m fiximg.cli.download_weights generate   maintainer-only: rebuild the
+    baseline from the files already on disk (explicit; download never calls it)
 
 Layout stays on the legacy roots (Global/, Face_Enhancement/, Face_Detection/,
 weights/ddcolor/) because the V1 model scripts resolve those paths themselves;
@@ -108,6 +111,10 @@ class DownloadError(RuntimeError):
     """A weight artifact could not be downloaded from any source."""
 
 
+class WeightsIntegrityError(RuntimeError):
+    """Weight verification failed (missing file, size or hash mismatch)."""
+
+
 # ------------------------------------------------------------------ helpers
 def compute_sha256(path: str) -> str:
     h = hashlib.sha256()
@@ -205,18 +212,40 @@ def _prepare_zip(url: str, dest_dir: str) -> None:
 
 # ----------------------------------------------------------------- commands
 def download_all(skip_existing: bool = True) -> dict:
-    """Ensure every registered artifact exists; rebuild the manifest after.
+    """Ensure every artifact declared in the committed manifest exists.
 
-    Returns a summary dict {artifact: "ok"|"skipped"|"failed: reason"}.
-    Exits non-zero via DownloadError when an artifact cannot be fetched.
+    The manifest read before the first download is the expected set: after the
+    downloads finish, every declared path must exist with the declared byte size
+    and sha256. The manifest itself is never written here -- a maintainer who
+    intends to change the baseline runs the explicit generate command.
+
+    Returns a summary dict {artifact: "ok"|"skipped (exists)"}.
+    Raises DownloadError when an artifact cannot be fetched and
+    WeightsIntegrityError when the result does not match the committed manifest.
     """
+    manifest = _load_manifest()
+    expected_by_artifact = _manifest_files_by_artifact(manifest)
+    registered = set(ARTIFACTS)
+    declared = set(expected_by_artifact)
+    if declared - registered:
+        raise WeightsIntegrityError(
+            "The committed manifest declares artifacts the download registry does not "
+            f"know: {sorted(declared - registered)}"
+        )
+    unknown = registered - declared
+    if unknown:
+        raise WeightsIntegrityError(
+            "The download registry contains artifacts the committed manifest does not "
+            f"declare: {sorted(unknown)}. The registry and the manifest are out of sync."
+        )
     summary: dict = {}
     for name, spec in ARTIFACTS.items():
-        # Every path the artifact promises, not just the anchor: an artifact whose
-        # anchor is a directory is only complete when that directory is populated.
-        if skip_existing and all(
-            _file_complete(os.path.join(BASE_DIR, rel)) for rel in spec["files"]
-        ):
+        # Use the manifest's complete expected file set, not just the registry's
+        # anchor: a partially populated checkpoint tree re-downloads, and a complete
+        # one is skipped only because the verification below still hashes every
+        # declared entry.
+        expected = expected_by_artifact[name]
+        if skip_existing and all(_entry_complete(entry) for entry in expected):
             summary[name] = "skipped (exists)"
             continue
         if spec["kind"] == "raw":
@@ -231,7 +260,13 @@ def download_all(skip_existing: bool = True) -> dict:
             dest_dir = os.path.join(BASE_DIR, spec["files"][0])
             _fetch_from_sources(spec["sources"], lambda url, _d=dest_dir: _prepare_zip(url, _d))
         summary[name] = "ok"
-    generate_manifest()
+
+    problems = _verify_manifest(manifest)
+    if problems:
+        raise WeightsIntegrityError(
+            "Weight download does not match the committed manifest "
+            "(the manifest was not modified):\n- " + "\n- ".join(problems)
+        )
     return summary
 
 
@@ -252,9 +287,10 @@ def _fetch_from_sources(sources: Sequence[str], prepare) -> None:
 def generate_manifest() -> dict:
     """Walk all registered artifact files and write the baseline manifest.
 
-    Entries carry sha256, size_bytes and version (plan §19 manifest contract).
-    Only files under the registered artifacts are hashed — arbitrary stray
-    weights elsewhere in the repo are ignored.
+    Maintainer-only and deliberately explicit: this rewrites the trust anchor,
+    so download/verify never call it. Entries carry sha256, size_bytes and
+    version (plan §19 manifest contract). Only files under the registered
+    artifacts are hashed — arbitrary stray weights elsewhere are ignored.
     """
     entries = []
     for name, spec in ARTIFACTS.items():
@@ -295,39 +331,103 @@ def generate_manifest() -> dict:
     return manifest
 
 
-class WeightsIntegrityError(RuntimeError):
-    """Weight verification failed (missing file, size or hash mismatch)."""
+# ------------------------------------------------------- manifest baseline
+def _load_manifest(manifest_path: str | None = None) -> dict:
+    """Read the committed baseline; fail with an actionable error when absent.
 
-
-def verify(manifest_path: str | None = None) -> int:
-    """Verify every manifest entry; return the number of checked files."""
+    download must never create or refresh this file. A missing manifest means the
+    deployment tree lost its trust anchor; restoring it from version control is
+    the answer, not silently hashing the files that happen to be on disk.
+    """
     path = manifest_path or MANIFEST_PATH
     if not os.path.exists(path):
         raise WeightsIntegrityError(
             f"Weight manifest not found: {path}\n"
-            "Generate it first: python -m scripts.download_weights"
+            "The committed manifest is the baseline for downloads and startup checks. "
+            "Restore it from version control; a maintainer can rebuild it once, "
+            "explicitly, with: python -m fiximg.cli.download_weights generate"
         )
-    with open(path, encoding="utf-8") as f:
-        manifest = json.load(f)
+    try:
+        with open(path, encoding="utf-8") as handle:
+            manifest = json.load(handle)
+    except (OSError, ValueError) as exc:
+        raise WeightsIntegrityError(f"Cannot read weight manifest {path}: {exc}") from exc
+    files = manifest.get("files")
+    if not isinstance(files, list) or not files:
+        raise WeightsIntegrityError(f"Weight manifest {path} declares no files.")
+    return manifest
 
-    problems = []
-    for entry in manifest.get("files", []):
+
+def _manifest_files_by_artifact(manifest: dict) -> dict[str, list[dict]]:
+    """Group manifest entries by artifact, rejecting incomplete declarations."""
+    grouped: dict[str, list[dict]] = {}
+    for entry in manifest["files"]:
+        rel = entry.get("path")
+        artifact = entry.get("artifact")
+        expected_sha = entry.get("sha256")
+        expected_size = entry.get("size_bytes")
+        if (
+            not rel
+            or not artifact
+            or not isinstance(expected_sha, str)
+            or not isinstance(expected_size, int)
+        ):
+            raise WeightsIntegrityError(
+                "Malformed weight manifest entry: each entry needs path, artifact, "
+                f"size_bytes and sha256; got {entry!r}"
+            )
+        grouped.setdefault(artifact, []).append(entry)
+    return grouped
+
+
+def _entry_complete(entry: dict) -> bool:
+    """Whether the manifest entry is present with the declared byte size.
+
+    Hash checking is left to _verify_manifest so the skip decision stays cheap
+    while the post-download proof below still hashes every declared entry.
+    """
+    ap = os.path.join(BASE_DIR, entry["path"])
+    return os.path.isfile(ap) and os.path.getsize(ap) == entry["size_bytes"]
+
+
+def _verify_manifest(manifest: dict) -> list[str]:
+    """Return problems for every manifest entry (missing/size/hash mismatch).
+
+    Iterates the declared entries, not the files discovered on disk: a download
+    that silently skips one declared item must fail rather than shrink coverage.
+    """
+    problems: list[str] = []
+    for entry in manifest["files"]:
         rel = entry["path"]
+        expected_size = entry["size_bytes"]
+        expected_sha = entry["sha256"].lower()
         ap = os.path.join(BASE_DIR, rel)
-        if not os.path.exists(ap):
+        if not os.path.isfile(ap):
             problems.append(f"Missing file: {rel}")
             continue
-        if entry.get("size_bytes") is not None and os.path.getsize(ap) != entry["size_bytes"]:
-            problems.append(f"Size mismatch: {rel}")
+        actual_size = os.path.getsize(ap)
+        if actual_size != expected_size:
+            problems.append(
+                f"Size mismatch: {rel}\n    expected {expected_size} bytes, actual {actual_size}"
+            )
             continue
-        if compute_sha256(ap) != entry.get("sha256"):
-            problems.append(f"Hash mismatch: {rel}")
+        actual_sha = compute_sha256(ap)
+        if actual_sha != expected_sha:
+            problems.append(
+                f"Hash mismatch: {rel}\n    expected {expected_sha}\n    actual   {actual_sha}"
+            )
+    return problems
 
+
+def verify(manifest_path: str | None = None) -> int:
+    """Verify every manifest entry; return the number of checked files."""
+    manifest = _load_manifest(manifest_path)
+    problems = _verify_manifest(manifest)
     if problems:
         raise WeightsIntegrityError(
             "Weight verification failed:\n- " + "\n- ".join(problems)
         )
-    return len(manifest.get("files", []))
+    return len(manifest["files"])
 
 
 def main(argv: list | None = None) -> int:
@@ -355,12 +455,16 @@ def main(argv: list | None = None) -> int:
     if cmd == "download":
         try:
             summary = download_all()
-        except DownloadError as exc:
+        except (DownloadError, WeightsIntegrityError) as exc:
             print(f"Download failed: {exc}", file=sys.stderr)
             return 1
         for name, status in summary.items():
             print(f"  {name}: {status}")
-        print(f"Manifest regenerated: {MANIFEST_PATH}")
+        checked = len(_load_manifest()["files"])
+        print(
+            f"Weight integrity check passed ({checked} files) against the committed "
+            "manifest; the manifest was not modified."
+        )
         return 0
     if cmd == "verify":
         try:
@@ -374,7 +478,10 @@ def main(argv: list | None = None) -> int:
         m = generate_manifest()
         print(f"Manifest regenerated: {MANIFEST_PATH} ({m['file_count']} files)")
         return 0
-    print("Usage: python -m scripts.download_weights [download|generate|verify]", file=sys.stderr)
+    print(
+        "Usage: python -m fiximg.cli.download_weights [download|generate|verify]",
+        file=sys.stderr,
+    )
     return 2
 
 
