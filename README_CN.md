@@ -206,6 +206,7 @@ pip install -e . --no-deps
 # 6. 下载模型权重（BOB 修复链路 + DDColor 上色 + dlib 模型，磁盘约 3.3 GB）
 #    仓库内 config/weights_manifest.json 是基线：download 按清单逐项校验 path/size/sha256，
 #    任一不符即非零退出，且不会改写清单；generate 仅限维护者显式执行。
+#    旧入口 bash scripts/download_weights.sh 同样委托给该命令，不再自行下载。
 python -m fiximg.cli.download_weights download
 
 # 7. 随时可复跑完整性校验
@@ -236,7 +237,7 @@ docker compose up -d --build   # api + worker（见 docker-compose.yml）
 docker compose logs -f worker
 ```
 
-镜像会安装依赖，首次构建时 dlib 为源码编译，耗时约 5-10 分钟。镜像**不包含模型权重**：`THIRD_PARTY_NOTICES.md` 明确本仓库只分发代码，且六个权重构件中有两个（dlib 的人脸关键点与识别模型）仅限研究/非商用，因此不随镜像再分发。没有权重的容器仍可正常提供服务——就绪探针会逐个报告模型不可用——补齐一次即可：
+镜像会安装依赖，首次构建时 dlib 为源码编译，耗时约 5-10 分钟。镜像**不包含模型权重**：`THIRD_PARTY_NOTICES.md` 明确本仓库只分发代码，且各权重许可逐项不同——dlib 68 点关键点模型明确限非商业，Microsoft checkpoints 存在 MIT 与「academic research use only」的文本冲突，其余构件还有训练数据/再分发问题待确认——因此均不随镜像再分发。没有权重的容器仍可正常提供服务——就绪探针会逐个报告模型不可用——补齐一次即可：
 
 ```bash
 docker compose exec worker python -m fiximg.cli.download_weights download
@@ -509,6 +510,7 @@ ruff check src tests benchmark main.py worker.py run.py
 ## 9. 第三方组件与许可
 
 - **本项目自身代码**：MIT License，见根目录 [LICENSE](LICENSE)；
-- **Bringing Old Photos Back to Life**（修复/检测/面部增强模型）：MIT License，见 [LICENSE-Bringing-Old-Photos-Back-to-Life](LICENSE-Bringing-Old-Photos-Back-to-Life)；
-- **DDColor**（老照片上色，ICCV 2023）：Apache-2.0，见 [ddcolor/LICENSE](ddcolor/LICENSE)；
+- **Bringing Old Photos Back to Life**（随仓库分发的代码）：MIT License，见 [LICENSE-Bringing-Old-Photos-Back-to-Life](LICENSE-Bringing-Old-Photos-Back-to-Life)；
+- **DDColor**（随仓库分发的代码，ICCV 2023）：Apache-2.0，见 [ddcolor/LICENSE](ddcolor/LICENSE)；
+- **模型权重**不随本仓库分发，且与代码许可分开：Microsoft checkpoints 的 MIT 与「academic research use only」文本冲突未消歧；dlib 68 点关键点模型仅限非商业；dlib 人脸识别模型为 CC0 但训练数据为非商业条款；YuNet 模型目录为 MIT；DDColor 模型仓声明 Apache-2.0。详见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) 与本地审计目录 `_repair/_weights_license_review/`；
 - 完整说明见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。

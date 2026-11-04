@@ -207,6 +207,7 @@ pip install -e . --no-deps
 #    The committed config/weights_manifest.json is the baseline: `download` verifies
 #    every declared path, size and sha256 against it, exits non-zero on any mismatch,
 #    and never rewrites the manifest. `generate` is maintainer-only and explicit.
+#    The legacy `bash scripts/download_weights.sh` delegates to this same command.
 python -m fiximg.cli.download_weights download
 
 # 7. Re-run the integrity check at any time
@@ -239,7 +240,7 @@ docker compose up -d --build   # api + worker (see docker-compose.yml)
 docker compose logs -f worker
 ```
 
-The image installs dependencies and compiles dlib from source on first build (about 5–10 minutes). It does **not** contain model weights: `THIRD_PARTY_NOTICES.md` records this distribution as code-only, and two of the six weight artifacts are licensed for research/non-commercial use, so they are not republished inside an image. A container without weights still serves — the readiness probe reports each model unavailable — and you fill it once:
+The image installs dependencies and compiles dlib from source on first build (about 5–10 minutes). It does **not** contain model weights: `THIRD_PARTY_NOTICES.md` records this distribution as code-only, and the weight licenses differ per artifact — the dlib 68-point landmark model is explicitly non-commercial, the Microsoft checkpoints carry conflicting MIT and "academic research use only" statements, and other artifacts have unresolved training-data or redistribution questions — so none is republished inside an image. A container without weights still serves — the readiness probe reports each model unavailable — and you fill it once:
 
 ```bash
 docker compose exec worker python -m fiximg.cli.download_weights download
@@ -538,6 +539,7 @@ Start with `FIXIMG_HOST=0.0.0.0` and allow `FIXIMG_PORT` through the firewall.
 ## 9. Third-Party Components & Licenses
 
 - **This project's own code**: MIT License, see [LICENSE](LICENSE);
-- **Bringing Old Photos Back to Life** (restoration/detection/face enhancement models): MIT License, see [LICENSE-Bringing-Old-Photos-Back-to-Life](LICENSE-Bringing-Old-Photos-Back-to-Life);
-- **DDColor** (old photo colorization, ICCV 2023): Apache-2.0, see [ddcolor/LICENSE](ddcolor/LICENSE);
+- **Bringing Old Photos Back to Life** (vendored code): MIT License, see [LICENSE-Bringing-Old-Photos-Back-to-Life](LICENSE-Bringing-Old-Photos-Back-to-Life);
+- **DDColor** (vendored code, ICCV 2023): Apache-2.0, see [ddcolor/LICENSE](ddcolor/LICENSE);
+- **Model weights** are not distributed here and are licensed separately from the code: the Microsoft checkpoints have an unresolved MIT vs "academic research use only" conflict, the dlib 68-point landmark model is non-commercial only, the dlib face-recognition model is CC0 with non-commercial training data, YuNet's model directory is MIT, and DDColor's model repo declares Apache-2.0; see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) and the local audit under `_repair/_weights_license_review/`;
 - Full details in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

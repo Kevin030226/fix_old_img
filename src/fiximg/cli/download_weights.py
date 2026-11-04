@@ -1,6 +1,8 @@
 """Weight management — download & verify (plan §19).
 
-Replaces scripts/download_weights.sh with a Python implementation that supports:
+This is the audited implementation behind both `python -m
+fiximg.cli.download_weights` and the legacy `scripts/download_weights.sh` wrapper,
+which now delegates here instead of running its own curl/wget copies. Supports:
 
   - python -m fiximg.cli.download_weights download  idempotent downloads, followed
     by verification against the committed manifest (which is never rewritten)
@@ -11,8 +13,10 @@ Replaces scripts/download_weights.sh with a Python implementation that supports:
 Layout stays on the legacy roots (Global/, Face_Enhancement/, Face_Detection/,
 weights/ddcolor/) because the V1 model scripts resolve those paths themselves;
 the plan's `models/` rename would break the vendored code and is therefore NOT
-part of this step. The manifest (config/weights_manifest.json) records
-sha256 + size + version per artifact and is rebuilt after download.
+part of this step. The manifest (config/weights_manifest.json) is the trust
+anchor: it records sha256 + size + version per artifact, is read before every
+download, and is never rewritten by download — only the explicit maintainer
+generate command writes it.
 
 Resume support: large single-file downloads (DDColor) use HTTP Range requests
 with a `.part` file, so an interrupted fetch continues where it stopped.

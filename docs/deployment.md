@@ -98,9 +98,11 @@ Useful commands:
 package and its metadata and nothing else. The runtime resource tree —
 `config/` (weight manifest, example users), `models/manifest.yaml`, the
 `Global/` and `Face_Enhancement/` model code and the weight files themselves —
-is **not** packaged. Those assets are large, partly licensed for research use
-only, and are deployed as a separate tree. A bare wheel is therefore not a
-standalone installation, and this project does not claim it is.
+is **not** packaged. Those assets are large, their weight licenses differ per
+artifact (one is explicitly non-commercial and another has conflicting upstream
+statements — see `THIRD_PARTY_NOTICES.md`), and they are deployed as a separate
+tree. A bare wheel is therefore not a standalone installation, and this project
+does not claim it is.
 
 A non-editable install must name the tree explicitly:
 
@@ -159,9 +161,10 @@ starts fast. The worker image (`docker/worker.Dockerfile`) carries the full GPU
 stack and the vendored model code.
 
 **Neither image contains model weights, and neither reaches for them at build time.**
-`THIRD_PARTY_NOTICES.md` records this repository as code-only, and two of the six
-weight artifacts (dlib's landmark predictor and its face-recognition ResNet) are
-restricted to research/non-commercial use, so they are not republished inside an image.
+`THIRD_PARTY_NOTICES.md` records this repository as code-only, and some weight artifacts
+are restricted or their terms are unresolved — the dlib landmark model is explicitly
+non-commercial, and the Microsoft checkpoints carry conflicting MIT and "academic
+research use only" statements — so none is republished inside an image.
 The build-time download also made every image build depend on a third-party host:
 `facevc.blob.core.windows.net` did not resolve from GitHub's runners on 2026-09-29, which
 failed both `images (worker)` jobs for `v3.0.0` before either Dockerfile had been

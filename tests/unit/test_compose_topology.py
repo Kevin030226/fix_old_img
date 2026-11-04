@@ -272,9 +272,10 @@ def test_building_an_image_does_not_depend_on_a_third_party_weight_host(path):
     `docker/worker.Dockerfile` fetched the restoration checkpoints unconditionally, so
     both `images (worker)` jobs for v3.0.0 died on `facevc.blob.core.windows.net` not
     resolving -- before the Dockerfile itself had been exercised at all. THIRD_PARTY_
-    NOTICES.md also records this distribution as code-only, with two of the six artifacts
-    restricted to research/non-commercial use, so baking them into a published image was
-    never the shape the project licenses itself to ship.
+    NOTICES.md also records this distribution as code-only, and some artifacts are
+    restricted or unresolved (the dlib landmark model is non-commercial; the Microsoft
+    checkpoints have conflicting MIT and academic-only statements), so baking them into a
+    published image was never a shape this project could license.
     """
     instructions = _dockerfile_instructions(path)
     fetching = [
