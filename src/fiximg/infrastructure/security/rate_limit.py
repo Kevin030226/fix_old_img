@@ -598,7 +598,9 @@ class _NamespacedLimiter:
             self._inner.reset(self._scoped(key))
 
 
-def _make_limiter(max_count: int, window_seconds: int = REGISTER_WINDOW, namespace: str = ""):
+def _make_limiter(
+    max_count: int, window_seconds: int = REGISTER_WINDOW, namespace: str = ""
+) -> "SharedSlidingWindowLimiter | SlidingWindowLimiter | _NamespacedLimiter":
     """Redis-backed limiter when configured, otherwise the in-process window.
 
     `namespace` scopes the keys inside the backend; the module-level limiters
@@ -606,6 +608,10 @@ def _make_limiter(max_count: int, window_seconds: int = REGISTER_WINDOW, namespa
     """
     from fiximg.config import settings
 
+    # The two classes expose the same hit()/allowed()/remaining()/reset() API but
+    # are unrelated in the type hierarchy, so the variable must be typed as the
+    # union or mypy pins it to whichever branch it sees first.
+    limiter: SharedSlidingWindowLimiter | SlidingWindowLimiter
     if (getattr(settings, "redis_url", "") or "").strip():
         limiter = SharedSlidingWindowLimiter(max_count, window_seconds)
     else:
