@@ -28,8 +28,23 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: "3.11"
-      - name: Install ruff
-        run: pip install ruff
+      # The whitespace gate the RC2.1 audit asked for: git rejects a new blank line
+      # at EOF / trailing whitespace, but nothing in CI ran it before. The release
+      # base is fetched shallowly so the diff stays cheap; if the tag cannot be
+      # fetched the step says so instead of passing silently.
+      - name: Whitespace check against the release base
+        run: |
+          git fetch --no-tags --depth=1 origin refs/tags/v3.1.2:refs/tags/v3.1.2 2>/dev/null || true
+          if git rev-parse -q --verify refs/tags/v3.1.2 >/dev/null; then
+            git diff --check v3.1.2..HEAD
+          else
+            echo "::warning::v3.1.2 tag unavailable; whitespace check skipped"
+          fi
+      # Pinned through the generated dev group (ruff==0.17.3, mypy==2.4.1); a bare
+      # `pip install ruff` made the lint gate change with the index.
+      - name: Install ruff + mypy from the locked dev group
+        run: |
+          python -m pip install -r requirements/dev.txt
       - name: Ruff lint (src/, tests/, benchmark/, scripts/, entry points)
         run: ruff check src tests benchmark scripts main.py worker.py run.py
       - name: Parse every file with the target interpreter's grammar
@@ -47,10 +62,10 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: "3.11"
-      - name: Install mypy + runtime deps
+      - name: Install mypy + locked deps
         run: |
-          pip install mypy
-          pip install -e ".[test]"
+          pip install -r requirements/runtime.txt -r requirements/test.txt -r requirements/dev.txt
+          pip install --no-deps -e .
       - name: mypy (fiximg package)
         # A real gate: the package type-checks clean, including the bodies of
         # untyped functions (`check_untyped_defs` in pyproject). This job used to
@@ -73,10 +88,15 @@ jobs:
           cache: pip
       # CPU-only torch keeps CI fast; heavy weights are never downloaded — the
       # tests stub model inference at the stage/backend boundary (plan §3.11).
+      # CI substitutes the CPU wheel of the same torch version; the release lock
+      # pins the cu128 build for the Windows deployment environment (see
+      # docs/deployment.md "Platform scope and prerequisites").
       - name: Install CPU torch
-        run: pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
-      - name: Install project (editable, test extras)
-        run: pip install -e ".[test]"
+        run: pip install torch==2.7.1 torchvision==0.22.1 --index-url https://download.pytorch.org/whl/cpu
+      - name: Install project (locked test group, no resolution)
+        run: |
+          pip install -r requirements/runtime.txt -r requirements/test.txt
+          pip install --no-deps -e .
       - name: Run tests (unit + api + inference + integration + e2e)
         env:
           FIXIMG_SKIP_WEIGHT_CHECK: "1"
@@ -110,8 +130,10 @@ jobs:
         with:
           python-version: "3.11"
           cache: pip
-      - name: Install project (test + postgres extras)
-        run: pip install -e ".[test,postgres]"
+      - name: Install project (locked test + postgres groups)
+        run: |
+          pip install -r requirements/runtime.txt -r requirements/test.txt -r requirements/postgres.txt
+          pip install --no-deps -e .
       - name: Migrations apply, roll back to base and re-apply on PostgreSQL
         env:
           FIXIMG_DATABASE_URL: postgresql://fiximg:fiximg@localhost:5432/fiximg_test
@@ -133,10 +155,14 @@ jobs:
         with:
           python-version: "3.11"
           cache: pip
+      # Same pins as the tests job; an unpinned CPU torch let the benchmark run on
+      # a different torch than the audited 2.7.1.
       - name: Install CPU torch
-        run: pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
+        run: pip install torch==2.7.1 torchvision==0.22.1 --index-url https://download.pytorch.org/whl/cpu
       - name: Install project
-        run: pip install -e ".[test]"
+        run: |
+          pip install -r requirements/runtime.txt -r requirements/test.txt
+          pip install --no-deps -e .
       # Synthetic-stage benchmarks need no weights and gate platform overhead:
       # the stage sleeps a known time, so p50 above the sleep is queue claim +
       # dispatch + artifact + logging cost, and exceeding the ceiling exits 1
@@ -357,7 +383,7 @@ jobs:
           docker run --rm fiximg-api:ci python3 --version
           docker run --rm fiximg-api:ci python3 -m pip check
           # The web stack and the three transports the platform profile uses.
-          docker run --rm fiximg-api:ci python3 -c "import fastapi, sqlalchemy, alembic, psycopg, redis, boto3, msgpack, yaml, filelock; print('api stack OK')"
+          docker run --rm fiximg-api:ci python3 -c "import fastapi, sqlalchemy, alembic, psycopg, redis, boto3, yaml, filelock; print('api stack OK')"
           # The entry point this image declares, and the package itself.
           docker run --rm fiximg-api:ci python3 -c "from fiximg.cli.api import app; print('api entry point OK')"
           docker run --rm fiximg-api:ci python3 -c "import fiximg; print('fiximg importable')"
@@ -377,7 +403,7 @@ jobs:
           docker run --rm fiximg-worker:ci python3 -c "import psycopg; print('psycopg OK')"
           docker run --rm fiximg-worker:ci python3 -c "import boto3; print('boto3 OK')"
           # The imaging/ML stack the worker cannot do its job without.
-          docker run --rm fiximg-worker:ci python3 -c "import sqlalchemy, alembic, numpy, torch, cv2, dlib, msgpack, fastapi; print('stack OK')"
+          docker run --rm fiximg-worker:ci python3 -c "import sqlalchemy, alembic, numpy, torch, cv2, dlib, fastapi; print('stack OK')"
           # The entry point this image declares, and the package itself.
           docker run --rm fiximg-worker:ci python3 -c "from fiximg.cli.worker import main; print('worker entry point OK')"
           docker run --rm fiximg-worker:ci python3 -c "import fiximg; print('fiximg importable')"
@@ -412,7 +438,7 @@ jobs:
         run: |
           docker run --rm fiximg-root:ci python3 --version
           # The transports docker-compose.yml offers, plus the web stack.
-          docker run --rm fiximg-root:ci python3 -c "import fastapi, yaml, filelock, msgpack, sqlalchemy, alembic, psycopg, redis, boto3; print('imports OK')"
+          docker run --rm fiximg-root:ci python3 -c "import fastapi, yaml, filelock, sqlalchemy, alembic, psycopg, redis, boto3; print('imports OK')"
           docker run --rm fiximg-root:ci python3 -c "import numpy, torch; print('numpy', numpy.__version__, 'torch', torch.__version__)"
           docker run --rm fiximg-root:ci python3 -c "import fiximg; print('fiximg importable')"
           docker run --rm fiximg-root:ci python3 -m pip check
@@ -527,7 +553,9 @@ jobs:
           python-version: "3.11"
       - name: Assert the matrix builds, smokes and scans every image
         run: |
-          pip install --quiet pyyaml
+          # PyYAML is a deployment pin; install it from the generated runtime group
+          # instead of resolving a floating version in this small gate job.
+          python -m pip install --quiet -r requirements/runtime.txt
           python - <<'PY'
           import sys, yaml
           doc = yaml.safe_load(open(".github/workflows/ci.yml", encoding="utf-8"))
@@ -571,8 +599,10 @@ jobs:
       # which is why this job installs `.[test]`.
       - name: Verify the locked requirement groups are current
         run: |
+          # pip itself is the bootstrap installer, intentionally latest on the runner.
           python -m pip install --upgrade pip
-          python -m pip install -e ".[test]" --quiet
+          python -m pip install -r requirements/runtime.txt -r requirements/test.txt --quiet
+          python -m pip install --no-deps -e . --quiet
           python scripts/export_locks.py --check
       # Dependency audit: a real gate. Every advisory in the pinned runtime
       # requirements fails the build, and an exemption has to be a reviewed line
@@ -581,6 +611,10 @@ jobs:
       # could ever read its result — the audit equivalent of `continue-on-error`.
       - name: Audit dependencies
         run: |
+          # Intentional float, and the only other one: pip-audit must track the
+          # current advisory database/CLI, and pip is the bootstrap installer.
+          # tests/unit/test_dependency_surfaces.py pins this allowlist so a
+          # project dependency cannot join it silently.
           python -m pip install --upgrade pip pip-audit
           ignores=""
           while read -r id; do
@@ -588,4 +622,10 @@ jobs:
             ignores="$ignores --ignore-vuln $id"
           done < <(grep -Ev '^[[:space:]]*(#|$)' config/audit_ignore.txt)
           echo "reviewed exemptions:${ignores:- none}"
-          pip-audit --requirement requirements.txt --strict ${ignores}
+          pip-audit \
+            --requirement requirements/runtime.txt \
+            --requirement requirements/postgres.txt \
+            --requirement requirements/redis.txt \
+            --requirement requirements/s3.txt \
+            --requirement requirements/otel.txt \
+            --strict ${ignores}

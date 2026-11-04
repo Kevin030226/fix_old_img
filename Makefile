@@ -20,21 +20,27 @@ LINT_PATHS := src tests benchmark scripts main.py worker.py run.py
 .DEFAULT_GOAL := help
 .PHONY: help install install-gpu install-all test test-gpu test-all lint fmt typecheck \
         bench bench-latency bench-throughput bench-memory serve worker migrate weights \
-        verify-weights clean tree
+        verify-weights whitespace-check clean tree
 
 help: ## Show this help
 	@grep -hE '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | \
 		awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-18s\033[0m %s\n", $$1, $$2}'
 
 # --------------------------------------------------------------------- install
-install: ## Editable install with test/dev extras (CPU-friendly)
-	$(PYTHON) -m pip install -e ".[test,dev]"
+install: ## Editable install from the locked runtime/test/dev groups (CPU-friendly)
+	$(PYTHON) -m pip install -r requirements/runtime.txt -r requirements/test.txt -r requirements/dev.txt
+	$(PYTHON) -m pip install --no-deps -e .
 
-install-gpu: ## Editable install with the GPU inference stack
-	$(PYTHON) -m pip install -e ".[gpu,test,dev]"
+install-gpu: ## Editable install from the locked runtime/gpu/test/dev groups
+	$(PYTHON) -m pip install -r requirements/runtime.txt -r requirements/gpu.txt -r requirements/test.txt -r requirements/dev.txt --extra-index-url https://download.pytorch.org/whl/cu128
+	$(PYTHON) -m pip install --no-deps -e .
 
-install-all: ## Editable install with every optional extra
-	$(PYTHON) -m pip install -e ".[gpu,redis,s3,otel,test,benchmark,dev]"
+install-all: ## Editable install from every generated group
+	$(PYTHON) -m pip install -r requirements/runtime.txt -r requirements/gpu.txt -r requirements/redis.txt -r requirements/s3.txt -r requirements/otel.txt -r requirements/postgres.txt -r requirements/test.txt -r requirements/dev.txt --extra-index-url https://download.pytorch.org/whl/cu128
+	$(PYTHON) -m pip install --no-deps -e .
+
+whitespace-check: ## git diff --check against the v3.1.2 release base
+	git diff --check v3.1.2..HEAD
 
 # ----------------------------------------------------------------------- tests
 test: ## Run the CPU test suite (GPU-marked tests deselected)

@@ -3,7 +3,14 @@
 # Group: dev
 # Source: requirements.lock + the `dev` extra in pyproject.toml
 # Versions: the freeze named by requirements.lock's `# Frozen-environment:` line
+# Platform scope: python 3.11 / win32
 #
 # Install with:  pip install -r requirements/dev.txt
-ruff==0.15.7
-typing_extensions==4.12.2
+# Groups are additive: install every group the deployment needs (docs/deployment.md).
+ast_serialize==0.13.1
+librt==0.16.0
+mypy==2.4.1
+mypy_extensions==1.1.0
+pathspec==1.1.1
+ruff==0.17.3
+typing_extensions==4.16.0

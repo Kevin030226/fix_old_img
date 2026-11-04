@@ -10,7 +10,7 @@
 
 [![Python 3.11](https://img.shields.io/badge/Python-3.11-blue?logo=python&logoColor=white)](https://www.python.org/)
 [![PyTorch](https://img.shields.io/badge/PyTorch-2.7.1%2Bcu128-ee4c2c?logo=pytorch&logoColor=white)](https://pytorch.org/)
-[![FastAPI](https://img.shields.io/badge/FastAPI-0.141-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.162-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![CI](https://github.com/Kevin030226/fix_old_img/actions/workflows/ci.yml/badge.svg)](https://github.com/Kevin030226/fix_old_img/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/Kevin030226/fix_old_img?sort=semver)](https://github.com/Kevin030226/fix_old_img/releases)
@@ -87,10 +87,10 @@
 | 类别 | 技术 |
 | --- | --- |
 | 语言/环境 | Python 3.11（conda 环境 `fixoldimg-gpu`） |
-| Web 框架 | FastAPI 0.141 + Uvicorn 0.52 + 原生 HTML/CSS/JS 界面 |
+| Web 框架 | FastAPI 0.162 + Uvicorn 0.54 + 原生 HTML/CSS/JS 界面 |
 | 深度学习 | PyTorch 2.7.1+cu128（原生支持 RTX 50 系 sm_120） |
 | 视觉/科学计算 | OpenCV 5.0、scikit-image 0.26、scipy 1.17、numpy 2.4、Pillow 13.0 |
-| 人脸/上色 | dlib 20.0.1（conda-forge）、timm 0.9.2、DDColor |
+| 人脸/上色 | dlib 20.0.1（conda-forge）、timm 1.0.30、DDColor |
 | 存储 | SQLite（WAL 模式） |
 | 模型 | Bringing Old Photos Back to Life + DDColor，共 29 个权重文件 |
 
@@ -191,27 +191,37 @@ conda activate fixoldimg-gpu
 pip install torch==2.7.1 torchvision==0.22.1 torchaudio==2.7.1 \
     --index-url https://download.pytorch.org/whl/cu128
 
-# 3. 安装项目依赖（含 FastAPI/OpenCV/DDColor 所需 timm 等）
-pip install -r requirements.txt
-
-# 3b. 让 `fiximg` 包可被导入（`python -m fiximg.*` 需要）
-#     也可用可编辑安装替代第 3 步：pip install -e ".[gpu,test]"
-pip install -e . --no-deps
-
-# 4. 安装 dlib 预编译包（conda-forge，无需本机编译工具链）
+# 3. 安装 dlib 预编译包（conda-forge；PyPI 无 Windows wheel，GPU 组固定 dlib==20.0.1，
+#    这一步是文档明确的 prerequisite）
 conda install -n fixoldimg-gpu -c https://mirrors.tuna.tsinghua.edu.cn/anaconda/cloud/conda-forge \
     --override-channels -y dlib=20.0.1
 
-# 5. 下载模型权重（BOB 修复链路 + DDColor 上色 + dlib 模型，磁盘约 2.8 GB）
-#    （方案 §19：python 入口、断点续传、带版本号的清单）
+# 4. 安装固定版本的 GPU 部署组（torch/dlib 已就绪，cu128 固定项会被满足；
+#    该文件由 requirements.lock 生成）
+pip install -r requirements/runtime.txt -r requirements/gpu.txt --extra-index-url https://download.pytorch.org/whl/cu128
+
+# 5. 让 `fiximg` 包可被导入（`python -m fiximg.*` 需要）
+pip install -e . --no-deps
+
+# 6. 下载模型权重（BOB 修复链路 + DDColor 上色 + dlib 模型，磁盘约 3.3 GB）
+#    仓库内 config/weights_manifest.json 是基线：download 按清单逐项校验 path/size/sha256，
+#    任一不符即非零退出，且不会改写清单；generate 仅限维护者显式执行。
+#    旧入口 bash scripts/download_weights.sh 同样委托给该命令，不再自行下载。
 python -m fiximg.cli.download_weights download
 
-# 6. 若权重来源与仓库清单不同，重新生成并校验
-python -m fiximg.cli.download_weights generate
+# 7. 随时可复跑完整性校验
 python -m fiximg.cli.verify_weights
 ```
 
+> 两个组文件都带有 `# Platform scope: python 3.11 / win32`：这是 Windows RC 冻结，
+> 且 `requirements/gpu.txt` 是叠加在 `requirements/runtime.txt` 之上的。Linux 请使用
+> Dockerfile，它们安装相同的组并负责两个平台前置条件（cu128 索引的 torch 与源码编译的 dlib）。
+
+> 仅需运行时（API/CLI）的部署可使用 `pip install -r requirements.txt`（生成式兼容入口，内容与 `requirements/runtime.txt` 相同）。
+
 > 注意：`config/users.yaml` 会被自动迁移到 SQLite（`admin_data/fixoldimg.db`）。若该文件缺失，首启动引导（§21）会自动创建初始 `admin` 账号——参见上方 Docker 小节。
+
+> 仅需运行时（API/CLI）的部署可使用 `pip install -r requirements.txt`（生成式兼容入口，内容与 `requirements/runtime.txt` 相同）。
 
 ### 4.2 Docker（Linux + NVIDIA GPU）
 
@@ -227,7 +237,7 @@ docker compose up -d --build   # api + worker（见 docker-compose.yml）
 docker compose logs -f worker
 ```
 
-镜像会安装依赖，首次构建时 dlib 为源码编译，耗时约 5-10 分钟。镜像**不包含模型权重**：`THIRD_PARTY_NOTICES.md` 明确本仓库只分发代码，且六个权重构件中有两个（dlib 的人脸关键点与识别模型）仅限研究/非商用，因此不随镜像再分发。没有权重的容器仍可正常提供服务——就绪探针会逐个报告模型不可用——补齐一次即可：
+镜像会安装依赖，首次构建时 dlib 为源码编译，耗时约 5-10 分钟。镜像**不包含模型权重**：`THIRD_PARTY_NOTICES.md` 明确本仓库只分发代码，且各权重许可逐项不同——dlib 68 点关键点模型明确限非商业，Microsoft checkpoints 存在 MIT 与「academic research use only」的文本冲突，其余构件还有训练数据/再分发问题待确认——因此均不随镜像再分发。没有权重的容器仍可正常提供服务——就绪探针会逐个报告模型不可用——补齐一次即可：
 
 ```bash
 docker compose exec worker python -m fiximg.cli.download_weights download
@@ -482,8 +492,8 @@ ruff check src tests benchmark main.py worker.py run.py
 评估输出覆盖方案 §16 的各指标族：输入-输出差异（PSNR/SSIM/MAE）、无参考指标（清晰度/对比度/亮度/噪声）、可选自然场景统计（NIQE、BRISQUE 风格特征、色彩统计）、人脸身份保持（§17），以及附参考照片时的 Ground-Truth LPIPS（§16）。
 ## 8. 常见问题
 
-**Q1：启动提示"权重完整性校验失败"**
-权重缺失或哈希不符。运行 `python -m fiximg.cli.download_weights download` 补齐，然后执行 `python -m fiximg.cli.download_weights generate` 重新生成清单（本地权重与仓库清单不一致时同样处理）。
+**Q1：启动提示「权重完整性校验失败」**
+权重缺失或哈希不符。运行 `python -m fiximg.cli.download_weights download` 补齐：该命令会按已提交的 `config/weights_manifest.json` 逐项校验，任一项缺失、尺寸或哈希不符即非零退出并列出明细，且不会改写清单。若下载到的 payload 本身有误，应修复来源或从版本库恢复清单，不要重生成基线来消掉告警。维护者可显式执行 `python -m fiximg.cli.download_weights generate` 重建基线。
 
 **Q2：CUDA 不可用 / 提示 sm_120 不兼容**
 请确认安装的是 torch 2.7.1+cu128 及以上（RTX 50 系需要 cu128 构建）；老版本 cu121 不支持 Blackwell 架构。
@@ -500,6 +510,7 @@ ruff check src tests benchmark main.py worker.py run.py
 ## 9. 第三方组件与许可
 
 - **本项目自身代码**：MIT License，见根目录 [LICENSE](LICENSE)；
-- **Bringing Old Photos Back to Life**（修复/检测/面部增强模型）：MIT License，见 [LICENSE-Bringing-Old-Photos-Back-to-Life](LICENSE-Bringing-Old-Photos-Back-to-Life)；
-- **DDColor**（老照片上色，ICCV 2023）：Apache-2.0，见 [ddcolor/LICENSE](ddcolor/LICENSE)；
+- **Bringing Old Photos Back to Life**（随仓库分发的代码）：MIT License，见 [LICENSE-Bringing-Old-Photos-Back-to-Life](LICENSE-Bringing-Old-Photos-Back-to-Life)；
+- **DDColor**（随仓库分发的代码，ICCV 2023）：Apache-2.0，见 [ddcolor/LICENSE](ddcolor/LICENSE)；
+- **模型权重**不随本仓库分发，且与代码许可分开：Microsoft checkpoints 的 MIT 与「academic research use only」文本冲突未消歧；dlib 68 点关键点模型仅限非商业；dlib 人脸识别模型为 CC0 但训练数据为非商业条款；YuNet 模型目录为 MIT；DDColor 模型仓声明 Apache-2.0。详见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) 与本地审计目录 `_repair/_weights_license_review/`；
 - 完整说明见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。

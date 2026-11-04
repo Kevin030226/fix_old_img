@@ -139,10 +139,14 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
           cache: pip
+      # CPU wheel of the same torch version; the deployment lock pins cu128 for
+      # Windows (docs/deployment.md "Platform scope and prerequisites").
       - name: Install CPU torch
-        run: pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
-      - name: Install project (editable, test extras)
-        run: pip install -e ".[test]"
+        run: pip install torch==2.7.1 torchvision==0.22.1 --index-url https://download.pytorch.org/whl/cpu
+      - name: Install project (locked test group, no resolution)
+        run: |
+          pip install -r requirements/runtime.txt -r requirements/test.txt
+          pip install --no-deps -e .
       - name: Run tests (unit + api + inference + integration + e2e)
         env:
           FIXIMG_SKIP_WEIGHT_CHECK: "1"
@@ -159,7 +163,10 @@ jobs:
           python-version: "3.11"
       - name: Build sdist + wheel
         run: |
-          pip install --upgrade pip build
+          # `pip` is the bootstrap installer and is intentionally the latest on the
+          # runner; `build` is pinned because it produces the published artifacts.
+          python -m pip install --upgrade pip
+          python -m pip install "build==1.6.1"
           python -m build
       - name: Checksums
         run: cd dist && sha256sum * > sha256sums.txt && cat sha256sums.txt
@@ -169,7 +176,8 @@ jobs:
       - name: Smoke-test the wheel in a clean environment
         run: |
           python -m venv .venv-smoke
-          .venv-smoke/bin/pip install --quiet dist/*.whl
+          .venv-smoke/bin/pip install --quiet -r requirements/runtime.txt
+          .venv-smoke/bin/pip install --quiet --no-deps dist/*.whl
           .venv-smoke/bin/python -c "
           from fiximg.config import settings
           from fiximg.inference.backends.registry import backend_registry

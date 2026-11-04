@@ -108,15 +108,38 @@ def verify_weights(manifest_path=None):
             f"Manifest algorithm {expected_alg} differs from the current expectation {ALGORITHM}; please regenerate the manifest."
         )
 
+    # An empty baseline proves nothing, so it must not be reported as a pass:
+    # a truncated manifest, one replaced by `{}`, or one written by a generator
+    # that died mid-write all used to return "0 files verified" — a green answer
+    # from a check whose whole purpose is to be tamper-evident.
+    entries = manifest.get("files")
+    if not isinstance(entries, list) or not entries:
+        raise WeightsIntegrityError(
+            f"Weight verification manifest {manifest_path} lists no files; "
+            "it proves nothing. Regenerate it with: python -m fiximg.cli.download_weights generate"
+        )
+    declared = manifest.get("file_count")
+    if declared is not None and declared != len(entries):
+        raise WeightsIntegrityError(
+            f"Weight verification manifest {manifest_path} declares {declared} files "
+            f"but lists {len(entries)}; it was written by an interrupted run. Regenerate it."
+        )
+
     problems = []
-    for entry in manifest.get("files", []):
-        rel = entry["path"]
+    for entry in entries:
+        rel = entry.get("path")
+        if not rel:
+            problems.append(f"Manifest entry without a path: {entry!r}")
+            continue
         ap = os.path.join(BASE_DIR, rel)
         if not os.path.exists(ap):
             problems.append(f"Missing file: {rel}")
             continue
         actual = compute_sha256(ap)
         expected = entry.get("sha256")
+        if not expected:
+            problems.append(f"Manifest entry has no digest: {rel}")
+            continue
         if actual != expected:
             problems.append(
                 f"Hash mismatch: {rel}\n    expected {expected}\n    actual {actual}"
@@ -133,10 +156,10 @@ def verify_weights(manifest_path=None):
     VERIFIED.clear()
     VERIFIED.update({
         entry["path"]: entry.get("sha256")
-        for entry in manifest.get("files", [])
+        for entry in entries
         if entry.get("path") and entry.get("sha256")
     })
-    return len(manifest.get("files", []))
+    return len(entries)
 
 
 def verified_weights() -> dict[str, str]:

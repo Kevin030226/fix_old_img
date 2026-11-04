@@ -22,7 +22,9 @@ Authorization: Bearer <token>
 
 The token comes from `FIXIMG_API_TOKEN`, or is generated on first start and
 persisted to `admin_data/api_token.txt` (mode 0600) with a one-time console
-notice. API-submitted tasks are attributed to `FIXIMG_API_TOKEN_USER`
+notice. Rotating it requires an atomic file replace plus a restart of every
+serving process; the procedure and the multi-replica caveat are in
+`docs/deployment.md` ("Rotating the API token"). API-submitted tasks are attributed to `FIXIMG_API_TOKEN_USER`
 (default `api`), so audit records name a real account rather than a placeholder.
 
 ## Error envelope

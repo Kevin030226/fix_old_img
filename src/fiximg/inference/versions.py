@@ -56,6 +56,10 @@ class Resident:
     refcount: int = 0
     #: True once routing moved away from it (kept alive until refcount == 0)
     retiring: bool = False
+    #: True when an explicit `unload()` asked for this version to go away, which
+    #: outranks the "never unload the active version" guard below: the operator
+    #: asked for it and `unload` clears routing on purpose.
+    unload_requested: bool = False
     failure: str | None = None
 
     def to_dict(self) -> dict:
@@ -188,14 +192,29 @@ class VersionedModelRegistry:
             self.release(resident)
 
     def release(self, resident: Resident) -> None:
-        """Drop one lease and unload the version if it was retiring."""
+        """Drop one lease and unload the version if it was retiring.
+
+        The decision is made under the lock and the unload is re-checked
+        against it: routing can move back to this version after the flag was
+        set (a lease held across several switches outlives the marking), so a
+        lease that started before the last switch must not take the currently
+        serving version down when it ends.
+        """
         should_unload = False
+        explicit = False
         with self._lock:
             resident.refcount = max(0, resident.refcount - 1)
             if resident.retiring and resident.refcount == 0:
-                should_unload = True
+                explicit = resident.unload_requested
+                if not explicit and self._active.get(resident.name) == resident.version:
+                    # Still serving: the flag is stale, so clear it rather than
+                    # unload the version routing points at.
+                    resident.retiring = False
+                else:
+                    should_unload = True
         if should_unload:
-            self._unload_resident(resident)
+            # Re-checked against routing inside the unload, under the same lock.
+            self._unload_resident(resident, require_not_active=not explicit)
 
     # ------------------------------------------------------------------ switch
     def activate(
@@ -357,6 +376,12 @@ class VersionedModelRegistry:
         if self.keep_previous and old_version and old_version != resident.version:
             keep.add(old_version)
 
+        # A version that comes back into the keep set must stop being retiring:
+        # it can still be resident (and pinned by an in-flight lease) from the
+        # switch that evicted it, and leaving the flag set made the next lease
+        # release unload the version routing had just been pointed at.
+        resident.retiring = False
+        resident.unload_requested = False
         evicting = [r for r in versions if r.version not in keep]
         for other in evicting:
             other.retiring = True
@@ -396,8 +421,21 @@ class VersionedModelRegistry:
                 log_event(logger, "WARNING", "model disposal failed",
                           model=resident.name, version=resident.version, error=str(exc))
 
-    def _unload_resident(self, resident: Resident) -> None:
+    def _unload_resident(self, resident: Resident, *, require_not_active: bool = False) -> bool:
+        """Drop a resident version and dispose its handle.
+
+        ``require_not_active`` is for the *lease* path: routing can move back to
+        a version between the moment a release decides to unload it and this
+        method taking the lock, and unloading the version that is serving would
+        leave the registry with no active model. An explicit :meth:`unload` is
+        an operator command and passes ``False``: it clears routing on purpose.
+
+        Returns whether the version was actually dropped.
+        """
         with self._lock:
+            if require_not_active and self._active.get(resident.name) == resident.version:
+                resident.retiring = False
+                return False
             self._resident.get(resident.name, {}).pop(resident.version, None)
             if self._active.get(resident.name) == resident.version:
                 self._active.pop(resident.name, None)
@@ -406,6 +444,7 @@ class VersionedModelRegistry:
         self._dispose(resident)
         log_event(logger, "INFO", "model version unloaded",
                   model=resident.name, version=resident.version)
+        return True
 
     def unload(self, name: str, version: str | None = None) -> list[str]:
         """Unload one version (default: every version of ``name``).
@@ -422,6 +461,7 @@ class VersionedModelRegistry:
                 continue
             if resident.refcount > 0:
                 resident.retiring = True
+                resident.unload_requested = True
                 continue
             self._unload_resident(resident)
             unloaded.append(candidate)

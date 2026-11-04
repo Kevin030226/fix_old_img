@@ -74,6 +74,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
+COPY requirements ./requirements
 COPY . /app
 
 # No virtualenv: this base image's interpreter is already a clean, isolated
@@ -86,34 +87,29 @@ COPY . /app
 RUN python3 -m pip install torch==2.7.1 torchvision==0.22.1 torchaudio==2.7.1 \
     --index-url https://download.pytorch.org/whl/cu128
 
-# Project dependencies (dlib builds from source on Linux, ~5-10 minutes)
-# setuptools and wheel are upgraded first: they are the image's own install
-# tooling, and the base image's 2022-era copies carry CVE-2025-47273 and
-# CVE-2026-24049. The same reasoning, and the same advisories, as in
-# docker/api.Dockerfile, where Trivy first reported them.
-# Two installs, on purpose:
+# Project dependencies come from the generated deployment groups, exact pins from
+# requirements.lock: this image runs inference, so it installs the gpu group plus
+# the three transport groups. setuptools/wheel are the image's own install
+# tooling, pinned to the same exact versions the lock records instead of the base
+# image's 2022-era copies (CVE-2025-47273, CVE-2026-24049).
 #
-#  1. `requirements.txt` pins the web + imaging stack this image serves with;
-#  2. the `postgres,redis,s3` extras add the transport drivers.
+# The transport groups are not optional. docker-compose.yml documents a two-service
+# topology and lets the operator select FIXIMG_QUEUE_BACKEND=redis
+# (FIXIMG_REDIS_URL), PostgreSQL (FIXIMG_DATABASE_URL) or S3
+# (FIXIMG_STORAGE_BACKEND=s3); without the drivers every one of those choices
+# fails on the first import and the image can serve only the SQLite/local default.
 #
-# The second one is not optional. `docker-compose.yml` documents a two-service
-# topology and tells the operator they may select `FIXIMG_QUEUE_BACKEND=redis`
-# with `FIXIMG_REDIS_URL`, or PostgreSQL through `FIXIMG_DATABASE_URL`, or S3
-# through `FIXIMG_STORAGE_BACKEND=s3` — and this image is what that file builds.
-# Without the extras every one of those choices failed on the first import
-# (`connection.py` raising "psycopg is required", `queue/redis.py` needing the
-# client), so the image could serve only the SQLite/local default while the
-# documentation offered four backends. The extras are the runtime half of the
-# same declaration `docker/api.Dockerfile` installs; they are deliberately NOT
-# `gpu` (that is the worker image) and NOT `test`/`dev`/`benchmark`.
-RUN python3 -m pip install --upgrade "setuptools>=78.1.1" "wheel>=0.46.2" "msgpack>=1.2.1" \
-    && python3 -m pip install -r requirements.txt \
-    && python3 -m pip install -e ".[postgres,redis,s3]"
+# The final `--no-deps -e .` makes the package importable without re-resolving
+# anything: every dependency is already installed at the locked version.
+RUN python3 -m pip install --no-cache-dir "setuptools==84.2.1" "wheel==0.48.0" \
+    && python3 -m pip install --no-cache-dir \
+        -r requirements/runtime.txt \
+        -r requirements/gpu.txt \
+        -r requirements/postgres.txt \
+        -r requirements/redis.txt \
+        -r requirements/s3.txt \
+    && python3 -m pip install --no-cache-dir --no-deps -e .
 
-# `pip install -e ".[...]"` above already makes the `fiximg` package importable
-# (the extras pull the project itself in as an editable install), so no separate
-# `pip install -e . --no-deps` step is needed; `--no-deps` would in fact undo the
-# extra resolution for anything pip had not already installed.
 
 # Weights are not baked in by default: THIRD_PARTY_NOTICES.md records this
 # distribution as "code only", two of the six artifacts are licensed for

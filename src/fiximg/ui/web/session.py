@@ -175,18 +175,18 @@ class SessionStore:
         self._lock = threading.Lock()
 
     # ------------------------------------------------------------------ create
-    def create(self, username: str, role: str | None = None) -> Session:
+    def create(self, username: str) -> Session:
         """Start a session for `username`, reading the role from the users table.
 
         The role is looked up rather than taken from the caller: a route that
         passed its own idea of the role could hand out an admin session for a
         demoted account, and the whole authorisation model rests on this number
-        being the database's.
+        being the database's. The parameter that used to allow exactly that is
+        gone: there is no call site that has a role to hand in, and keeping the
+        override "for tests" is keeping the hole.
         """
-        resolved = role
-        if resolved is None:
-            user = get_user(username)
-            resolved = (user or {}).get("role") or ROLE_USER
+        user = get_user(username)
+        resolved = (user or {}).get("role") or ROLE_USER
         session = Session(
             session_id=secrets.token_urlsafe(32),
             username=username,
@@ -217,17 +217,28 @@ class SessionStore:
                 return None
             return session
 
-    def refresh_role(self, session: Session) -> Session:
-        """Re-read the role from the users table; drop the session if gone.
+    def refresh_role(self, session: Session) -> Session | None:
+        """Re-read the role from the users table; None when the session is no longer valid.
 
         A user deleted while signed in must not keep a working admin cookie, and
         a role change must take effect without a re-login. Returning a *new*
         record keeps the dataclass frozen.
+
+        None is returned — not the session that was just deleted. The caller is
+        `resolve_session`, whose contract is "the live session behind a cookie":
+        handing back the record it had just dropped let the rest of that request
+        run as a deleted account, with the admin role it was holding at the time.
+        The same answer covers a record removed concurrently (sign-out, eviction)
+        between `get()` and this call.
         """
         user = get_user(session.username)
         if not user:
             self.delete(session.session_id)
-            return session
+            return None
+        with self._lock:
+            if session.session_id not in self._sessions:
+                # Signed out (or pruned) between the read and this call.
+                return None
         role = user.get("role") or ROLE_USER
         if role == session.role:
             return session

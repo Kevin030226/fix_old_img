@@ -49,6 +49,7 @@ RUN sed -i "s|deb.debian.org|${APT_MIRROR}|g" /etc/apt/sources.list.d/debian.sou
 
 WORKDIR /app
 COPY pyproject.toml README.md LICENSE THIRD_PARTY_NOTICES.md ./
+COPY requirements ./requirements
 COPY src ./src
 COPY configs ./configs
 COPY config ./config
@@ -62,9 +63,15 @@ COPY main.py worker.py run.py ./
 # The cu128 index is a separate -i on purpose: torch 2.7.1+cu128 is not on PyPI,
 # and installing it first means the project's `gpu` extra resolves against what
 # is already present instead of reaching for a CPU wheel.
-RUN pip install --upgrade "setuptools>=78.1.1" "wheel>=0.46.2" "msgpack>=1.2.1" \
- && pip install -i ${TORCH_INDEX_URL} torch==2.7.1 torchvision==0.22.1 torchaudio==2.7.1 \
- && pip install -i ${PIP_INDEX_URL} -e ".[gpu,postgres,redis,s3]"
+RUN pip install --no-cache-dir "setuptools==84.2.1" "wheel==0.48.0" \
+ && pip install --no-cache-dir -i ${TORCH_INDEX_URL} torch==2.7.1 torchvision==0.22.1 torchaudio==2.7.1 \
+ && pip install --no-cache-dir -i ${PIP_INDEX_URL} \
+      -r requirements/runtime.txt \
+      -r requirements/gpu.txt \
+      -r requirements/postgres.txt \
+      -r requirements/redis.txt \
+      -r requirements/s3.txt \
+ && pip install --no-cache-dir --no-deps -e .
 
 # Vendored model code, copied AFTER the pip layer so adding a tree does not
 # invalidate the ~10-minute dependency install. These are imported at run time
@@ -99,7 +106,8 @@ COPY basicsr ./basicsr
 # not runtime dependencies, and folding them into the install above would
 # re-resolve the whole dependency set and re-download the cu128 stack. Having
 # them here is what makes `docker run ... python -m pytest tests/` possible.
-RUN pip install -i ${PIP_INDEX_URL} -e ".[test]"
+RUN pip install --no-cache-dir -i ${PIP_INDEX_URL} -r requirements/test.txt \
+ && pip install --no-cache-dir --no-deps -e .
 
 # Weights are NOT baked in (THIRD_PARTY_NOTICES.md: code-only distribution, two
 # artifacts research/non-commercial). compose.wsl.yaml bind-mounts the copies

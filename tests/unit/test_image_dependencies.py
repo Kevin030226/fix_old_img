@@ -38,66 +38,68 @@ def _installed_extras(text: str) -> set[str]:
 @pytest.mark.parametrize("name", sorted(IMAGES))
 def test_a_runtime_image_never_ships_test_or_dev_tooling(name):
     """pytest, moto and ruff belong to the CI image, not to a published one."""
-    extras = _installed_extras(_text(name))
-    assert not (extras & {"test", "dev", "benchmark"}), (
-        f"{name} ships {sorted(extras & {'test', 'dev', 'benchmark'})}"
-    )
+    body = _text(name)
+    installed = set(re.findall(r"requirements/([a-z0-9]+)\.txt", body))
+    forbidden = installed & {"test", "dev", "benchmark"}
+    assert not forbidden, f"{name} ships {sorted(forbidden)}"
 
 
 def test_only_the_inference_images_install_the_gpu_stack():
-    """`gpu` is torch + dlib: it belongs where models run, not behind an HTTP API.
+    """gpu is torch + dlib: it belongs where models run, not behind an HTTP API.
 
     The API image is deliberately torch-free so a CPU-only control plane stays
-    small; the all-in-one image carries it because it also runs the worker.
+    small; the all-in-one and worker images carry the GPU group because they run
+    inference.
     """
-    installed = {name: _installed_extras(_text(name)) for name in IMAGES}
-    assert "gpu" not in installed[os.path.join("docker", "api.Dockerfile")]
-    assert "gpu" not in installed["Dockerfile"], (
-        "the root image installs the GPU stack through requirements.txt/torch, "
-        "not through the extra -- declaring the extra as well would try to "
-        "resolve a second torch on top of the cu128 pin"
-    )
+    bodies = {name: _text(name) for name in IMAGES}
+    api = os.path.join("docker", "api.Dockerfile")
+    assert "requirements/gpu.txt" not in bodies[api]
+    assert "requirements/runtime.txt" in bodies[api]
+    for name in ("Dockerfile", os.path.join("docker", "worker.Dockerfile")):
+        assert "requirements/runtime.txt" in bodies[name], f"{name} does not install the runtime group"
+        assert "requirements/gpu.txt" in bodies[name], f"{name} does not install the GPU group"
 
 
-def test_the_all_in_one_image_installs_the_transport_extras():
-    """`docker-compose.yml` builds this image and offers Redis in its own comments.
+def test_the_all_in_one_image_installs_the_transport_groups():
+    """docker-compose.yml builds this image and offers Redis in its own comments.
 
-    Without the extras, `FIXIMG_QUEUE_BACKEND=redis` (documented in that file at
-    line 13) fails on import, and PostgreSQL/S3 have the same shape. The extras
-    are the minimum that makes the documented choices reachable.
+    Without the groups, FIXIMG_QUEUE_BACKEND=redis (documented in that file at
+    line 13) fails on import, and PostgreSQL/S3 have the same shape. The
+    generated transport groups are the minimum that makes the documented
+    choices reachable.
     """
     text = _text("Dockerfile")
-    extras = _installed_extras(text)
-    assert {"postgres", "redis", "s3"} <= extras, (
-        f"the root image installs {sorted(extras) or 'no extras'}, but its "
-        "compose file documents Redis, PostgreSQL and S3 as selectable backends"
+    installed = set(re.findall(r"requirements/([a-z0-9]+)\.txt", text))
+    missing = {"postgres", "redis", "s3"} - installed
+    assert not missing, (
+        f"the root image does not install {sorted(missing)}; its compose file "
+        "documents Redis, PostgreSQL and S3 as selectable backends"
     )
 
 
-def test_the_all_in_one_image_still_installs_the_declared_requirement_file():
-    """The extras add transports; they do not replace the pinned web/imaging stack."""
-    text = _text("Dockerfile")
-    assert "pip install -r requirements.txt" in text
-    assert "requirements/runtime.txt" not in text, (
-        "runtime.txt omits torch, which this image pins separately; switching "
-        "to it would need that pin to move into the same install"
-    )
+def test_no_image_installs_the_compatibility_entry():
+    """requirements.txt is a generated alias of runtime.txt, not an install entry."""
+    for name in list(IMAGES) + [os.path.join("docker", "local.Dockerfile")]:
+        text = _text(name)
+        assert re.search(r"-r\s+requirements\.txt", text) is None, (
+            f"{name} installs the compatibility entry; install requirements/runtime.txt "
+            "or requirements/gpu.txt so the deployment group is explicit"
+        )
 
 
 @pytest.mark.parametrize("name", sorted(IMAGES))
-def test_every_image_upgrades_msgpack(name):
-    """GHSA-6v7p-g79w-8964 lands in the wheel the base image already carries.
+def test_every_image_pins_its_own_build_tooling_exactly(name):
+    """An unbounded pip install --upgrade makes a rebuild change security posture.
 
-    `docker/api.Dockerfile` pinned the floor after Trivy reported it; the other two
-    images carry the same dependency transitively and were left behind.
+    setuptools and wheel are the image install tooling, carried outside the
+    project groups; they are pinned to the exact versions the lock records instead
+    of >= floors resolved on the day of the build.
     """
     text = _text(name)
-    installs = " ".join(
-        line for line in text.splitlines() if line.strip().startswith("RUN pip install")
-    )
-    if not installs:
-        pytest.skip(f"{name} runs no pip install")
-    assert "msgpack" in installs, f"{name} does not pin the msgpack floor"
+    installs = "\n".join(line for line in text.splitlines() if "pip install" in line)
+    assert "setuptools==" in installs, f"{name} does not pin setuptools exactly"
+    assert "wheel==" in installs, f"{name} does not pin wheel exactly"
+    assert "--upgrade" not in installs, f"{name} still upgrades to whatever the index serves"
 
 
 def test_every_compose_build_reference_resolves_to_a_real_dockerfile():

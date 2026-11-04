@@ -326,6 +326,33 @@ def test_the_committed_lock_files_are_current():
     assert result.returncode == 0, result.stdout + result.stderr
 
 
+def test_compatibility_platform_scope_uses_frozen_tag_on_other_platforms(
+    tmp_path, monkeypatch, capsys,
+):
+    """The compat entry's platform scope is judged against the lock's frozen tag,
+    so --check passes on a foreign interpreter and fails loudly when the header
+    itself is wrong."""
+    module = _load_script()
+    with open(module.COMPAT_FILE, encoding="utf-8") as handle:
+        original = handle.read()
+    compat = tmp_path / "requirements.txt"
+    compat.write_text(original, encoding="utf-8")
+    monkeypatch.setattr(module, "COMPAT_FILE", str(compat))
+    monkeypatch.setattr(module, "env_tag", lambda: "python 3.11 / linux")
+
+    assert module.check() == 0
+    assert "closure not re-derivable here" in capsys.readouterr().out
+
+    frozen = module.lock_env_tag()
+    compat.write_text(
+        original.replace(f"# Platform scope: {frozen}",
+                         "# Platform scope: python 3.11 / wrong-platform"),
+        encoding="utf-8",
+    )
+    assert module.check() == 1
+    assert "requirements.txt platform scope differs" in capsys.readouterr().out
+
+
 def test_the_committed_lock_installs_on_another_machine():
     """No ``file:///`` path from this box may survive into a shipped requirement."""
     with open(os.path.join(PROJECT_ROOT, "requirements.lock"), encoding="utf-8-sig") as f:
@@ -432,4 +459,19 @@ def test_filelock_is_pinned_to_the_advisory_fix_version():
     assert parts >= FILELOCK_FIX, (
         f"pyproject allows filelock{floor}, which is below the CVE-2026-112940 fix "
         f"{'.'.join(str(p) for p in FILELOCK_FIX)}"
+    )
+
+
+def test_postgres_group_includes_the_binary_extra_the_root_declares():
+    """`postgres = [\"psycopg[binary]...\"]` must expand to psycopg-binary.
+
+    The RC2.1 Linux install proved the prior behaviour wrong: the closure skipped
+    every extra-marked line, so the group shipped `psycopg` without the binary
+    implementation and raised "no pq wrapper available" on `import psycopg`. The
+    extras a root spec asks for are deployment requirements, not optional extras.
+    """
+    with open(os.path.join(GROUP_DIR, "postgres.txt"), encoding="utf-8") as handle:
+        body = handle.read().lower()
+    assert "psycopg-binary==" in body, (
+        "the postgres group omits psycopg-binary; the psycopg[binary] root declares it and Linux import fails"
     )

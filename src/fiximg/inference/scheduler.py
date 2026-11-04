@@ -126,22 +126,30 @@ class GpuScheduler:
         resolved = int(device) if device is not None else -1
         caps = sorted(set(capabilities)) or ["__default__"]
         keys = [self._key(resolved, cap) for cap in caps]
-        acquired: list[threading.Semaphore] = []
+        # What the loop below actually took, not what it asked for. The two
+        # differ whenever an acquire fails part-way: releasing every *requested*
+        # key then hands back capacity that was never taken, and the capability
+        # runs more concurrently than its policy allows (a permanently raised
+        # limit, because a semaphore has no upper bound).
+        acquired: list[tuple[tuple[int, str], threading.Semaphore]] = []
         try:
             for key in keys:
                 sem = self._semaphore(*key)
                 sem.acquire()
-                acquired.append(sem)
+                acquired.append((key, sem))
                 with self._lock:
                     self._active[key] = self._active.get(key, 0) + 1
             with self._lock:
                 self._acquired_total += 1
             yield
         finally:
-            for key in reversed(keys):
+            # Holding the semaphore object also survives `reset()`, which drops
+            # the dict the lookup used to go through: a slot in flight across a
+            # reset raised KeyError on the way out instead of releasing cleanly.
+            for key, sem in reversed(acquired):
                 with self._lock:
                     self._active[key] = max(0, self._active.get(key, 0) - 1)
-                self._semaphores[key].release()
+                sem.release()
 
     def stats(self) -> dict:
         """Introspection for ``/api/v1/stats`` and the models API."""

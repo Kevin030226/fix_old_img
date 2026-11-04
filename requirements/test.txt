@@ -3,36 +3,47 @@
 # Group: test
 # Source: requirements.lock + the `test` extra in pyproject.toml
 # Versions: the freeze named by requirements.lock's `# Frozen-environment:` line
+# Platform scope: python 3.11 / win32
 #
 # Install with:  pip install -r requirements/test.txt
-alembic==1.20.0
-anyio==4.5.2
-boto3==1.43.103
-botocore==1.43.103
-certifi==2026.2.25
-charset-normalizer==3.4.6
+# Groups are additive: install every group the deployment needs (docs/deployment.md).
+alembic==1.20.1
+anyio==4.16.0
+boto3==1.43.123
+botocore==1.43.123
+certifi==2026.10.23
+cffi==2.1.1
+charset-normalizer==3.5.2
 colorama==0.4.6
+coverage==7.17.0
+cryptography==50.0.2
 easydict==1.13
-fakeredis==2.38.0
+fakeredis==2.40.0
 h11==0.16.0
 httpcore==1.0.9
 httpx==0.28.1
-idna==3.11
-iniconfig==2.3.0
+idna==3.20
+iniconfig==2.3.1
 jmespath==1.1.0
 Mako==1.4.3
-MarkupSafe==2.1.5
-packaging==26.0
-pluggy==1.6.0
-Pygments==2.19.2
-pytest==9.1.1
+MarkupSafe==3.0.3
+moto==5.2.5
+packaging==26.3
+pluggy==1.7.0
+pycparser==3.12
+Pygments==2.21.0
+pytest==9.2.0
+pytest-cov==7.1.0
 python-dateutil==2.9.0.post0
 PyYAML==6.0.3
 redis==8.1.0
-requests==2.32.4
-s3transfer==0.19.2
+requests==2.34.2
+responses==0.26.3
+s3transfer==0.19.3
 six==1.17.0
 sortedcontainers==2.4.0
-SQLAlchemy==2.1.1
-typing_extensions==4.12.2
-urllib3==2.2.3
+SQLAlchemy==2.1.6
+typing_extensions==4.16.0
+urllib3==2.8.0
+Werkzeug==3.1.9
+xmltodict==1.0.4

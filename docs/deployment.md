@@ -68,7 +68,10 @@ Two of plan §3.3's four gates are **not** enforced here, on purpose:
 
 ```bash
 python -m venv .venv && . .venv/bin/activate
-pip install -e ".[gpu,test,dev]"      # or ".[test]" for a CPU-only setup
+# make install-gpu installs the locked runtime/gpu/test/dev groups and then the
+# package with --no-deps (make install is the CPU-only variant)
+# verifies every declared path/size/sha256 against the committed manifest and
+# never rewrites it (generate is the explicit maintainer-only baseline rebuild)
 python -m fiximg.cli.download_weights download
 python main.py                        # http://127.0.0.1:9502
 ```
@@ -89,8 +92,47 @@ Useful commands:
 | `make migrate` | V1 history → task tables (dry run) |
 | `make verify-weights` | verify weights against the manifest |
 
-## Containers
+## Wheel installs and the runtime resource tree
 
+`python -m build` produces a **code-only wheel**: it contains the `fiximg/`
+package and its metadata and nothing else. The runtime resource tree —
+`config/` (weight manifest, example users), `models/manifest.yaml`, the
+`Global/` and `Face_Enhancement/` model code and the weight files themselves —
+is **not** packaged. Those assets are large, their weight licenses differ per
+artifact (one is explicitly non-commercial and another has conflicting upstream
+statements — see `THIRD_PARTY_NOTICES.md`), and they are deployed as a separate
+tree. A bare wheel is therefore not a standalone installation, and this project
+does not claim it is.
+
+A non-editable install must name the tree explicitly:
+
+```bash
+pip install fiximg-3.1.2-py3-none-any.whl
+export FIXIMG_PROJECT_ROOT=/opt/fiximg        # or C:\fiximg on Windows
+fiximg-verify-weights verify                  # reads config/weights_manifest.json
+fiximg-api                                    # constructs the app
+```
+
+`FIXIMG_PROJECT_ROOT` must point at a directory containing at least `config/`
+and `models/`; the production tree also carries `Global/`, `Face_Enhancement/`
+and the downloaded weights. Resolution order is: `FIXIMG_PROJECT_ROOT`, then the
+source checkout the module was imported from, then the directory containing the
+installed package (and its parent, `site-packages`).
+
+A wheel install that cannot see `config/` or `models/` stops at startup with one
+actionable error naming both the missing directories and this variable —
+`fiximg.paths.require_project_root()` is called by `create_app()` (and therefore
+`fiximg-api`), `fiximg-worker`, `fiximg-batch`, `fiximg-migrate`, `fiximg-db`, and
+the weight commands (`fiximg-weights`, `fiximg-verify-weights`) — every entry
+point that reads the resource tree. `fiximg-weights help` needs no resources and
+still works without the variable. That is deliberate:
+a missing manifest deep inside a loader produces a traceback that tells an
+operator nothing they can act on.
+
+An editable install (`pip install -e .`) and a source checkout need no variable:
+the checkout root already carries the tree.
+
+## Containers
 | File | Topology | Use when |
 |---|---|---|
 | `Dockerfile` | All-in-one (API + UI + inline worker) | Personal machine, demo |
@@ -119,9 +161,10 @@ starts fast. The worker image (`docker/worker.Dockerfile`) carries the full GPU
 stack and the vendored model code.
 
 **Neither image contains model weights, and neither reaches for them at build time.**
-`THIRD_PARTY_NOTICES.md` records this repository as code-only, and two of the six
-weight artifacts (dlib's landmark predictor and its face-recognition ResNet) are
-restricted to research/non-commercial use, so they are not republished inside an image.
+`THIRD_PARTY_NOTICES.md` records this repository as code-only, and some weight artifacts
+are restricted or their terms are unresolved — the dlib landmark model is explicitly
+non-commercial, and the Microsoft checkpoints carry conflicting MIT and "academic
+research use only" statements — so none is republished inside an image.
 The build-time download also made every image build depend on a third-party host:
 `facevc.blob.core.windows.net` did not resolve from GitHub's runners on 2026-09-29, which
 failed both `images (worker)` jobs for `v3.0.0` before either Dockerfile had been
@@ -745,6 +788,25 @@ python -m fiximg.infrastructure.db.migrations.runner status
 python -m fiximg.infrastructure.db.migrations.runner upgrade
 ```
 
+## Dependency surfaces and authority
+
+RC2 removed the second, drift-prone install path. These are the roles; a change to one
+without the others is a defect, enforced by `tests/unit/test_dependency_surfaces.py`.
+
+| Surface | Role | Authority | Platform scope | Produced / checked by |
+|---|---|---|---|---|
+| `pyproject.toml` | direct dependency source | the only place a dependency name, extra or floor is declared | all | hand-edited |
+| `requirements.lock` | frozen environment snapshot | exact versions of the one release environment | `python 3.11 / win32` (Windows RC lock) | `python scripts/export_locks.py --freeze` in that environment |
+| `requirements/runtime.txt` (and the other group files) | installable deployment groups | generated from the lock + the pyproject extras closure | same as the lock; Linux images treat torch/dlib as documented prerequisites | `python scripts/export_locks.py`, `--check` |
+| `requirements.txt` | compatibility entry | generated file with the same effective pin list as `requirements/runtime.txt` (headers differ); **not** a lock and not used by Docker or CI | same as the lock | generated by the same script and checked |
+| `Dockerfile`, `docker/*.Dockerfile` | image install entry | install `requirements/runtime.txt` or `requirements/gpu.txt` plus the transport groups, then `--no-deps -e .` | Linux containers | `tests/unit/test_dependency_surfaces.py` |
+| `.github/workflows/ci.yml`, `.github/workflows/release.yml` | CI / release gates | install the generated groups; `pip-audit` the deployment groups | CI Linux (the CPU torch substitution is stated in the workflow) | `tests/unit/test_dependency_surfaces.py`, `tests/unit/test_ci_gates.py` |
+| `Makefile` | developer commands | `lock` / `lock-check` wrappers around the generator | developer machine | `tests/unit/test_dependency_locks.py` |
+
+The root `requirements.txt` is no longer hand-maintained and no longer claims to be a
+second authoritative pin list. `pip install -r requirements.txt` remains equivalent to
+`pip install -r requirements/runtime.txt` for compatibility; Docker and CI never read it.
+
 ## Dependency lock groups
 
 `requirements.lock` is a flat freeze, so every install pulls the GPU stack and the
@@ -758,8 +820,25 @@ make lock-check      # CI: fail if the group files no longer describe the lock
 
 ```bash
 pip install -r requirements/runtime.txt   # production: no torch, no pytest
-pip install -r requirements/gpu.txt       # inference stack
 pip install -r requirements/test.txt      # CI
+```
+
+GPU stack on the frozen platform (the two platform-specific artifacts are prerequisites,
+not something `requirements/gpu.txt` alone can supply on an empty Windows machine):
+
+```bash
+# 1. torch/torchvision/torchaudio from the cu128 index (the +cu128 local version
+#    does not exist on PyPI)
+pip install torch==2.7.1 torchvision==0.22.1 torchaudio==2.7.1 \
+    --index-url https://download.pytorch.org/whl/cu128
+# 2. dlib has no Windows wheel; use conda-forge (or an equivalent prebuilt artifact)
+conda install -n <env> -c conda-forge dlib=20.0.1
+# 3. the rest of the GPU group, now that its two external prerequisites are present
+# runtime and gpu groups are additive: gpu.txt contains the inference stack,
+# runtime.txt the web/imaging stack
+pip install -r requirements/runtime.txt -r requirements/gpu.txt \
+    --extra-index-url https://download.pytorch.org/whl/cu128
+pip install --no-deps -e .
 ```
 
 `requirements/<group>.txt` is derived, not hand-written — the header of each file
@@ -792,6 +871,25 @@ gate. The third is skipped elsewhere with both environment names printed, which
 is the honest version of what used to be reported as "out of date" on machines
 that merely had a different Python.
 
+### Platform scope and prerequisites
+
+`requirements.lock` and every generated file carry `# Platform scope: python 3.11 / win32`.
+They are a **Windows RC lock**, not a cross-platform lock: the closure contains Windows
+wheels and a dlib build artifact, and `requirements/gpu.txt` was generated from that
+environment. The same pins must not be silently treated as a Linux lock; producing a Linux
+lock would require freezing in a Linux environment and is a separate release-format change.
+
+Linux / Docker images consume the same generated groups, but the two platform-specific
+artifacts are explicit prerequisites:
+
+* `torch`/`torchvision`/`torchaudio` come from `https://download.pytorch.org/whl/cu128`; the
+  Dockerfiles install that index before the group install (the `+cu128` version is not on PyPI).
+* `dlib` has no manylinux wheel; the worker image compiles the sdist from PyPI with the
+  build toolchain it installs (`build-essential`, `cmake`, `ninja-build`).
+
+RC2 records the Linux wheel-download evidence for the universal/pure-Python pins in the
+verification report; no Linux lock file is fabricated without a Linux freeze environment.
+
 ### Why the freeze is not `pip freeze > requirements.lock`
 
 `pip freeze` writes `dlib @ file:///<local>/dlib-split_.../work` and
@@ -819,8 +917,18 @@ must exist in the repository (an ignore file nobody committed is an unbounded ex
 ## Dependency audit
 
 ```bash
-pip-audit --requirement requirements.txt --strict      # what CI runs
+# what CI runs: the deployment groups, not the compatibility entry
+pip-audit --requirement requirements/runtime.txt \
+          --requirement requirements/postgres.txt \
+          --requirement requirements/redis.txt \
+          --requirement requirements/s3.txt \
+          --requirement requirements/otel.txt \
+          --strict
 ```
+
+The GPU group contains `torch==2.7.1+cu128`, which is not on PyPI; it is audited by the
+Trivy image scan in the worker image job, not by `pip-audit` on the file. That split is
+stated rather than hidden: `pip-audit` covers every PyPI-installable deployment pin.
 
 The audit is a gate: any advisory against the pinned runtime requirements fails
 the build. Exemptions are lines in `config/audit_ignore.txt` — one GHSA/CVE id
@@ -941,6 +1049,28 @@ not get to decide where a local credential file lives; converting
 `settings.db_path` **only** for a SQLite target, and both writers resolve their
 path through `settings.management_data_dir`, which is derived from `db_path` at
 read time.
+
+### Rotating the API token
+
+The token is resolved once per process and cached in `fiximg.api.security.get_api_token()`.
+There is **no hot reload**: rotating the file does not change what a running process
+accepts. The supported procedure is:
+
+1. Write the new token to a temporary file in the same directory, fsync it, then
+   `os.replace(temp, api_token.txt)` — an atomic rename. Do not edit the token file in
+   place: a torn/empty/short file is unusable, and production refuses to boot on it.
+2. Leave `api_token.txt.meta` alone. The sidecar records the SHA-256 of the file this
+   module last wrote; after an operator rotation the token file is authoritative and the
+   stale sidecar is accepted (and rebuilt best-effort when the directory is writable).
+   A stale sidecar never rejects a valid token.
+3. Restart every process that serves `/api/v1/*`. Multi-replica deployments must use a
+   coordinated restart or rolling restart: until a process restarts it keeps accepting the
+   old token and rejecting the new one. No cross-process notification exists.
+
+`FIXIMG_API_TOKEN` outranks the file: when it is set, the file is not read. Rotating in
+that topology means changing the variable and restarting; the file-side procedure above
+applies only when the token is file-backed. Generating a new token by deleting the file
+while processes are running is not supported (and production does not mint one at all).
 
 ## Plugins
 

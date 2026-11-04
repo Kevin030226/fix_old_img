@@ -3,7 +3,11 @@
 # Group: otel
 # Source: requirements.lock + the `otel` extra in pyproject.toml
 # Versions: the freeze named by requirements.lock's `# Frozen-environment:` line
+# Platform scope: python 3.11 / win32
 #
 # Install with:  pip install -r requirements/otel.txt
-opentelemetry-api==1.45.0
-opentelemetry-sdk==1.45.0
+# Groups are additive: install every group the deployment needs (docs/deployment.md).
+opentelemetry-api==1.45.2
+opentelemetry-sdk==1.45.2
+opentelemetry-semantic-conventions==0.66b2
+typing_extensions==4.16.0

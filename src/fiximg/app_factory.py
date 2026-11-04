@@ -258,7 +258,15 @@ def register_ui(app: FastAPI) -> FastAPI:
 
 # -------------------------------------------------------------------- assembly
 def create_app() -> FastAPI:
-    """Build the FastAPI application: routes → middleware → UI → lifespan."""
+    """Build the FastAPI application: routes → middleware → UI → lifespan.
+
+    The runtime resource tree is checked first: a wheel install without
+    ``FIXIMG_PROJECT_ROOT`` must fail here with one actionable error instead of
+    deep inside a loader that cannot find ``config/weights_manifest.json``.
+    """
+    from fiximg.paths import require_project_root
+
+    require_project_root()
     app = FastAPI(title=APP_TITLE, lifespan=_app_lifespan)
     register_routes(app)
     register_middleware(app)

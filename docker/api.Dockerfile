@@ -28,6 +28,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 COPY pyproject.toml README.md LICENSE ./
+COPY requirements ./requirements
 COPY src ./src
 COPY configs ./configs
 COPY models ./models
@@ -61,8 +62,19 @@ COPY main.py worker.py run.py ./
 # 78.1.0 while the advisory needs 78.1.1, because "latest" is whatever the index
 # serves that day and the build had a cached copy. An image should not change its
 # own security properties between two builds of the same source.
-RUN pip install --upgrade "setuptools>=78.1.1" "wheel>=0.46.2" "msgpack>=1.2.1" \
-    && pip install -e ".[postgres,redis,s3]"
+# Every dependency below comes from the generated deployment groups, which are
+# exact pins from requirements.lock. Do not replace with `pip install -e
+# ".[postgres,redis,s3]"`: that re-resolves pyproject floors and is how the
+# worker image shipped Pillow 12.3.0 while every file said 13.0.0 (P18).
+# setuptools/wheel are image build tooling, pinned to the same versions the
+# lock records rather than to today's index.
+RUN python3 -m pip install --no-cache-dir "setuptools==84.2.1" "wheel==0.48.0" \
+    && python3 -m pip install --no-cache-dir \
+        -r requirements/runtime.txt \
+        -r requirements/postgres.txt \
+        -r requirements/redis.txt \
+        -r requirements/s3.txt \
+    && python3 -m pip install --no-cache-dir --no-deps -e .
 
 # The JSON API is bearer-token protected: set FIXIMG_API_TOKEN to pin it,
 # otherwise a token is generated on first start and persisted at

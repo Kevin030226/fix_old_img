@@ -3,31 +3,34 @@
 # Group: runtime
 # Source: requirements.lock + the `runtime` extra in pyproject.toml
 # Versions: the freeze named by requirements.lock's `# Frozen-environment:` line
+# Platform scope: python 3.11 / win32
 #
 # Install with:  pip install -r requirements/runtime.txt
-annotated-doc==0.0.4
-annotated-types==0.7.0
-anyio==4.5.2
-click==8.4.2
-colorama==0.4.6
-fastapi==0.141.1
+# Groups are additive: install every group the deployment needs (docs/deployment.md).
+annotated-doc==0.0.5
+annotated-types==0.8.0
+anyio==4.16.0
+click==8.5.0
+fastapi==0.162.0
 filelock==4.2.1
 h11==0.16.0
-idna==3.11
-ImageIO==2.37.4
-lazy_loader==0.4
-networkx==3.1
+idna==3.20
+ImageIO==2.38.1
+lazy-loader==0.6
+networkx==3.6.1
 numpy==2.4.6
-packaging==26.0
+opencv-python-headless==5.0.0.93
+opentelemetry-api==1.45.2
+packaging==26.3
 pillow==13.0.0
-pydantic==2.10.6
-pydantic_core==2.27.2
-python-multipart==0.0.20
+pydantic==2.14.2
+pydantic_core==2.50.2
+python-multipart==0.0.33
 PyYAML==6.0.3
 scikit-image==0.26.0
 scipy==1.17.1
-starlette==1.4.1
+starlette==1.10.0
 tifffile==2026.3.3
-typing_extensions==4.12.2
-typing-inspection==0.4.2
-uvicorn==0.52.1
+typing_extensions==4.16.0
+typing-inspection==0.4.4
+uvicorn==0.54.0

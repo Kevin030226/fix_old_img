@@ -188,6 +188,15 @@ def main() -> int:
     parser.add_argument("--db", default=None, help="override database path (for tests)")
     args = parser.parse_args()
 
+    # After parsing, so `--help` and argument errors keep their normal behaviour.
+    from fiximg.paths import ProjectRootNotFoundError, require_project_root
+
+    try:
+        require_project_root("legacy import paths")
+    except ProjectRootNotFoundError as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
+
     if args.db:
         settings.db_path = args.db
 

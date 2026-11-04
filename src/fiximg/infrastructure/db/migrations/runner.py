@@ -275,6 +275,23 @@ def _print(text: str) -> None:
     print(_console_safe(text))
 
 
+def _missing_migration_tree() -> list[str]:
+    """Files this runner reads that the current deployment tree does not have.
+
+    Deliberately not `require_project_root`: that gate checks the model/config
+    markers, while the runner needs alembic.ini and the migrations/ directory. A
+    tree that has config/ and models/ but was assembled without the migration
+    scripts would pass the generic gate and then fail inside Alembic with a
+    message that names neither the tree nor the fix.
+    """
+    missing: list[str] = []
+    if not os.path.isfile(INI_PATH):
+        missing.append(INI_PATH)
+    if not os.path.isdir(SCRIPT_LOCATION):
+        missing.append(SCRIPT_LOCATION)
+    return missing
+
+
 def _main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Database migrations (Alembic)")
     parser.add_argument(
@@ -290,6 +307,19 @@ def _main(argv: list[str] | None = None) -> int:
     parser.add_argument("--sql", action="store_true",
                         help="offline mode: print SQL instead of applying it")
     args = parser.parse_args(argv)
+
+    # Checked after parsing so `--help` and argument errors behave normally; only
+    # the paths that actually run Alembic need the deployment tree.
+    missing = _missing_migration_tree()
+    if missing:
+        print(
+            "fiximg-db needs the deployment tree: missing " + ", ".join(missing) +
+            ". Set FIXIMG_PROJECT_ROOT to the directory that contains alembic.ini "
+            "and migrations/ (see docs/deployment.md, section: Wheel installs and "
+            "the runtime resource tree).",
+            file=sys.stderr,
+        )
+        return 1
 
     if args.sql:
         command, _Config = _require_alembic()
