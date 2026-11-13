@@ -113,6 +113,13 @@ class GlobalRestoreStage(BaseStage):
         finally:
             shutil.rmtree(work_root, ignore_errors=True)
 
+        result_path = os.path.join(
+            restored_image_dir(legacy_pipeline_root(context)),
+            context.task_id + ".png",
+        )
+        os.makedirs(os.path.dirname(result_path), exist_ok=True)
+        merged.save(result_path)
+
         return StageResult(
             image=merged,
             metadata={
@@ -123,6 +130,7 @@ class GlobalRestoreStage(BaseStage):
                 **info,
             },
             duration=time.perf_counter() - started,
+            artifacts={"restored": result_path},
             metrics={"tiles": total_tiles},
         )
 
